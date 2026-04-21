@@ -1,0 +1,58 @@
+[
+  {
+    "uuid": "54wxor3l6zqar4gz05jediy12",
+    "patent_id": "10849265",
+    "citation_id": "9538700",
+    "date": "2017-01-10",
+    "name": "Stevenson",
+    "kind": "B2",
+    "country": "US",
+    "category": "cited by examiner",
+    "sequence": 6,
+    "version_indicator": "2020-12-01",
+    "created_date": "2020-12-30 19:03:58",
+    "updated_date": null
+  },
+  {
+    "uuid": "94k96iar445o5mr82cffj17m3",
+    "patent_id": "10849265",
+    "citation_id": "7191965",
+    "date": "2007-03-20",
+    "name": "Neier",
+    "kind": "B2",
+    "country": "US",
+    "category": "cited by examiner",
+    "sequence": 4,
+    "version_indicator": "2020-12-01",
+    "created_date": "2020-12-30 19:03:58",
+    "updated_date": null
+  },
+  {
+    "uuid": "ekcvh6jvgxl0fkn6tkwdy64tj",
+    "patent_id": "10849265",
+    "citation_id": "7172137",
+    "date": "2007-02-06",
+    "name": "Neier",
+    "kind": "B2",
+    "country": "US",
+    "category": "cited by examiner",
+    "sequence": 3,
+    "version_indicator": "2020-12-01",
+    "created_date": "2020-12-30 19:06:18",
+    "updated_date": null
+  },
+  {
+    "uuid": "s4osebsmyjiunac5opkj1cnw3",
+    "patent_id": "10849265",
+    "citation_id": "9751055",
+    "date": "2017-09-05",
+    "name": "Tamminga",
+    "kind": "B2",
+    "country": "US",
+    "category": "cited by examiner",
+    "sequence": 7,
+    "version_indicator": "2020-12-01",
+    "created_date": "2020-12-30 19:07:41",
+    "updated_date": null
+  }
+]

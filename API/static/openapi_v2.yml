@@ -1,0 +1,3028 @@
+openapi: 3.0.2
+info:
+  title: 'PatentsView PatentSearch API'
+  version: '0.2b'
+paths:
+  /api/v1/patent/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listPatents
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"patent_number\", \"patent_title\", \"patent_date\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"patent_number\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatentSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Patent
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listPatentsList
+      description: ''
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatentPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatentSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Patent
+  /api/v1/patent/{patent_number}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrievePatentDetail
+      description: ''
+      parameters:
+        - name: patent_number
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatentSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Patent
+
+  /api/v1/assignee/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listAssignees
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"assignee_id\", \"name_first\", \"name_last\", \"organization\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"assignee_id\": \"asc\" }]"
+
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssigneeSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Assignee
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listAssigneeList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssigneePostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssigneeSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Assignee
+  /api/v1/assignee/{assignee_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveAssigneeDetail
+      description: ''
+      parameters:
+        - name: assignee_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssigneeSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Assignee
+
+  /api/v1/inventor/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listInventors
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"inventor_id\", \"name_first\", \"name_last\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"inventor_id\": \"asc\" }]"
+
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventorSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Inventor
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listInventorList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventorPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventorSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Inventor
+  /api/v1/inventor/{inventor_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveInventorDetail
+      description: ''
+      parameters:
+        - name: inventor_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventorSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - Inventor
+  /api/v1/patent_citation/:
+    get:
+      operationId: listUSPatentCitations
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"patent_number\", \"cited_patent_number\", \"citation_date\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"patent_number\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPatentCitationSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      security:
+        - ApiKeyAuth: [ ]
+      tags:
+        - US Patent Citation
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listUSPatentCitation
+      description: ''
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatentCitationPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPatentCitationSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - US Patent Citation
+  /api/v1/patent_citation/{patent_number}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveUSPatentCitationDetail
+      description: ''
+      parameters:
+        - name: patent_number
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPatentCitationSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - US Patent Citation
+  /api/v1/application_citation/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listUSApplicationCitations
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[\"patent_number\",\"cited_application_document_number\", \"citation_date\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"patent_number\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPatentCitationSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - US Application Citation
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listUSApplicationCitationList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/USApplicationCitationPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USApplicationCitationSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - US Application Citation
+  /api/v1/application_citation/{patent_number}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveUSApplicationCitationDetail
+      description: ''
+      parameters:
+        - name: patent_number
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USApplicationCitationSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - US Application Citation
+  /api/v1/cpc_subsection/{cpc_subsection_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveCPCSubsectionDetail
+      description: ''
+      parameters:
+        - name: cpc_subsection_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCSubsectionSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthenticatedRequestResponse'
+          description: 'Incorrect/Missing API Key'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of incorrect/missing API Key
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+  /api/v1/cpc_subsection/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listCPCSubsections
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[  \"cpc_section_id\", \"cpc_subsection_id\", \"cpc_subsection_title\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"cpc_subsection_id\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCSubsectionSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listCPCSubsectionList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CPCSubsectionPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCSubsectionSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+  /api/v1/cpc_group/{cpc_group_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveCPCGroupDetail
+      description: ''
+      parameters:
+        - in: path
+          name: cpc_group_id
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCGroupSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+  /api/v1/cpc_group/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listCPCGroups
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"cpc_group_id\", \"cpc_group_title\", \"cpc_subsection_id\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"cpc_group_id\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCGroupSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listCPCGroupList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CPCGroupPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCGroupSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+  /api/v1/cpc_subgroup/{cpc_subgroup_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveCPCSubGroupDetail
+      description: ''
+      parameters:
+        - name: cpc_subgroup_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCSubGroupSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+  /api/v1/cpc_subgroup/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listCPCSubGroups
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"cpc_subgroup_id\", \"cpc_subgroup_title\", \"cpc_subsection_id\", \"cpc_group_id\"]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"cpc_subgroup_id\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCSubGroupSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listCPCSubGroupList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CPCSubGroupPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CPCSubGroupSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - CPC
+  /api/v1/uspc_mainclass/{uspc_mainclass_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveUSPCMainclassDetail
+      description: ''
+      parameters:
+        - name: uspc_mainclass_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPCMainclassSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - USPC
+  /api/v1/uspc_mainclass/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listUSPCMainclass
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[\"uspc_mainclass_id\", \"uspc_mainclass_title\"]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"uspc_mainclass_id\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPCMainclassSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - USPC
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listUSPCMainclassList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/USPCMainclassPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPCMainclassSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - USPC
+  /api/v1/uspc_subclass/{uspc_subclass_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveUSPCSubclassDetail
+      description: ''
+      parameters:
+        - name: uspc_subclass_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPCSubclassSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - USPC
+  /api/v1/uspc_subclass/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listUSPCSubclass
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[  \"uspc_subclass_id\", \"uspc_subclass_title\",\"uspc_mainclass_id\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"uspc_subclass_id\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPCSubclassSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - USPC
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listUSPCSubclassList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/USPCSubclassPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/USPCSubclassSuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - USPC
+  /api/v1/nber_category/{nber_category_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveNBERCategoryDetail
+      description: ''
+      parameters:
+        - name: nber_category_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NBERCategorySuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - NBER
+  /api/v1/nber_category/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listNBERCategorys
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"nber_category_id\", \"nber_category_title\"]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"nber_category_id\": \"asc\" }]"
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NBERCategorySuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - NBER
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listNBERCategoryList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NBERCategoryPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NBERCategorySuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - NBER
+  /api/v1/nber_subcategory/{nber_subcategory_id}/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: retrieveNBERSubCategoryDetail
+      description: ''
+      parameters:
+        - name: nber_subcategory_id
+          in: path
+          required: true
+          description: ''
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NBERSubCategorySuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - NBER
+  /api/v1/nber_subcategory/:
+    get:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listNBERSubCategorys
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"nber_subcategory_id\", \"nber_subcategory_title\", \"nber_category_id\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"nber_subcategory_id\": \"asc\" }]"
+
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NBERSubCategorySuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - NBER
+    post:
+      security:
+        - ApiKeyAuth: [ ]
+      operationId: listNBERSubCategoryList
+      description: ''
+      parameters: [ ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NBERSubCategoryPostRequestBody'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NBERSubCategorySuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+      tags:
+        - NBER
+
+
+#  /api/v1/patent_nested/:
+#    get:
+#      security:
+#        - ApiKeyAuth: [ ]
+#      operationId: listPatentsNested
+#      description: ''
+#      parameters:
+#        - in: query
+#          name: f
+#          schema:
+#            type: string
+#            default: "[ \"patent_number\", \"title\", \"date\", \"assignees\", \"inventors\" ]"
+#        - in: query
+#          name: o
+#          schema:
+#            type: string
+#            default: "{ \"size\": 100,\"offset\": 0 }"
+#        - in: query
+#          name: q
+#          schema:
+#            type: string
+#          required: true
+#        - in: query
+#          name: s
+#          schema:
+#            type: string
+#            default: "[{ \"patent_number\": \"asc\" }]"
+#      responses:
+#        '200':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/PatentNestedSuccessResponse'
+#          description: ''
+#        '400':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/BadRequestResponse'
+#          description: 'Request Invalid'
+#          headers:
+#            X-Status-Reason:
+#              schema:
+#                type: string
+#              description: Description of invalid query
+#            X-Status-Reason-Code:
+#              schema:
+#                type: string
+#              description: Request Error Code
+#        '429':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/ThrottleResponse'
+#          description: 'Too many requests'
+#          headers:
+#            Retry-After:
+#              schema:
+#                type: integer
+#              description: Number of seconds to wait before sending next request
+#      tags:
+#        - Patent
+#    post:
+#      security:
+#        - ApiKeyAuth: [ ]
+#      operationId: listPatentsNestedList
+#      description: ''
+#      requestBody:
+#        content:
+#          application/json:
+#            schema:
+#              $ref: '#/components/schemas/PatentNestedPostRequestBody'
+#        required: true
+#      responses:
+#        '200':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/PatentNestedSuccessResponse'
+#          description: ''
+#        '400':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/BadRequestResponse'
+#          description: 'Request Invalid'
+#          headers:
+#            X-Status-Reason:
+#              schema:
+#                type: string
+#              description: Description of invalid query
+#            X-Status-Reason-Code:
+#              schema:
+#                type: string
+#              description: Request Error Code
+#        '429':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/ThrottleResponse'
+#          description: 'Too many requests'
+#          headers:
+#            Retry-After:
+#              schema:
+#                type: integer
+#              description: Number of seconds to wait before sending next request
+#      tags:
+#        - Patent
+#  /api/v1/patent_nested/{patent_number}/:
+#    get:
+#      security:
+#        - ApiKeyAuth: [ ]
+#      operationId: retrievePatentNestedDetail
+#      description: ''
+#      parameters:
+#        - name: patent_number
+#          in: path
+#          required: true
+#          description: ''
+#          schema:
+#            type: string
+#      responses:
+#        '200':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/PatentNestedSuccessResponse'
+#          description: ''
+#        '400':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/BadRequestResponse'
+#          description: 'Request Invalid'
+#          headers:
+#            X-Status-Reason:
+#              schema:
+#                type: string
+#              description: Description of invalid query
+#            X-Status-Reason-Code:
+#              schema:
+#                type: string
+#              description: Request Error Code
+#        '429':
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/ThrottleResponse'
+#          description: 'Too many requests'
+#          headers:
+#            Retry-After:
+#              schema:
+#                type: integer
+#              description: Number of seconds to wait before sending next request
+#      tags:
+#        - Patent
+
+components:
+  schemas:
+    BadRequestResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+      required:
+        - error
+    UnauthenticatedRequestResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+        - detail
+    ThrottleResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+        - detail
+    APISuccessResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          example: false
+        count:
+          type: integer
+          example: 100
+        total_hits:
+          type: integer
+          example: 10000
+      required:
+        - count
+        - error
+        - total_hits
+
+    USPatentCitationSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        patent_citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/USPatentCitation'
+    USPatentCitation:
+      type: object
+      properties:
+        patent_number:
+          type: string
+          maxLength: 32
+          example: 10966293
+        cited_patent_number:
+          type: string
+          maxLength: 32
+          example: 2946056
+        citation_category:
+          type: string
+          maxLength: 512
+          example: cited by applicant
+        citation_sequence:
+          type: integer
+          example: 4
+        citation_date:
+          type: string
+          format: date
+          example: "1960-07-01"
+    PatentCitationPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "patent_number","cited_patent_number", "citation_date" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "patent_number": "asc" } ]
+
+    USApplicationCitationSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        application_citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/USApplicationCitation'
+    USApplicationCitation:
+      type: object
+      properties:
+        patent_number:
+          type: string
+          maxLength: 32
+          example: 10966293
+        cited_application_number:
+          type: string
+          maxLength: 32
+          example: 2946056
+        citation_category:
+          type: string
+          maxLength: 512
+          example: cited by applicant
+        citation_kind:
+            type: string
+            maxLength: 32
+            example: A1
+        citation_sequence:
+          type: integer
+          example: 4
+        citation_date:
+          type: string
+          format: date
+          example: "1960-07-01"
+    USApplicationCitationPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "patent_number","cited_application_number", "citation_date" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "patent_number": "asc" } ]
+
+    CPCSubsectionSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        cpc_subsections:
+          type: array
+          items:
+            $ref: '#/components/schemas/CPCSubsection'
+    CPCSubsection:
+      type: object
+      properties:
+        cpc_section_id:
+          type: string
+          maxLength: 32
+          example: A
+        cpc_subsection_id:
+          type: string
+          maxLength: 32
+          example: A01
+        cpc_subsection_title:
+          type: string
+          maxLength: 1024
+          example: AGRICULTURE; FORESTRY; ANIMAL HUSBANDRY; HUNTING; TRAPPING; FISHING
+        cpc_subsection_num_patents:
+          type: integer
+          example: 141484
+        cpc_subsection_num_assignees:
+          type: integer
+          example: 20992
+        cpc_subsection_num_inventors:
+          type: integer
+          example: 124257
+        cpc_subsection_first_seen_date:
+          type: string
+          format: date
+          example: "1976-01-06"
+        cpc_subsection_last_seen_date:
+          type: string
+          format: date
+          example: "2021-03-30"
+        cpc_subsection_years_active:
+          type: integer
+          example: 29
+    CPCSubsectionPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "cpc_section_id","cpc_subsection_id", "cpc_subsection_title" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "cpc_subsection_id": "asc" } ]
+
+    CPCGroupSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        cpc_groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/CPCGroup'
+    CPCGroup:
+      type: object
+      properties:
+        cpc_subsection:
+          type: string
+          example: '${host}/cpc_subsections/A01/'
+        cpc_group_id:
+          type: string
+          maxLength: 32
+          example: A01B
+        cpc_group_title:
+          type: string
+          maxLength: 1024
+          example: Soil working in agriculture or forestry; parts, details, or accessories of agricultural machines or implements, in general
+        cpc_group_num_patents:
+          type: integer
+          example: 8200
+        cpc_group_num_assignees:
+          type: integer
+          example: 1434
+        cpc_group_num_inventors:
+          type: integer
+          example: 8038
+        cpc_group_first_seen_date:
+          type: string
+          format: date
+          example: "1976-01-06"
+        cpc_group_last_seen_date:
+          type: string
+          format: date
+          example: "2021-03-30"
+        cpc_group_years_active:
+          type: integer
+          example: 45
+    CPCGroupPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "cpc_group_id", "cpc_group_title", "cpc_subsection_id" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "cpc_group_id": "asc" } ]
+
+
+    CPCSubGroupSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        cpc_subgroups:
+          type: array
+          items:
+            $ref: '#/components/schemas/CPCSubGroup'
+    CPCSubGroup:
+      type: object
+      properties:
+        cpc_subsection:
+          type: string
+          example: "${host}/cpc_subsection/A01/"
+        cpc_group:
+          type: string
+          example: "${host}/cpc_group/A01B/"
+        cpc_subgroup_id:
+          type: string
+          maxLength: 32
+          example: A01B1/00
+        cpc_subgroup_title:
+          type: string
+          maxLength: 2048
+          example: Hand tools
+    CPCSubGroupPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "cpc_subgroup_id", "cpc_subgroup_title", "cpc_subsection_id", "cpc_group_id" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "cpc_subgroup_id": "asc" } ]
+
+    USPCMainclassSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        uspc_mainclasses:
+          type: array
+          items:
+            $ref: '#/components/schemas/USPCMainclass'
+    USPCMainclass:
+      type: object
+      properties:
+        uspc_mainclass_id:
+          type: string
+          maxLength: 32
+          example: 100
+        uspc_mainclass_title:
+          type: string
+          maxLength: 1024
+          example: Presses
+        uspc_mainclass_num_patents:
+          type: integer
+          example: 16584
+        uspc_mainclass_num_assignees:
+          type: integer
+          example: 2839
+        uspc_mainclass_num_inventors:
+          type: integer
+          example: 25971
+        uspc_mainclass_first_seen_date:
+          type: string
+          format: date
+          example: "1976-01-06"
+        uspc_mainclass_last_seen_date:
+          type: string
+          format: date
+          example: "2015-05-05"
+        uspc_mainclass_years_active:
+          type: integer
+          example: 39
+    USPCMainclassPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "uspc_mainclass_id", "uspc_mainclass_title" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "uspc_mainclass_id": "asc" } ]
+
+    USPCSubclassSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        uspc_subclasses:
+          type: array
+          items:
+            $ref: '#/components/schemas/USPCSubclass'
+    USPCSubclass:
+      type: object
+      properties:
+        uspc_mainclass:
+          type: string
+          example: "${host}/uspc_mainclass/100/"
+        uspc_subclass_id:
+          type: string
+          maxLength: 32
+          example: 100/1
+        uspc_subclass_title:
+          type: string
+          maxLength: 1024
+          example: Binding
+    USPCSubclassPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "uspc_subclass_id", "uspc_subclass_title" ,'uspc_mainclass_id' ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "uspc_subclass_id": "asc" } ]
+
+    NBERCategorySuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        nber_categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/NBERCategory'
+    NBERCategory:
+      type: object
+      properties:
+        nber_category_id:
+          type: string
+          maxLength: 32
+          example: 1
+        nber_category_title:
+          type: string
+          maxLength: 1024
+          example: Chemical
+    NBERCategoryPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "nber_category_id", "nber_category_title" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "nber_category_id": "asc" } ]
+
+    NBERSubCategorySuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        nber_subcategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/NBERSubCategory'
+    NBERSubCategory:
+      type: object
+      properties:
+        nber_category:
+          type: integer
+          example: "${host}/nber_category/1/"
+        nber_subcategory_id:
+          type: string
+          maxLength: 32
+          example: 11
+        nber_subcategory_title:
+          type: string
+          maxLength: 1024
+          example: Agriculture,Food,Textiles
+        nber_subcategory_num_patents:
+          type: integer
+          example: 21160
+        nber_subcategory_num_assignees:
+          type: integer
+          example: 3469
+        nber_subcategory_num_inventors:
+          type: integer
+          example: 22608
+        nber_subcategory_first_seen_date:
+          type: string
+          format: date
+          example: "1976-01-06"
+        nber_subcategory_last_seen_date:
+          type: string
+          format: date
+          example: "2015-05-26"
+        nber_subcategory_years_active:
+          type: integer
+          example: 39
+    NBERSubCategoryPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "nber_subcategory_id", "nber_subcategory_title", "nber_category_id" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "nber_subcategory_id": "asc" } ]
+
+    PatentSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        patents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Patent'
+    Patent:
+      properties:
+        patent_number:
+          type: string
+          maxLength: 32
+          example: 10757852
+        patent_title:
+          type: string
+          maxLength: 2048
+          example: "Hitch assembly for towing a second agricultural implement behind a first agricultural implement"
+        patent_date:
+          type: string
+          format: date
+          example: "2020-09-01"
+        patent_type:
+          type: string
+          maxLength: 32
+          example: "utility"
+        patent_country:
+          type: string
+          maxLength: 16
+          example: "US"
+        patent_year:
+          type: integer
+          example: 2020
+        patent_abstract:
+          type: string
+          maxLength: 16384
+          example: "A rear tow hitch assembly connectable to a work tool assembly on a first agricultural implement to tow a second agricultural implement behind the first agricultural implement is provided. The first agricultural implement can be transformable between an operating position and a transport position by pivoting the work tool assembly upwards around a first axis. The rear tow hitch assembly can be shaped to clear the work tool assembly when the first agricultural implement is transformed between the operating position and the transport position while a rear tow hitch assembly remains connected to the second agricultural implement during the transformation."
+        wipo_kind:
+          type: string
+          maxLength: 16
+          example: "B2"
+        patent_num_foreign_documents_cited:
+          type: number
+          example: 3
+        patent_num_us_applications_cited:
+          type: number
+          example: 1
+        patent_num_us_patents_cited:
+          type: number
+          example: 9
+        patent_num_total_documents_cited:
+          type: number
+          example: 13
+        patent_num_times_cited_by_us_patents:
+          type: number
+          example: 0
+        patent_earliest_application_date:
+          type: string
+          format: date
+          example: 2018-06-18
+        patent_patent_processing_days:
+          type: number
+          example: 806
+        patent_uspc_current_mainclass_average_patent_processing_days:
+          type: string
+          example: null
+        patent_cpc_current_group_average_patent_processing_days:
+          type: number
+          example: 812
+        patent_term_extension:
+          type: number
+          example: 172
+        patent_detail_desc_length:
+          type: number
+          example: 40586
+        assigenees_at_grant:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssigneeNested'
+        inventors_at_grant:
+          type: array
+          items:
+            $ref: '#/components/schemas/InventorNested'
+        cpc_current:
+          type: array
+          items:
+            $ref: '#/components/schemas/CPCSubGroup'
+            type: object
+
+    PatentPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        f:
+          type: array
+          items:
+            type: string
+          default: [ "patent_number","title", "date" ]
+        o:
+          type: object
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          default: [ { "patent_number": "asc" } ]
+    AssigneeNested:
+      type: object
+      properties:
+        assignee:
+          type: string
+          example: "${host}/assignee/29094/"
+        name_first:
+          type: string
+          maxLength: 128
+          example: ""
+        name_last:
+          type: string
+          maxLength: 128
+          example: ""
+        organization:
+          type: string
+          maxLength: 256
+          example: "Degelman Industries LP"
+        type:
+          type: string
+          maxLength: 16
+          example: "3"
+        city:
+          type: string
+          maxLength: 128
+          example: "Saskatoon"
+        state:
+          type: string
+          maxLength: 128
+          example: ""
+        country:
+          type: string
+          maxLength: 32
+          example: "CA"
+    AssigneePostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        f:
+          type: array
+          items:
+            type: string
+          default: [ "assignee_id","name_first", "name_last", "organization" ]
+        o:
+          type: object
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          default: [ { "assignee_id": "asc" } ]
+    AssigneeSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        assignees:
+          type: array
+          items:
+            $ref: '#/components/schemas/Assignee'
+    Assignee:
+      type: object
+      properties:
+        assignee_id:
+          type: number
+          example: 2
+        first_seen_date:
+          type: string
+          format: date
+          example: 1976-01-06
+        last_seen_date:
+          type: string
+          format: date
+          example: 2014-02-11
+        lastknown_city:
+          type: string
+          example: New York
+        lastknown_country:
+          type: string
+          example: US
+        lastknown_latitude:
+          type: number
+          example: 40.6931
+        lastknown_longitude:
+          type: number
+          example: -73.8784
+        lastknown_state:
+          type: string
+          example: NY
+        name_first:
+          type: string
+          example: null
+        name_last:
+          type: string
+          example: null
+        num_inventors:
+          type: string
+          example: 9705
+        num_patents:
+          type: string
+          example: 14129
+        organization:
+          type: string
+          example: U.S. Philips Corporation
+        type:
+          type: number
+          example: 2
+        years_active:
+          type: number
+          example: 38
+        assignee_years:
+          type: array
+          items:
+            $ref: '#/components/schemas/YearlyPatents'
+    YearlyPatents:
+      type: object
+      properties:
+        year:
+          type: number
+          example: 2002
+        num_patents:
+          type: number
+          example: 264
+    InventorSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        inventors:
+          type: array
+          items:
+            $ref: '#/components/schemas/Inventor'
+    InventorNested:
+      type: object
+      properties:
+        inventor:
+          type: string
+          example: "${host}/inventor/2335918/"
+        name_first:
+          type: string
+          maxLength: 128
+          example: "Jeff"
+        name_last:
+          type: string
+          maxLength: 128
+          example: "Pridmore"
+        city:
+          type: string
+          maxLength: 128
+          example: "Earl Grey, Saskatchewan"
+        state:
+          type: string
+          maxLength: 128
+          example: ""
+        country:
+          type: string
+          maxLength: 32
+          example: "CA"
+    Inventor:
+      type: object
+      properties:
+        inventor_id:
+          type: string
+          maxLength: 32
+          example: "2335918"
+        name_first:
+          type: string
+          maxLength: 128
+          example: "Jeff"
+        name_last:
+          type: string
+          maxLength: 128
+          example: "Pridmore"
+        lastknown_city:
+          type: string
+          maxLength: 128
+          example: "Earl Grey, Saskatchewan"
+        lastknown_state:
+          type: string
+          maxLength: 128
+          example: ""
+        lastknown_country:
+          type: string
+          maxLength: 32
+          example: "CA"
+        first_seen_date:
+          type: string
+          format: date
+          example: 1988-12-06
+        last_seen_date:
+          type: string
+          format: date
+          example: 2019-08-13
+        num_assignees:
+          type: string
+          example: 5
+        num_patents:
+          type: string
+          example: 12
+        years_active:
+          type: number
+          example: 31
+        inventor_years:
+          type: array
+          items:
+            $ref: '#/components/schemas/YearlyPatents'
+    InventorPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        f:
+          type: array
+          items:
+            type: string
+          default: [ "inventor_id","name_first", "name_last" ]
+        o:
+          type: object
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          default: [ { "inventor_id": "asc" } ]
+
+    PatentNestedSuccessResponse:
+      allOf:
+        - $ref: '#/components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        patent_nested:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatentNested'
+    PatentNested:
+      type: object
+      properties:
+        patent_number:
+          type: string
+          maxLength: 32
+          example: 10757852
+        title:
+          type: string
+          maxLength: 2048
+          example: "Hitch assembly for towing a second agricultural implement behind a first agricultural implement"
+        date:
+          type: string
+          format: date
+          example: "2020-09-01"
+        type:
+          type: string
+          maxLength: 32
+          example: "utility"
+        country:
+          type: string
+          maxLength: 16
+          example: "US"
+        year:
+          type: integer
+          example: 2020
+        abstract:
+          type: string
+          maxLength: 16384
+          example: "A rear tow hitch assembly connectable to a work tool assembly on a first agricultural implement to tow a second agricultural implement behind the first agricultural implement is provided. The first agricultural implement can be transformable between an operating position and a transport position by pivoting the work tool assembly upwards around a first axis. The rear tow hitch assembly can be shaped to clear the work tool assembly when the first agricultural implement is transformed between the operating position and the transport position while a rear tow hitch assembly remains connected to the second agricultural implement during the transformation."
+        kind:
+          type: string
+          maxLength: 16
+          example: "B2"
+        assignees:
+          type: string
+          maxLength: 16384
+          example: "[]"
+        inventors:
+          type: string
+          maxLength: 16384
+          example: "[]"
+    PatentNestedPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        f:
+          type: array
+          items:
+            type: string
+          default: [ "patent_number","title", "date","assignees", "inventors" ]
+        o:
+          type: object
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          default: [ { "patent_number": "asc" } ]
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key

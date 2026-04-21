@@ -1,0 +1,3 @@
+﻿"case_id","q_field","validation_sql","key","f"
+"eq","{""document_number"":""20210378158""}","select document_number, text as related_text from rel_app_text where document_number = 20210378158 order by document_number;","document_number","[""document_number"",""related_text""]"
+"text_all","{""_text_all"":{""related_text"":""STATEMENT OF RELATED CASES""}}","select document_number, text as related_text from rel_app_text where lower(text) REGEXP '\\bstatement\\b' and lower(text) REGEXP '\\bof\\b' and lower(text) REGEXP '\\brelated\\b' and lower(text) REGEXP '\\bcases\\b' order by document_number;","document_number","[""document_number"",""related_text""]"

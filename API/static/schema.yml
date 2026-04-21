@@ -1,0 +1,216 @@
+openapi: 3.0.3
+info:
+  title: PatentsView PatentSearch API
+  version: '0.1'
+  description: PatentsView PatentSearch API
+paths:
+  /api/v1/patent_citation/:
+    get:
+      operationId: api_v1_patent_citation_retrieve
+      description: ''
+      parameters:
+        - in: query
+          name: f
+          schema:
+            type: string
+            default: "[ \"patent_number\", \"cited_patent_number\", \"citation_date\" ]"
+        - in: query
+          name: o
+          schema:
+            type: string
+            default: "{ \"size\": 100,\"offset\": 0 }"
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: true
+        - in: query
+          name: s
+          schema:
+            type: string
+            default: "[{ \"patent_number\": \"asc\" }]"
+      tags:
+        - api
+      security:
+        - ApiKeyAuth: [ ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APISuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+    post:
+      operationId: api_v1_patent_citation_create
+      description: ''
+      tags:
+        - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatentCitationPostRequestBody'
+        required: true
+      security:
+        - ApiKeyAuth: [ ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APISuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadRequestResponse'
+          description: 'Request Invalid'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Request Error Code
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThrottleResponse'
+          description: 'Too many requests'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Number of seconds to wait before sending next request
+        '500':
+          description: 'Unexpected Server Error'
+          headers:
+            X-Status-Reason:
+              schema:
+                type: string
+              description: Description of invalid query
+            X-Status-Reason-Code:
+              schema:
+                type: string
+              description: Server Error Code
+components:
+  schemas:
+    BadRequestResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+      required:
+        - error
+    ThrottleResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+        - detail
+    APISuccessResponse:
+      type: object
+      properties:
+        error:
+          type: boolean
+          example: false
+        count:
+          type: integer
+          example: 100
+        total_hits:
+          type: integer
+          example: 10000
+      required:
+        - count
+        - error
+        - total_hits
+    USPatentCitationSuccessResponse:
+      allOf:
+        - $ref: '#components/schemas/APISuccessResponse'
+      type: object
+      properties:
+        patent_citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/USPatentCitation'
+    USPatentCitation:
+      type: object
+      properties:
+        patent_number:
+          type: string
+          maxLength: 32
+          example: 10966293
+        cited_patent_number:
+          type: string
+          maxLength: 32
+          example: 2946056
+        citation_category:
+          type: string
+          maxLength: 512
+          example: cited by applicant
+        citation_sequence:
+          type: integer
+          example: 4
+        citation_date:
+          type: string
+          format: date
+          example: '1960-07-01'
+    PatentCitationPostRequestBody:
+      type: object
+      properties:
+        q:
+          type: object
+        #          example: { "_eq": { "patent_number": "10966293" } }
+        f:
+          type: array
+          items:
+            type: string
+          #          example: [ 'cited_patent_number','citation_date' ]
+          default: [ "patent_number","cited_patent_number", "citation_date" ]
+        o:
+          type: object
+          #          example: { 'size': 1000,'offset': 2000 }
+          default: { "size": 100,"offset": 0 }
+        s:
+          type: array
+          items:
+            type: object
+          #          example: [ { 'patent_number': 'asc' },{ 'citation_sequence': 'desc' } ]
+          default: [ { "patent_number": "asc" } ]
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key

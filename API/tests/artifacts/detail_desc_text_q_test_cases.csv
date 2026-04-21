@@ -1,0 +1,3 @@
+﻿"case_id","q_field","validation_sql","key","f"
+"eq","{""patent_id"":""11750976""}","select uuid, patent_id, description_text as description_text from detail_desc_text where patent_id = '11750976';","patent_id","[""uuid"",""patent_id"",""description_text""]"
+"text_all","{""_text_all"":{""description_text"":""future personal teleport pad""}}","select uuid, patent_id, description_text as description_text from detail_desc_text where lower(description_text) REGEXP '\\bfuture\\b' and lower(description_text) REGEXP '\\bpersonal\\b' and lower(description_text) REGEXP '\\bteleport\\b' and lower(description_text) REGEXP '\\bpad\\b';","patent_id","[""uuid"",""patent_id"",""description_text""]"
