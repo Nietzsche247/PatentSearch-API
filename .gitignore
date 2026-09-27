@@ -151,3 +151,17 @@ logs
 experiments
 session-manager-plugin.pkg
 docs/node_modules
+
+
+# Lapse: never commit data, databases or keys
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3
+*.building
+data/
+test_api_key.txt
+odp_key.txt
+*.tsv
+*.tsv.zip
