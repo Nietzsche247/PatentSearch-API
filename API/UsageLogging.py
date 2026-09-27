@@ -34,6 +34,13 @@ def log_usage(request, endpoint, status_code, exception, fields_involved):
     except KeyError:
         return
 
+    # Lapse: USAGE_LOG_BACKEND = "none" | "sqlite" | "redis" (default, upstream behavior)
+    backend = getattr(settings, "USAGE_LOG_BACKEND", "redis")
+    if backend == "none":
+        return
+    if backend == "sqlite":
+        return _log_usage_sqlite(usage_data, endpoint, fields_involved)
+
     r = redis.StrictRedis(
         host=settings.REDIS_HOST,
         port=settings.REDIS_PORT,
@@ -47,3 +54,27 @@ def log_usage(request, endpoint, status_code, exception, fields_involved):
     for field in fields_involved:
         pipe.zincrby(name=field_set_name, amount=1, value=field)
     pipe.execute()
+
+
+def _log_usage_sqlite(usage_data, endpoint, fields_involved):
+    """Lapse: same records as the Redis logger, stored in a local SQLite file (settings.USAGE_LOG_SQLITE_PATH)."""
+    import json
+    import sqlite3
+
+    path = getattr(settings, "USAGE_LOG_SQLITE_PATH", "usage_log.sqlite3")
+    try:
+        con = sqlite3.connect(path, timeout=5)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS usage_log(request_date TEXT, client_ip TEXT, api_prefix TEXT,"
+            " status_code INTEGER, request TEXT, user_agent TEXT, method TEXT, exception INTEGER, fields TEXT)"
+        )
+        con.execute(
+            "INSERT INTO usage_log VALUES (?,?,?,?,?,?,?,?,?)",
+            (*[usage_data[k] for k in ("request_date", "client_ip", "api_prefix", "status_code", "request",
+                                       "user_agent", "method", "exception")],
+             json.dumps(list(fields_involved))),
+        )
+        con.commit()
+        con.close()
+    except sqlite3.Error:
+        pass
