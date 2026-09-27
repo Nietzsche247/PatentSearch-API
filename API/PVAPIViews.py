@@ -18,7 +18,7 @@ from API.exceptions import (
 from API.models import APIUserKey
 from API.permissions import HasAPIKeyCreationPermission, HasValidAPIKey
 from API.queryparser import QueryParser, extract_key_value
-from API.search import PatentsViewElasticSearch
+from API.search import get_searcher
 from API.UsageLogging import log_usage
 
 
@@ -258,7 +258,7 @@ class PVAPIView(APIView):
         if size > 1000:
             size = 1000
         # searcher = PatentsViewElasticSearch.from_config()
-        searcher = PatentsViewElasticSearch.from_django_settings()
+        searcher = get_searcher()
         api_response = searcher.search(
             index=self.index,
             query=self.parsed_query,

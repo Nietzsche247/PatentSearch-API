@@ -81,3 +81,14 @@ class PatentsViewElasticSearch:
         if results["timed_out"]:
             raise SearchTimeoutError("Search timed out")
         return results
+
+
+def get_searcher():
+    """Backend seam (Lapse): settings.LAPSE_BACKEND = "sqlite" serves from API.search_sqlite, else Elasticsearch."""
+    from django.conf import settings
+
+    if getattr(settings, "LAPSE_BACKEND", "elasticsearch") == "sqlite":
+        from API.search_sqlite import LapseSQLiteSearch
+
+        return LapseSQLiteSearch.from_django_settings()
+    return PatentsViewElasticSearch.from_django_settings()
