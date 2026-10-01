@@ -40,8 +40,13 @@ class LapseNotImplemented(APIException):
         _pending.headers = {"X-Status-Reason": self.reason, "X-Status-Reason-Code": DEFERRED_CODE}
 
 
+BODY_501 = b'{"error":true}'
+
+
 class LapseErrorHeadersMiddleware:
-    """Copies the headers recorded by `LapseNotImplemented` onto the 501 response of the same request."""
+    """Puts the headers recorded by `LapseNotImplemented` on the 501 response of the same request, and
+    restores the upstream error body: DRF renders an APIException's detail dict with every value coerced
+    to a string, which would turn `{"error": true}` into `{"error": "True"}`."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -55,4 +60,7 @@ class LapseErrorHeadersMiddleware:
             for name, value in headers.items():
                 if not response.has_header(name):
                     response[name] = value
+            if getattr(response, "content", None) != BODY_501:
+                response.content = BODY_501
+                response["Content-Length"] = str(len(BODY_501))
         return response
