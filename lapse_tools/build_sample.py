@@ -120,6 +120,12 @@ def build_stage(bulk, stage_path, mod):
     st.execute("pragma mmap_size=8000000000")
     st.execute("pragma temp_store=memory")
     have = {r[0] for r in st.execute("select name from sqlite_master where type='table'")}
+    # a staged table left empty by a missing bulk file is rebuilt, so a later download is picked up
+    for t in sorted(have):
+        if st.execute(f'select count(*) from "{t}"').fetchone()[0] == 0:
+            log("  dropping empty staged table", t)
+            st.execute(f'drop table "{t}"')
+            have.discard(t)
     if "p" not in have:
         log("stage g_patent")
         st.execute("create table p(patent_id text primary key, patent_type text, patent_date text, patent_title text,"
