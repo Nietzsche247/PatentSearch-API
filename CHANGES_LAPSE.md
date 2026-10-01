@@ -27,7 +27,9 @@ Select the backend with the Django setting `LAPSE_BACKEND` (`sqlite` or `elastic
 | `API/PVAPIViews.py` | import `get_searcher`; one call site uses it | the only coupling point to ES |
 | `API/UsageLogging.py` | `USAGE_LOG_BACKEND` = redis (default) / sqlite / none | run without Redis |
 | `API/search_sqlite.py` | new | ES DSL to SQL translator, SQLite executor, `_source` filtering, keyset `search_after` |
-| `pvapi/settings/lapse_local.py` | new | SQLite Django DB, SQLite search backend, no MySQL/Redis/ES/OAuth, console logging |
+| `pvapi/settings/lapse_local.py` | new | SQLite Django DB, SQLite search backend, no MySQL/Redis/ES/OAuth, console logging, the 501 header middleware |
+| `API/lapse_errors.py` | new | `LapseNotImplemented` (the documented 501) and the middleware that puts its headers on the response |
+| `requirements/lapse.txt` | new | `base.txt` minus `mysqlclient` (needs libmysqlclient-dev to build; unused with SQLite) |
 | `lapse_tools/build_sample.py` | new | builds the sample database from PatentsView bulk TSVs |
 | `lapse_tools/create_test_key.py` | new | creates a local API key (written outside the repo) |
 | `lapse_tools/compat/` | new | contract runner and contract scripts (copies of `C:\LapseAPI\compat`) |
@@ -59,6 +61,25 @@ Adding an endpoint is a data task: create its tables with the same naming and ad
 * Sort: missing values last for asc and desc, final tiebreak on rowid. `search_after` is expanded to `(a > x) OR (a = x AND b > y) ...` with per-direction operators and the missing-last rule.
 * `total_hits`: exact `COUNT(*)` with the same WHERE clause.
 * Nested groups in responses: one query per requested group for the whole page, attached as lists; groups with no children are omitted, as in ES `_source`.
+
+## Deferred endpoints (the documented 501)
+
+A view whose index is not in `_lapse_indices` answers:
+
+```
+HTTP 501
+X-Status-Reason: Endpoint not implemented: the '<index>' data set is not in this snapshot[; <note>]
+X-Status-Reason-Code: ERR_NOT_IMPLEMENTED
+{"error":true}
+```
+
+The note for `publications` is `pre-grant publications are deferred (PatentRef checklist 1.5)`. Views whose
+tables arrive with later data loads (claims text, attorneys, examiners and so on) answer the same 501 without
+a note until their tables exist; the upstream prototype answered a 500 `ERR_ES` here. The body is the upstream
+error body so clients that branch on `error: true` keep working; the status and the code header are the only
+new values. Nothing in the upstream exception handler changed: `LapseNotImplemented` is a DRF `APIException`
+that the handler's final branch passes to DRF, and `LapseErrorHeadersMiddleware` (registered only by
+`lapse_local`) adds the two headers to that response.
 
 ## Known differences from Elasticsearch
 
@@ -128,5 +149,25 @@ python lapse_tools\create_test_key.py
 python manage.py runserver 127.0.0.1:8765
 ```
 
-Environment: `LAPSE_SQLITE_PATH` (search database, default `..\data\sample.db`), `LAPSE_THROTTLE_RATE`
-(default upstream `45/m`), `LAPSE_USAGE_LOG` (`sqlite` default, `none`, `redis`).
+Environment: `LAPSE_DATA_DIR` (where the Django DB, key file, usage log and the default search database live;
+default `..\data`), `LAPSE_SQLITE_PATH` (search database, default `<LAPSE_DATA_DIR>\sample.db`),
+`LAPSE_THROTTLE_RATE` (default upstream `45/m`), `LAPSE_USAGE_LOG` (`sqlite` default, `none`, `redis`).
+
+## Running on Linux (patentref-us1, 2026-10-01)
+
+```
+python3 -m venv /data/api/venv
+/data/api/venv/bin/pip install -r requirements/lapse.txt
+export LAPSE_DATA_DIR=/data/api DJANGO_SETTINGS_MODULE=pvapi.settings.lapse_local
+/data/api/venv/bin/python manage.py migrate && /data/api/venv/bin/python manage.py createcachetable
+nice -n 10 /data/api/venv/bin/python lapse_tools/build_sample.py --bulk /data/lapse/patentsview \
+    --out /data/api/sample.db --stage /data/api/stage.db --es-data-load /srv/api/es-data-load
+/data/api/venv/bin/python lapse_tools/create_test_key.py
+nohup /data/api/venv/bin/gunicorn pvapi.wsgi:application --bind 127.0.0.1:8765 --workers 4 --threads 2 \
+    --timeout 180 > /data/lapse/logs/api_8765.log 2>&1 &
+LAPSE_API_KEY_FILE=/data/api/test_api_key.txt LAPSE_SQLITE_PATH=/data/api/sample.db \
+    /data/api/venv/bin/python lapse_tools/compat/run_contract.py --out /tmp/contract.md
+```
+
+`manage.py check --settings=pvapi.settings.lapse_local` passes with the `lapse.txt` set; the only package
+dropped from `base.txt` is `mysqlclient`.
