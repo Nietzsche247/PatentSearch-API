@@ -1,0 +1,20 @@
+# Requirements for the Lapse SQLite backend (pvapi.settings.lapse_local).
+# Same as base.txt minus mysqlclient: lapse_local uses SQLite for Django's own tables, and
+# mysqlclient needs libmysqlclient-dev to build. The other upstream packages stay because
+# pvapi/settings/base.py and API/exceptions.py import them at startup (elasticsearch is needed
+# for the ApiError class the SQLite backend raises; redis and celery are configured but idle).
+Django~=5.2
+django-cors-headers==4.9.0
+django-maintenance-mode==0.22.0
+djangorestframework==3.16.1
+djangorestframework-api-key==3.1.0
+elasticsearch==9.3.0
+redis==7.2.1
+social-auth-app-django==5.7.0
+urllib3==2.6.3
+celery==5.6.2
+django-celery-results==2.6.0
+django-celery-beat==2.8.1
+django-environ==0.13.0
+whitenoise
+gunicorn==25.1.0

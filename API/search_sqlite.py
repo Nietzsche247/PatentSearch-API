@@ -167,7 +167,10 @@ class IndexMeta:
     def __init__(self, con, idx):
         row = con.execute("SELECT tbl, key_field FROM _lapse_indices WHERE idx=?", (idx,)).fetchone()
         if row is None:
-            raise es_error("index_not_found_exception", f"no such index [{idx}]", status=404)
+            # documented 501 for views whose data set is not in the snapshot (API/lapse_errors.py)
+            from API.lapse_errors import LapseNotImplemented
+
+            raise LapseNotImplemented(idx)
         self.index, self.table, self.key = idx, row[0], row[1]
         self.types = {}  # (path, field) -> (es_type, has_keyword_subfield)
         for path, field, t, kw in con.execute(

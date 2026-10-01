@@ -4,12 +4,17 @@
 
 Fires every request in contract_examples.json that targets an implemented endpoint and checks: HTTP status,
 response key, count/total_hits consistency, returned field set vs requested (or default) f, sort order,
-and after-cursor paging (page 2 from the last sort values of page 1). Then runs extra checks (auth, error
-strings, size cap, a 3,000-patent cursor walk against the database) and reports latency.
-Writes contract_results.md next to this file.
+and after-cursor paging (page 2 from the last sort values of page 1). Examples on endpoints whose data set
+is not in the snapshot (pre-grant publications, deferred at checklist 1.5; claims text until 1.6) must
+answer the documented 501 (API/lapse_errors.py). Then runs extra checks (auth, error strings, size cap,
+a 3,000-patent cursor walk against the database) and reports latency.
+Writes contract_results.md next to this file (or --out).
+
+Environment fallbacks: LAPSE_API_KEY_FILE, LAPSE_SQLITE_PATH.
 """
 import argparse
 import json
+import os
 import sqlite3
 import statistics
 import time
@@ -24,6 +29,10 @@ IMPLEMENTED = ["/api/v1/patent/us_patent_citation/", "/api/v1/patent/", "/api/v1
 NOT_IMPLEMENTED_PREFIX = ["/api/v1/patent/attorney/", "/api/v1/patent/us_application_citation/",
                           "/api/v1/patent/foreign_citation/", "/api/v1/patent/other_reference/",
                           "/api/v1/patent/rel_app_text/"]
+# endpoints deferred by decision (checklist 1.5): they must answer the documented 501, and count as pass
+DEFERRED_PREFIX = ["/api/v1/publication/"]
+DEFERRED_STATUS = 501
+DEFERRED_CODE = "ERR_NOT_IMPLEMENTED"
 REMAPPED = {"patents": {"assignees": ["assignee"], "inventors": ["inventor"], "wipo": ["wipo_field"],
                         "uspc_at_issue": ["uspc_mainclass", "uspc_subclass"],
                         "cpc_current": ["cpc_class", "cpc_subclass", "cpc_group"]}}
@@ -60,6 +69,26 @@ def implemented(endpoint):
     if any(endpoint.startswith(p) for p in NOT_IMPLEMENTED_PREFIX):
         return False
     return any(endpoint.startswith(p) for p in IMPLEMENTED)
+
+
+def deferred(endpoint):
+    return any(endpoint.startswith(p) for p in DEFERRED_PREFIX)
+
+
+def check_deferred(base, key, ex):
+    """The documented 501: status, {"error": true} body, X-Status-Reason-Code header."""
+    status, hdrs, js, ms = send(base, key, ex)
+    LAT.append(ms)
+    reasons = []
+    if status != DEFERRED_STATUS:
+        reasons.append(f"status {status} (want {DEFERRED_STATUS})")
+    if js != {"error": True}:
+        reasons.append(f"body {js!r} (want {{'error': True}})")
+    if hdrs.get("X-Status-Reason-Code") != DEFERRED_CODE:
+        reasons.append(f"X-Status-Reason-Code {hdrs.get('X-Status-Reason-Code')!r} (want {DEFERRED_CODE})")
+    if not (hdrs.get("X-Status-Reason") or "").startswith("Endpoint not implemented"):
+        reasons.append(f"X-Status-Reason {hdrs.get('X-Status-Reason')!r}")
+    return reasons, f"{status} {hdrs.get('X-Status-Reason-Code')}: {hdrs.get('X-Status-Reason')}"
 
 
 def cmp_vals(a, b):
@@ -298,16 +327,29 @@ def pct(vals, p):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="http://127.0.0.1:8765")
-    ap.add_argument("--key-file", default=r"C:\LapseAPI\data\test_api_key.txt")
-    ap.add_argument("--db", default=r"C:\LapseAPI\data\sample.db")
+    ap.add_argument("--key-file", default=os.environ.get("LAPSE_API_KEY_FILE", r"C:\LapseAPI\data\test_api_key.txt"))
+    ap.add_argument("--db", default=os.environ.get("LAPSE_SQLITE_PATH", r"C:\LapseAPI\data\sample.db"))
     ap.add_argument("--latency-rounds", type=int, default=5)
+    ap.add_argument("--out", default=str(HERE / "contract_results.md"))
     a = ap.parse_args()
     key = Path(a.key_file).read_text().strip()
     examples = json.load(open(HERE / "contract_examples.json", encoding="utf-8"))["examples"]
-    rows, npass, napp = [], 0, 0
+    rows, npass, napp, ndef, nnotloaded = [], 0, 0, 0, 0
     for ex in examples:
+        if deferred(ex["endpoint"]):
+            ndef += 1
+            reasons, detail = check_deferred(a.base, key, ex)
+            ok = not reasons
+            npass += ok
+            rows.append((ex["id"], ex["endpoint"], "pass (deferred, 501)" if ok else "FAIL",
+                         "; ".join(reasons) if reasons else "deferred at checklist 1.5; " + detail))
+            continue
         if not implemented(ex["endpoint"]):
-            rows.append((ex["id"], ex["endpoint"], "n/a", "endpoint not implemented in this prototype"))
+            nnotloaded += 1
+            reasons, detail = check_deferred(a.base, key, ex)
+            rows.append((ex["id"], ex["endpoint"], "n/a (not loaded)",
+                         ("data set not in this snapshot; answers " + detail) if not reasons
+                         else "data set not in this snapshot; 501 contract broken: " + "; ".join(reasons)))
             continue
         napp += 1
         try:
@@ -331,7 +373,8 @@ def main():
     xpass = sum(1 for e in extras if e[1] == "pass")
     lines = ["# Lapse SQLite backend: contract results", "",
              f"Run: {time.strftime('%Y-%m-%d %H:%M:%S')} against {a.base} (database {a.db})", "",
-             f"**Summary: {npass} pass / {napp} applicable examples ({len(examples) - napp} not applicable); "
+             f"**Summary: {npass} pass / {napp + ndef} applicable examples ({napp} served, {ndef} deferred and "
+             f"answering 501, {nnotloaded} not loaded in this snapshot); "
              f"extra checks {xpass} / {len(extras)} pass; latency over {len(lat)} requests "
              f"p50 {pct(lat, 0.5):.1f} ms, p95 {pct(lat, 0.95):.1f} ms, max {max(lat or [0]):.1f} ms**", "",
              "## Examples", "", "| example id | endpoint | result | reason / notes |", "|---|---|---|---|"]
@@ -344,7 +387,7 @@ def main():
               f"{len(lat)} example requests ({a.latency_rounds} rounds): p50 {pct(lat, 0.5):.1f} ms, "
               f"p95 {pct(lat, 0.95):.1f} ms, mean {statistics.mean(lat or [0]):.1f} ms, max {max(lat or [0]):.1f} ms.",
               "", "Slowest examples (median ms): " + ", ".join(f"{k} {m:.0f}" for m, k in slow), ""]
-    (HERE / "contract_results.md").write_text("\n".join(lines), encoding="utf-8")
+    Path(a.out).write_text("\n".join(lines), encoding="utf-8")
     print("\n".join(lines))
 
 

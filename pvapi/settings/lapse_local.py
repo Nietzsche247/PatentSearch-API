@@ -24,7 +24,7 @@ for _k, _v in {
     os.environ.setdefault(_k, _v)
 
 from pvapi.settings.base import *  # noqa: E402,F403
-from pvapi.settings.base import ALLOWED_HOSTS, LOGGING, REST_FRAMEWORK  # noqa: E402
+from pvapi.settings.base import ALLOWED_HOSTS, LOGGING, MIDDLEWARE, REST_FRAMEWORK  # noqa: E402
 
 DEBUG = os.environ.get("LAPSE_DEBUG", "0") == "1"
 ALLOWED_HOSTS = ALLOWED_HOSTS + ["127.0.0.1", "localhost", "testserver"]
@@ -35,6 +35,9 @@ DATABASES = {
         "NAME": os.environ.get("LAPSE_DJANGO_DB", str(_DATA / "django.sqlite3")),
     }
 }
+
+# Headers for the documented 501 on deferred endpoints (API/lapse_errors.py)
+MIDDLEWARE = ["API.lapse_errors.LapseErrorHeadersMiddleware"] + list(MIDDLEWARE)
 
 # Search backend seam (API/search.py:get_searcher)
 LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")
