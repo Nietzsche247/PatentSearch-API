@@ -132,10 +132,19 @@ two average-processing-days fields are NULL. `*_years_active` is the number of d
 ## Pointing it at the full corpus
 
 The backend needs no change: set `LAPSE_SQLITE_PATH` to a database with the same layout.
-`lapse_tools/build_sample.py --mod 1` selects every patent, but two steps (the per-patent dict in
-`fill_patents` and the citation row list) keep the sample in memory and must be switched to streaming
-inserts first. At full scale expect roughly 9.5M patents, 24M inventor rows and 150M citation rows;
-plan for 60 to 90 GB and a few hours of build time. Before going to production add FTS5 `trigram` indexes (or equivalent) for the
+`lapse_tools/build_sample.py --mod 1` selects every patent. At full scale expect roughly 9.5M patents,
+24M inventor rows and 150M citation rows; plan for 60 to 90 GB and a few hours of build time.
+
+Streaming build (2026-10-01): the script no longer holds any whole table in Python memory, so `--mod 1`
+fits on a 64 GB box. Base `patents` rows are inserted straight from the stage join; abstract, gov interest
+statement, earliest application date, term extension, citation counts and processing days are applied
+afterwards with keyed `UPDATE ... WHERE patent_id=?` batches. Citation rows, the child tables, and the
+entity tables stream through chunked `executemany` (a small `Batcher` lets one scan feed two tables).
+The per-patent state is one dict of patent_id to position plus two int arrays for citation counts.
+`pick_sample` checks existence only for the name and withdrawn extras, since the mod-rule and fixed ids
+are read from the stage itself. Output is row-for-row identical to the previous script, rowids and FTS
+included; verified on synthetic bulk files for mod 1, 3 and 94 and on the server against the mod-94
+sample (see the patentref handoff for 2026-10-01). Before going to production add FTS5 `trigram` indexes (or equivalent) for the
 `_contains` / `_begins` keyword fields: on the sample a substring scan of 256k inventor names takes
 about 100 ms, which becomes seconds at 24M rows.
 

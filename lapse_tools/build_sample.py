@@ -26,6 +26,7 @@ import sqlite3
 import sys
 import time
 import zipfile
+from array import array
 from pathlib import Path
 
 csv.field_size_limit(2**31 - 1)
@@ -110,6 +111,45 @@ def batched_insert(con, sql, it, n=200000):
         total += len(buf)
     con.commit()
     return total
+
+
+class Batcher:
+    """Buffer rows for one statement and run them in chunks, so a single scan can feed several targets.
+
+    Rows reach the database in the order they were added, the same as a list handed to batched_insert."""
+
+    def __init__(self, con, sql, n=50000):
+        self.con, self.sql, self.n = con, sql, n
+        self.buf, self.total = [], 0
+
+    def add(self, rec):
+        self.buf.append(rec)
+        if len(self.buf) >= self.n:
+            self.flush()
+
+    def flush(self):
+        if self.buf:
+            self.con.executemany(self.sql, self.buf)
+            self.total += len(self.buf)
+            self.buf = []
+
+    def close(self):
+        self.flush()
+        self.con.commit()
+        return self.total
+
+
+def scan_chunks(con, sql, n=50000):
+    """Yield fetched row chunks of `sql`, which must select rowid first and take (rowid lower bound, limit).
+
+    Each chunk is fully fetched before it is handed out, so the caller may update the same table in between."""
+    last = 0
+    while True:
+        chunk = con.execute(sql, (last, n)).fetchall()
+        if not chunk:
+            return
+        yield chunk
+        last = chunk[-1][0]
 
 
 def build_stage(bulk, stage_path, mod):
@@ -200,10 +240,13 @@ def pick_sample(st):
         if org in ASG_EXTRA_EXACT:
             take("org=" + org, pid)
     buckets["withdrawn"] = [r[0] for r in st.execute("select patent_id from p where withdrawn=1 limit ?", (EXTRA_LIMIT,))]
+    extras = set()
     for tag, b in buckets.items():
         log(f"  extras {tag}: {len(b)}")
-        ids |= set(b)
-    ids = {i for i in ids if st.execute("select 1 from p where patent_id=?", (i,)).fetchone()}
+        extras |= set(b)
+    # the mod-rule and fixed ids were read from p, so only the extras (a few hundred ids from inv/asg) can
+    # name a patent that p does not have; checking just those avoids one lookup per id on a full build
+    ids |= {i for i in extras if st.execute("select 1 from p where patent_id=?", (i,)).fetchone()}
     log(f"sample: {base} by mod rule, {len(ids)} total")
     return ids
 
@@ -281,11 +324,14 @@ def create_schema(out):
         out.execute(f'CREATE TABLE "{t}" ({extra}{coldefs})')
 
 
-def ins(out, table, recs):
+def ins_sql(table):
     cols = SCHEMA[table]
     names = ([] if "__" not in table else ["_pid", "_ord"]) + [c for c, _ in cols]
-    sql = f'INSERT INTO "{table}" ({", ".join(chr(34) + n + chr(34) for n in names)}) VALUES ({",".join("?" * len(names))})'
-    return batched_insert(out, sql, recs, 50000)
+    return f'INSERT INTO "{table}" ({", ".join(chr(34) + n + chr(34) for n in names)}) VALUES ({",".join("?" * len(names))})'
+
+
+def ins(out, table, recs):
+    return batched_insert(out, ins_sql(table), recs, 50000)
 
 
 # ---------------------------------------------------------------- fill
@@ -301,75 +347,111 @@ def valid_date(d):
     return d if d and re.match(r"^(1[7-9]|20)\d\d-\d\d-\d\d$", d) else None
 
 
-def fill_patents(out, st, S, bulk):
+def stage_sample(st, S):
+    """Put the sample ids in temp.s on the stage connection; every stage query joins against it."""
     st.execute("create temp table s(patent_id text primary key)")
     st.executemany("insert into temp.s values (?)", ((i,) for i in S))
-    pat = {}
-    for pid, typ, date, title, wk, wd in st.execute(
-            "select p.patent_id, patent_type, patent_date, patent_title, wipo_kind, withdrawn from p join temp.s using(patent_id)"):
-        pat[pid] = {"patent_id": pid, "patent_zero_prefix": zero_prefix(pid), "patent_title": title,
-                    "patent_type": typ, "patent_date": date, "patent_year": int(date[:4]) if date else None,
-                    "wipo_kind": wk, "withdrawn": wd}
-    log("patents base", len(pat))
+    st.commit()
+
+
+def fill_patents(out, st, bulk):
+    """Base patent rows go in first, straight from the stage join; the per-file columns (abstract, gov interest,
+    earliest application date, term extension, citation counts, processing days) are applied afterwards with
+    keyed UPDATEs. Nothing here holds a whole table in memory: the only per-patent state is pos (patent_id ->
+    position) and two int arrays of citation counts, so a full-corpus build stays in a few GB.
+
+    Returns pos, which doubles as the membership test for the child fills."""
+    cols = [c for c, _ in SCHEMA["patents"]]
+    ci = {c: i for i, c in enumerate(cols)}
+    pos = {}
+
+    def base_rows():
+        # same join as before, so rowid order in patents is unchanged
+        for pid, typ, date, title, wk, wd in st.execute(
+                "select p.patent_id, patent_type, patent_date, patent_title, wipo_kind, withdrawn from p join temp.s using(patent_id)"):
+            pos[pid] = len(pos)
+            row = [None] * len(cols)
+            row[ci["patent_id"]] = pid
+            row[ci["patent_zero_prefix"]] = zero_prefix(pid)
+            row[ci["patent_title"]] = title
+            row[ci["patent_type"]] = typ
+            row[ci["patent_date"]] = date
+            row[ci["patent_year"]] = int(date[:4]) if date else None
+            row[ci["wipo_kind"]] = wk
+            row[ci["withdrawn"]] = wd
+            yield tuple(row)
+
+    ins(out, "patents", base_rows())
+    log("patents base", len(pos))
     log("abstracts")
-    for r in rows(bulk, "g_patent_abstract"):
-        if r["patent_id"] in pat:
-            pat[r["patent_id"]]["patent_abstract"] = nz(r["patent_abstract"])
+    batched_insert(out, "UPDATE patents SET patent_abstract=? WHERE patent_id=?", (
+        (nz(r["patent_abstract"]), r["patent_id"]) for r in rows(bulk, "g_patent_abstract") if r["patent_id"] in pos))
     log("gov interest")
-    for r in rows(bulk, "g_gov_interest"):
-        if r["patent_id"] in pat:
-            pat[r["patent_id"]]["gov_interest_statement"] = nz(r["gi_statement"])
+    batched_insert(out, "UPDATE patents SET gov_interest_statement=? WHERE patent_id=?", (
+        (nz(r["gi_statement"]), r["patent_id"]) for r in rows(bulk, "g_gov_interest") if r["patent_id"] in pos))
     log("applications")
-    app = []
+    app = Batcher(out, ins_sql("patents__application"))
+    # keep the smallest valid filing date per patent (same rule as the old in-memory min)
+    earliest = Batcher(out, "UPDATE patents SET patent_earliest_application_date=? WHERE patent_id=?"
+                            " AND (patent_earliest_application_date IS NULL OR patent_earliest_application_date > ?)")
     for r in rows(bulk, "g_application"):
         pid = r["patent_id"]
-        if pid in pat:
+        if pid in pos:
             fd = nz(r["filing_date"])
-            app.append((pid, len(app), nz(r["application_id"]), nz(r["patent_application_type"]), fd,
-                        nz(r["series_code"]), 1 if r["rule_47_flag"] in ("1", "TRUE", "true") else 0,
-                        nz(r["patent_application_type"])))
+            app.add((pid, app.total + len(app.buf), nz(r["application_id"]), nz(r["patent_application_type"]), fd,
+                     nz(r["series_code"]), 1 if r["rule_47_flag"] in ("1", "TRUE", "true") else 0,
+                     nz(r["patent_application_type"])))
             v = valid_date(fd)
-            if v and (pat[pid].get("patent_earliest_application_date") is None
-                      or v < pat[pid]["patent_earliest_application_date"]):
-                pat[pid]["patent_earliest_application_date"] = v
-    ins(out, "patents__application", app)
+            if v:
+                earliest.add((v, pid, v))
+    app.close()
+    earliest.close()
     log("term of grant")
-    tog = []
+    tog = Batcher(out, ins_sql("patents__us_term_of_grant"))
+    ext = Batcher(out, "UPDATE patents SET patent_term_extension=? WHERE patent_id=?")
     for r in rows(bulk, "g_us_term_of_grant"):
         pid = r["patent_id"]
-        if pid in pat:
-            tog.append((pid, len(tog), nz(r["term_grant"]), nz(r["term_extension"]), nz(r["term_disclaimer"]),
-                        nz(r["disclaimer_date"])))
+        if pid in pos:
+            tog.add((pid, tog.total + len(tog.buf), nz(r["term_grant"]), nz(r["term_extension"]),
+                     nz(r["term_disclaimer"]), nz(r["disclaimer_date"])))
             if to_int(r["term_extension"]) is not None:
-                pat[pid]["patent_term_extension"] = to_int(r["term_extension"])
-    ins(out, "patents__us_term_of_grant", tog)
+                ext.add((to_int(r["term_extension"]), pid))
+    tog.close()
+    ext.close()
     log("us patent citations (large)")
-    cited, cited_by, cits = {}, {}, []
-    n = 0
-    for r in rows(bulk, "g_us_patent_citation"):
-        n += 1
-        pid, cpid = r["patent_id"], r["citation_patent_id"]
-        if pid in pat:
-            cited[pid] = cited.get(pid, 0) + 1
-            seq = to_int(r["citation_sequence"])
-            cits.append((f"{pid}-{seq}", pid, pid, zero_prefix(pid), seq, nz(cpid), nz(cpid), nz(r["wipo_kind"]),
-                         nz(r["citation_category"]), nz(r["citation_date"]), nz(r["record_name"])))
-        if cpid in pat:
-            cited_by[cpid] = cited_by.get(cpid, 0) + 1
-        if n % 20000000 == 0:
-            log("   citation rows scanned", n)
-    out.executemany("INSERT OR IGNORE INTO us_patent_citations VALUES (?,?,?,?,?,?,?,?,?,?,?)", cits)
+    cited = array("i", [0]) * len(pos)
+    cited_by = array("i", [0]) * len(pos)
+
+    def cit_rows():
+        n = 0
+        for r in rows(bulk, "g_us_patent_citation"):
+            n += 1
+            pid, cpid = r["patent_id"], r["citation_patent_id"]
+            i = pos.get(pid)
+            if i is not None:
+                cited[i] += 1
+                seq = to_int(r["citation_sequence"])
+                yield (f"{pid}-{seq}", pid, pid, zero_prefix(pid), seq, nz(cpid), nz(cpid), nz(r["wipo_kind"]),
+                       nz(r["citation_category"]), nz(r["citation_date"]), nz(r["record_name"]))
+            j = pos.get(cpid)
+            if j is not None:
+                cited_by[j] += 1
+            if n % 20000000 == 0:
+                log("   citation rows scanned", n)
+
+    batched_insert(out, "INSERT OR IGNORE INTO us_patent_citations VALUES (?,?,?,?,?,?,?,?,?,?,?)", cit_rows())
+    log("citation counts + processing days")
+    for chunk in scan_chunks(out, "select rowid, patent_id, patent_earliest_application_date, patent_date"
+                                  " from patents where rowid > ? order by rowid limit ?"):
+        out.executemany("UPDATE patents SET patent_num_us_patents_cited=?, patent_num_times_cited_by_us_patents=?,"
+                        " patent_processing_days=? WHERE patent_id=?",
+                        [(cited[pos[pid]], cited_by[pos[pid]], days_between(ea, date), pid)
+                         for _, pid, ea, date in chunk])
     out.commit()
-    for pid, d in pat.items():
-        d["patent_num_us_patents_cited"] = cited.get(pid, 0)
-        d["patent_num_times_cited_by_us_patents"] = cited_by.get(pid, 0)
-        d["patent_processing_days"] = days_between(d.get("patent_earliest_application_date"), d.get("patent_date"))
-    cols = [c for c, _ in SCHEMA["patents"]]
-    ins(out, "patents", (tuple(d.get(c) for c in cols) for d in pat.values()))
-    return pat
+    return pos
 
 
-def fill_children(out, st, pat, bulk):
+def fill_children(out, st, pos, bulk):
     log("nested inventors/assignees from stage")
     ins(out, "patents__inventors", (
         (r[0], k, *r[2:]) for k, r in enumerate(st.execute(
@@ -384,11 +466,15 @@ def fill_children(out, st, pat, bulk):
 
     def stream(name, table, fn):
         log(name)
-        recs = []
-        for r in rows(bulk, name):
-            if r["patent_id"] in pat:
-                recs.append((r["patent_id"], len(recs), *fn(r)))
-        ins(out, table, recs)
+
+        def recs():
+            k = 0
+            for r in rows(bulk, name):
+                if r["patent_id"] in pos:
+                    yield (r["patent_id"], k, *fn(r))
+                    k += 1
+
+        ins(out, table, recs())
 
     stream("g_cpc_current", "patents__cpc_current", lambda r: (
         to_int(r["cpc_sequence"]), nz(r["cpc_section"]), nz(r["cpc_class"]), nz(r["cpc_class"]),
@@ -433,7 +519,9 @@ def fill_entity(out, st, kind):
              " l.city, l.state, l.country, l.lat, l.lon from asg x join temp.e_assignee e on e.id=x.assignee_id"
              " join p on p.patent_id=x.patent_id left join loc l on l.location_id=x.location_id"
              " order by x.assignee_id, p.patent_date, x.patent_id")
-    ents, years = [], []
+    # one ordered scan feeds both tables; each entity is written as soon as its group is complete
+    ents = Batcher(out, ins_sql(f"{kind}s"))
+    years = Batcher(out, ins_sql(f"{kind}s__{kind}_years"))
     cur, grp = None, []
 
     def flush():
@@ -449,15 +537,15 @@ def fill_entity(out, st, kind):
                 yc[int(g[2][:4])] = yc.get(int(g[2][:4]), 0) + 1
         last = grp[-1]
         if kind == "inventor":
-            ents.append((cur, last[3], last[4], last[5], last[7], last[8], last[9], last[10], last[11], last[6],
-                         min(dates) if dates else None, max(dates) if dates else None, others.get(cur, 0),
-                         len(pats), len(yc)))
+            ents.add((cur, last[3], last[4], last[5], last[7], last[8], last[9], last[10], last[11], last[6],
+                      min(dates) if dates else None, max(dates) if dates else None, others.get(cur, 0),
+                      len(pats), len(yc)))
         else:
-            ents.append((cur, last[3], last[4], last[5], last[6], last[8], last[9], last[10], last[11], last[12],
-                         last[7], min(dates) if dates else None, max(dates) if dates else None,
-                         others.get(cur, 0), len(pats), len(yc)))
+            ents.add((cur, last[3], last[4], last[5], last[6], last[8], last[9], last[10], last[11], last[12],
+                      last[7], min(dates) if dates else None, max(dates) if dates else None,
+                      others.get(cur, 0), len(pats), len(yc)))
         for k, (y, c) in enumerate(sorted(yc.items())):
-            years.append((cur, k, y, c))
+            years.add((cur, k, y, c))
 
     for r in st.execute(q):
         if r[0] != cur:
@@ -465,9 +553,9 @@ def fill_entity(out, st, kind):
             cur, grp = r[0], []
         grp.append(r)
     flush()
-    ins(out, f"{kind}s", ents)
-    ins(out, f"{kind}s__{kind}_years", years)
-    log(f"  {len(ents)} {kind}s")
+    n_ents = ents.close()
+    years.close()
+    log(f"  {n_ents} {kind}s")
 
 
 def fill_locations(out, st):
@@ -563,8 +651,11 @@ def main():
     out.execute("pragma journal_mode=off")
     out.execute("pragma synchronous=off")
     create_schema(out)
-    pat = fill_patents(out, st, S, a.bulk)
-    fill_children(out, st, pat, a.bulk)
+    stage_sample(st, S)
+    del S  # temp.s carries the sample from here on; pos (below) is the in-memory membership test
+    pos = fill_patents(out, st, a.bulk)
+    fill_children(out, st, pos, a.bulk)
+    del pos
     fill_entity(out, st, "inventor")
     fill_entity(out, st, "assignee")
     fill_locations(out, st)
