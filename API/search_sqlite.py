@@ -71,34 +71,56 @@ def wildcard_to_like(pattern):
 
 
 # ------------------------------------------------------------------ value coercion (ES field types)
-_DATE_RE = re.compile(r"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?(?:[T ](\d{2}):?(\d{2})?:?(\d{2})?(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$")
+_DATE_RE = re.compile(r"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?(?:[T ](\d{2}):?(\d{2})?:?(\d{2})?(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})?)?$")
 
 
 def coerce_date(field, v):
-    """ES strict_date_optional_time||epoch_millis -> 'YYYY-MM-DD' (documents are stored at midnight UTC).
-    Returns (day, is_midnight)."""
+    """ES strict_date_optional_time||epoch_millis with the date-math rounding ES applies to query values:
+    a partial value spans its whole unit ("2010" is the year, "2010-06" the month), a full day spans that
+    day, a value with a time is an instant. Documents are stored at midnight UTC, so the span is returned
+    as days: (lo_day, hi_day, lo_is_midnight). A value with a time after midnight has lo_day == hi_day and
+    lo_is_midnight False, which no stored document equals."""
     if isinstance(v, bool):
         v = str(v).lower()
     if isinstance(v, (int, float)):
         d = dt.datetime.fromtimestamp(v / 1000.0, tz=dt.timezone.utc)
-        return d.date().isoformat(), d.time() == dt.time(0)
+        day = d.date().isoformat()
+        return day, day, d.time() == dt.time(0)
     s = str(v).strip()
     if re.fullmatch(r"-?\d{5,}", s):
         return coerce_date(field, int(s))
     m = _DATE_RE.match(s)
     if m:
-        y, mo, d, hh, mi, ss = (m.group(i) for i in range(1, 7))
+        y, mo, d, hh, mi, ss, frac = (m.group(i) for i in range(1, 8))
         try:
-            day = dt.date(int(y), int(mo or 1), int(d or 1)).isoformat()
-            midnight = int(hh or 0) == 0 and int(mi or 0) == 0 and int(ss or 0) == 0
-            return day, midnight
+            lo = dt.date(int(y), int(mo or 1), int(d or 1))
+            if d:
+                hi = lo
+            elif mo:
+                nxt = dt.date(lo.year + (lo.month == 12), lo.month % 12 + 1, 1)
+                hi = nxt - dt.timedelta(days=1)
+            else:
+                hi = dt.date(lo.year, 12, 31)
+            midnight = int(hh or 0) == 0 and int(mi or 0) == 0 and int(ss or 0) == 0 and int(frac or 0) == 0
+            return lo.isoformat(), hi.isoformat(), midnight
         except ValueError:
             pass
     raise es_error("parse_exception",
                    f"failed to parse date field [{s}] with format [strict_date_optional_time||epoch_millis]")
 
 
+def has_decimal_part(v):
+    try:
+        return float(v) % 1 != 0
+    except (TypeError, ValueError):
+        return False
+
+
 def coerce_number(v, integral):
+    """ES number parsing for term and range values. A fractional value against a long/integer field is
+    not an error in ES: term and terms queries match nothing and range bounds are rounded (see
+    integral_bound), so callers check has_decimal_part first; here it truncates toward zero like
+    Numbers.toLong with coerce."""
     if isinstance(v, bool):
         raise es_error("illegal_argument_exception", f"Can't parse number [{v}]")
     try:
@@ -106,11 +128,24 @@ def coerce_number(v, integral):
     except (TypeError, ValueError):
         raise es_error("number_format_exception", f'For input string: "{v}"')
     if integral:
-        if f != int(f):
-            # ES rejects fractional values against long/integer fields in term queries
-            raise es_error("illegal_argument_exception", f"Value [{v}] has a decimal part")
         return int(f)
     return f
+
+
+def integral_bound(v, op):
+    """ES NumberType.LONG range bounds: truncate toward zero, then step a decimal bound inward on the side
+    it falls (a positive decimal lower bound moves up, a negative decimal upper bound moves down) and an
+    exclusive integral bound by one. Returns (inclusive_op, value)."""
+    n = coerce_number(v, True)
+    decimal = has_decimal_part(v)
+    f = float(v)
+    if op in ("gt", "gte"):
+        if (not decimal and op == "gt") or (decimal and f > 0):
+            n += 1
+        return ">=", n
+    if (not decimal and op == "lt") or (decimal and f < 0):
+        n -= 1
+    return "<=", n
 
 
 def coerce_bool(v):
@@ -160,6 +195,11 @@ class FieldRef:
         if self.es_type == "date":
             return coerce_date(self.column, v)[0]
         return v
+
+    @property
+    def is_string(self):
+        """keyword or text (or .keyword sub-field): the only types ES allows prefix and wildcard on."""
+        return self.keyword or self.es_type in (None, "keyword", "text")
 
 
 # ------------------------------------------------------------------ schema metadata
@@ -284,10 +324,15 @@ class Translator:
     def eq(self, f, v):
         """Exact (term-level) equality on a resolved non-text field."""
         if f.es_type == "date" and not f.keyword:
-            day, midnight = coerce_date(f.column, v)
+            lo, hi, midnight = coerce_date(f.column, v)
             if not midnight:
                 return "0"
-            return f"({f.sql} = {self.p(day)})"
+            if lo == hi:
+                return f"({f.sql} = {self.p(lo)})"
+            # a partial date is a span in ES (term "2010" matches the whole year)
+            return f"({f.sql} >= {self.p(lo)} AND {f.sql} <= {self.p(hi)})"
+        if f.es_type in INTEGRAL and not f.keyword and has_decimal_part(v):
+            return "0"  # ES: "Value [x] has a decimal part" is a match-none query, not an error
         return f"({f.sql} = {self.p(f.value(v))}{self.kw_guard(f)})"
 
     def fts(self, f, expr):
@@ -364,17 +409,38 @@ class Translator:
             return "0"
         ops = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}
         parts = []
+        if f.es_type == "text" and not f.keyword:
+            # ES range on an analyzed field is a term range over its tokens (any token inside the bounds
+            # matches); the bounds are compared raw, the tokens are lowercase
+            lo = hi = None
+            inc_lo = inc_hi = 1
+            for k, v in spec.items():
+                if k not in ops:
+                    raise es_error("parsing_exception", f"[range] query does not support [{k}]")
+                if k in ("gt", "gte"):
+                    lo, inc_lo = coerce_keyword(v), int(k == "gte")
+                else:
+                    hi, inc_hi = coerce_keyword(v), int(k == "lte")
+            return (f"COALESCE(lapse_tok_range({f.sql}, {self.p(lo)}, {self.p(hi)}, "
+                    f"{self.p(inc_lo)}, {self.p(inc_hi)}), 0)")
         for k, v in spec.items():
             if k not in ops:
                 raise es_error("parsing_exception", f"[range] query does not support [{k}]")
             if f.es_type == "date" and not f.keyword:
-                day, midnight = coerce_date(f.column, v)
-                op = ops[k]
-                if not midnight and k in ("gte", "gt"):
-                    op = ">"  # a time later than 00:00 excludes documents stored at midnight of that day
-                if not midnight and k in ("lte", "lt"):
-                    op = "<="
-                parts.append(f"{f.sql} {op} {self.p(day)}")
+                lo, hi, midnight = coerce_date(f.column, v)
+                # ES rounds a partial value down for gte/lt and up for gt/lte ("2010" is the whole year);
+                # a time later than 00:00 excludes the document stored at midnight of that day
+                if k == "gte":
+                    parts.append(f"{f.sql} {'>=' if midnight else '>'} {self.p(lo)}")
+                elif k == "gt":
+                    parts.append(f"{f.sql} > {self.p(hi)}")
+                elif k == "lte":
+                    parts.append(f"{f.sql} <= {self.p(hi)}")
+                else:
+                    parts.append(f"{f.sql} {'<' if midnight else '<='} {self.p(lo)}")
+            elif f.es_type in INTEGRAL and not f.keyword:
+                op, n = integral_bound(v, k)
+                parts.append(f"{f.sql} {op} {self.p(n)}")
             else:
                 parts.append(f"{f.sql} {ops[k]} {self.p(f.value(v))}")
         return f"({' AND '.join(parts) or '1'}{self.kw_guard(f)})"
@@ -389,11 +455,30 @@ class Translator:
         f = self.resolve(field, ctx)
         if f is None or value is None:
             return "0"
+        if not f.is_string:
+            # ES MappedFieldType default: numeric, date and boolean fields reject prefix and wildcard;
+            # the upstream handler reports the query_shard_exception as 500 ERR_ES
+            what = "prefix queries on keyword, text and wildcard" if qname == "prefix" else "wildcard queries on keyword and text"
+            raise es_error("query_shard_exception",
+                           f"Can only use {what} fields - not on [{field}] which is of type [{f.es_type}]")
         value = coerce_keyword(value)
         if f.es_type == "text" and not f.keyword:
-            # term-level pattern against analyzed tokens: approximate with a lowercase substring test
-            pat = to_like(value.lower())
-            return f"(lapse_lower({f.sql}) LIKE {self.p(pat)} ESCAPE '\\')"
+            # term-level pattern against the analyzed tokens (lowercase, no spaces): a token matches the
+            # whole pattern, case-insensitively (the parser always sets case_insensitive)
+            low = value.lower()
+            toks = tokens(low)
+            if qname == "prefix":
+                if low == "":
+                    return f"({f.sql} IS NOT NULL AND length({f.sql}) > 0)"
+                if len(toks) == 1 and toks[0] == low:
+                    return self.fts(f, fts_quote(low) + "*")
+                return "0"  # no token contains a space or punctuation, so nothing starts with the value
+            inner = low[1:-1] if len(low) > 2 and low[0] == low[-1] == "*" else None
+            if inner is not None and not any(ch in inner for ch in "*?"):
+                # the _contains operator: a cheap substring test on the whole value first, then the token test
+                return (f"(instr(lapse_lower({f.sql}), {self.p(inner)}) > 0 AND "
+                        f"COALESCE(lapse_tok_wild({f.sql}, {self.p(low)}), 0))")
+            return f"COALESCE(lapse_tok_wild({f.sql}, {self.p(low)}), 0)"
         pat = to_like(value)
         inner = value[1:-1] if qname == "wildcard" and len(value) > 2 and value[0] == value[-1] == "*" else None
         if ci and inner and not any(ch in inner for ch in "*?"):
@@ -435,11 +520,42 @@ def _like_cs(value, pattern):
     return 1 if re.fullmatch("".join(rx), str(value), re.S) else 0
 
 
+def _tok_range(text, lo, hi, inc_lo, inc_hi):
+    """Any token of text inside [lo, hi] (bounds compared as strings, like an ES term range on text)."""
+    if text is None:
+        return 0
+    for tok in tokens(text):
+        if lo is not None and (tok < lo or (tok == lo and not inc_lo)):
+            continue
+        if hi is not None and (tok > hi or (tok == hi and not inc_hi)):
+            continue
+        return 1
+    return 0
+
+
+_wild_cache = {}
+
+
+def _tok_wild(text, pattern):
+    """Any token of text matching the ES wildcard pattern (* and ?), case-insensitively."""
+    if text is None:
+        return 0
+    rx = _wild_cache.get(pattern)
+    if rx is None:
+        rx = re.compile("".join(".*" if ch == "*" else "." if ch == "?" else re.escape(ch) for ch in pattern), re.S)
+        if len(_wild_cache) > 512:
+            _wild_cache.clear()
+        _wild_cache[pattern] = rx
+    return 1 if any(rx.fullmatch(tok) for tok in tokens(text)) else 0
+
+
 def _fts_match(text, expr):
     if text is None:
         return 0
     toks = tokens(text)
     chunks = [c.replace('""', '"') for c in re.findall(r'"((?:[^"]|"")*)"', expr)]
+    if len(chunks) == 1 and expr.endswith("*"):
+        return 1 if any(t.startswith(chunks[0]) for t in toks) else 0
     if len(chunks) == 1 and " " in chunks[0]:
         ph = chunks[0].split()
         return 1 if any(toks[i:i + len(ph)] == ph for i in range(len(toks))) else 0
@@ -477,6 +593,8 @@ class LapseSQLiteSearch:
             con.create_function("lapse_lower", 1, _lapse_lower, deterministic=True)
             con.create_function("lapse_like_cs", 2, _like_cs, deterministic=True)
             con.create_function("lapse_fts_match", 2, _fts_match, deterministic=True)
+            con.create_function("lapse_tok_range", 5, _tok_range, deterministic=True)
+            con.create_function("lapse_tok_wild", 2, _tok_wild, deterministic=True)
             self._local.con, self._local.path = con, self.path
         return con
 
