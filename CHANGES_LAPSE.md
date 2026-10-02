@@ -180,3 +180,6 @@ LAPSE_API_KEY_FILE=/data/api/test_api_key.txt LAPSE_SQLITE_PATH=/data/api/sample
 
 `manage.py check --settings=pvapi.settings.lapse_local` passes with the `lapse.txt` set; the only package
 dropped from `base.txt` is `mysqlclient`.
+
+## 2026-10-02 public hostnames
+- lapse_local: LAPSE_ALLOWED_HOSTS adds public hostnames to ALLOWED_HOSTS; LAPSE_BEHIND_PROXY=1 trusts X-Forwarded-Proto and X-Forwarded-Host from the reverse proxy (Caddy on patentref-us1).

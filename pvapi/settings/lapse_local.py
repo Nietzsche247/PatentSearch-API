@@ -5,7 +5,8 @@
   python manage.py runserver 127.0.0.1:8765
 
 Env overrides: LAPSE_SQLITE_PATH (search DB), LAPSE_DJANGO_DB, LAPSE_BACKEND (sqlite|elasticsearch),
-LAPSE_THROTTLE_RATE (default upstream 45/m), LAPSE_USAGE_LOG (sqlite|none|redis).
+LAPSE_THROTTLE_RATE (default upstream 45/m), LAPSE_USAGE_LOG (sqlite|none|redis),
+LAPSE_ALLOWED_HOSTS (public hostnames, comma separated), LAPSE_BEHIND_PROXY=1 (trust X-Forwarded-Proto/Host).
 """
 import os
 from pathlib import Path
@@ -28,6 +29,12 @@ from pvapi.settings.base import ALLOWED_HOSTS, LOGGING, MIDDLEWARE, REST_FRAMEWO
 
 DEBUG = os.environ.get("LAPSE_DEBUG", "0") == "1"
 ALLOWED_HOSTS = ALLOWED_HOSTS + ["127.0.0.1", "localhost", "testserver"]
+# Public hostnames behind the reverse proxy, comma separated (LAPSE_ALLOWED_HOSTS=patentref.io,patentref.com)
+ALLOWED_HOSTS += [h.strip() for h in os.environ.get("LAPSE_ALLOWED_HOSTS", "").split(",") if h.strip()]
+# Behind Caddy, which terminates TLS and sets X-Forwarded-Proto; lets Django build https links
+if os.environ.get("LAPSE_BEHIND_PROXY", "0") == "1":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
 
 DATABASES = {
     "default": {
