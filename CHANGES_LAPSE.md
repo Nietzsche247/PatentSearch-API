@@ -184,3 +184,39 @@ dropped from `base.txt` is `mysqlclient`.
 
 ## 2026-10-02 public hostnames
 - lapse_local: LAPSE_ALLOWED_HOSTS adds public hostnames to ALLOWED_HOSTS; LAPSE_BEHIND_PROXY=1 trusts X-Forwarded-Proto and X-Forwarded-Host from the reverse proxy (Caddy on patentref-us1).
+
+## 2026-10-02/03 the remaining granted-set tables (gates 1.2 to 1.4), fork 9f0d160
+
+`lapse_tools/build_sample.py` loads 14 more PatentsView zips and no code outside the build script changed: the
+views that answered the 501 for `attorneys`, `us_application_citations`, `foreign_citations`, `other_references`,
+`rel_app_text`, `cpc_groups`, `uspc_subclasses` and `ipcr` serve as soon as their rows are in `_lapse_indices`.
+
+* New nested groups of `patents`: `cpc_at_issue` (g_cpc_at_issue), `ipcr` (g_ipc_at_issue), `uspc_at_issue`
+  (g_uspc_at_issue), `examiners` (g_examiner_not_disambiguated, `examiner_id` null: the bulk file carries none),
+  `applicants` (g_applicant_not_disambiguated, `location_id` null: `rawlocation_id` is not a disambiguated id),
+  `us_related_documents` (g_us_rel_doc), `attorneys` (g_attorney_disambiguated through the stage).
+* New indices: `attorneys` (one row per attorney id with first/last seen, patents, inventors, years active, the
+  same shape as `inventors`), `us_application_citations` and `foreign_citations` (uuid `patent_id-sequence`),
+  `other_references` (uuid `patent_id-sequence`, `reference_sequence` kept as text because the ES schema types it
+  keyword), `rel_app_text` (uuid `patent_id-k`, k = order within the patent), `cpc_groups` (g_cpc_title, one row per
+  non-empty cpc_group), `uspc_subclasses` (distinct subclass ids seen in g_uspc_at_issue, first title wins),
+  `ipcr` (the lookup the upstream `/api/v1/ipc/` serves: one row per distinct section+class+subclass seen in
+  g_ipc_at_issue, `ipc_id` = the three concatenated, e.g. `G01S`; es-data-load reads it from a four-column
+  `ipcr` table, so it is small by design: 5,746 rows on the full corpus, with the raw pre-IPC-8 codes the file
+  carries, against 25,505,642 nested `patents__ipcr` rows).
+* `persistent_inventors` and `persistent_assignees`: g_persistent_inventor and g_persistent_assignee as shipped
+  (every column of the header, indexed by patent_id, no endpoint; gate 1.2 names them).
+* `patents.patent_num_us_applications_cited`, `patent_num_foreign_documents_cited` and
+  `patent_num_total_documents_cited` are filled (total = US patents + US applications + foreign documents, as
+  PatentsView-DB computes it); they were NULL before.
+* Rows whose `patent_id` is not in g_patent are dropped, as for every other child table: on the 2026-10-01
+  release that is 29,648 attorney rows, 84,933 persistent inventor rows and 26,987 persistent assignee rows;
+  every other new table equals its zip row for row (patentref `ops/audits/2026-10-03_gates-1.2-1.4_full2_patentref-us1.txt`).
+* The 15 original tables are built exactly as before: the mod-94 sample from this script is identical to
+  `sample.db` on every reference table (rowids, FTS content included; only `sqlite_stat1` grows with the new
+  indexes), and on the full corpus the 15 tables of `full2.db` hash equal to `full.db`.
+* Still 501: the publication views (checklist 1.5), the claims and description text views (1.6),
+  `cpc_classes`, `cpc_subclasses`, `uspc_mainclasses` (no bulk file; derive from g_cpc_title / g_uspc_at_issue
+  when wanted), `nber_*` (dead upstream), `rel_app_text_publications`.
+* Full build on patentref-us1 (62 GB RAM): 5,317 s, 141 GB (`/data/api/full2.db`); the stage file grows to
+  7.5 GB with the attorney rows.
