@@ -290,10 +290,11 @@ the SQLite backend when the configured path is a symlink.
   swap and a rollback with the body from the same file, every response carries exactly one header,
   a request never reopens mid-request, the unstamped-file fallback.
 
-## 2026-10-06 latency on the full corpus (PatentRef checklist 2.10), fork b180248
+## 2026-10-06 latency on the full corpus (PatentRef checklist 2.10), fork b180248 to 2b89c76
 
 Response bodies unchanged; every change below is an index, a SQL shape, a planner hint or a memo of a
-value the same SQL already returned. `lapse_tools/tests/test_sql_shapes.py` (34 tests) runs every
+value the same SQL already returned. On the full corpus (patentref `ops/audits/2026-10-06_gate-2.10_latency_patentref-us1.txt`):
+contract examples p95 7.5 s to 62 to 67 ms, a 1000-row page 0.4 s cold; the index upgrade of a 141 GB file takes 19 min in place and adds 17 GB. `lapse_tools/tests/test_sql_shapes.py` (34 tests) runs every
 query family through the backend with and without the new tables and compares both with a Python
 evaluation of the ES semantics, pages and cursors included.
 
@@ -301,7 +302,9 @@ evaluation of the ES semantics, pages and cursors included.
   index `(column, _pid)` instead of `(column)`, so a nested criterion is answered from the index alone;
   `patents` adds `(withdrawn, patent_date)`, `(withdrawn, patent_type)`, `(withdrawn, patent_year)`,
   `(withdrawn, patent_zero_prefix)`, covering the implicit `withdrawn=false` filter of every `/patent/`
-  count (a count over 9.4M rows is 120 to 300 ms from the index instead of 2.3 s through the rows).
+  count (a count over 9.4M rows is 120 to 300 ms from the index instead of 2.3 s through the rows), and
+  `(patent_id, withdrawn)` so the count of a nested group (`patent_id IN (SELECT _pid ...)`) probes an index
+  instead of reading a row per key (a CPC section: 2.9 s to 1.8 s warm).
   `build_sample.py --upgrade-indexes <db>` applies the same DDL to an existing file (drops the superseded
   single-column indexes, creates what is missing, analyzes only the new indexes, writes the row last).
 * `fts_trgm_<table>`: FTS5 `trigram` tables over the string columns `_contains` and `_begins` are asked
