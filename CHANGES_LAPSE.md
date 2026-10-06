@@ -220,3 +220,43 @@ views that answered the 501 for `attorneys`, `us_application_citations`, `foreig
   when wanted), `nber_*` (dead upstream), `rel_app_text_publications`.
 * Full build on patentref-us1 (62 GB RAM): 5,317 s, 141 GB (`/data/api/full2.db`); the stage file grows to
   7.5 GB with the attorney rows.
+
+## 2026-10-05 accounts and Free-tier keys (PatentRef checklist 5.10), app `lapse_accounts/`
+
+Supabase Auth is the identity system (PatentRef decision 2026-09-30); this app mints upstream
+`APIUserKey` records from a Supabase account and meters them. Upstream key handling is untouched:
+`X-Api-Key`, `HasUserAPIKey`, the 403 on a missing or revoked key, and `APIKeyThrottle` at 45/m.
+
+* `lapse_accounts/models.py`: `AccountKey` (one-to-one with `API.APIUserKey`: `supabase_user_id`,
+  `email`, `plan` = `free`, `rotated_from`) and `MonthlyUsage` (`subject`, `month` YYYY-MM UTC, `count`).
+  Migration `lapse_accounts/0001_initial.py`. No upstream model or migration changed.
+* `lapse_accounts/supabase_jwt.py`: verifies the Supabase access token (ES256 or RS256) against the
+  project JWKS at `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`, fetched with urllib and cached in
+  process and in the Django cache (re-fetched after 6 h, at most once a minute on an unknown `kid`; a
+  failed fetch keeps the cached keys). Checks `exp`, `aud` = `authenticated`, `iss`, `role`, not
+  anonymous, `user_metadata.email_verified` not false. Django never stores a password.
+* `lapse_accounts/views.py`, `urls.py`, `root_urls.py`: routes under `/api/v1/meta/`, placed before
+  upstream's `pvapi.urls` by `ROOT_URLCONF = "lapse_accounts.root_urls"` (lapse_local only).
+  `GET signup/` is the account page (plain HTML, supabase-js from jsdelivr with the anon key);
+  `GET|POST keys/` (Bearer) lists or mints the caller's key, `{"action": "rotate"}` revokes the old
+  one and mints a new one, the key value is returned once; `GET usage/` (X-Api-Key or Bearer) returns
+  `{"error": false, "plan", "key_prefix", "month", "count", "monthly_limit", "remaining",
+  "per_minute_limit", "resets_at"}`. Errors keep the upstream shape: `{"error": true}` with
+  `X-Status-Reason` and `X-Status-Reason-Code` (`ERR_AUTH` 401, `ERR_KEY` 403, `ERR_Q` 400).
+* `lapse_accounts/middleware.py`: counts every keyed request to a data endpoint under `/api/v1/`
+  (not `/api/v1/meta/`) whose status is below 500 and not 403 or 429, per `user:<id>` for account
+  keys (a rotated key keeps the month's count) and per `key:<prefix>` for keys without an account.
+* `lapse_accounts/throttling.py`: `MonthlyKeyThrottle`, listed after `APIKeyThrottle`, denies when
+  the month's count has reached the plan allowance; DRF answers the upstream 429 shape
+  (`{"detail": "Request was throttled. Expected available in N seconds."}`, `Retry-After` = seconds
+  to 00:00 UTC on the first of next month). Keys without an account have no monthly cap.
+  `MetaThrottle` is a per-IP `meta` scope (30/m) on the account endpoints.
+* `pvapi/settings/lapse_local.py`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWKS_URL`,
+  `SUPABASE_JWT_ISSUER` (the last two derived from the URL), `LAPSE_FREE_MONTHLY_LIMIT` (1000),
+  `LAPSE_FREE_MINUTE_LIMIT` (45; the `key` throttle rate follows it unless `LAPSE_THROTTLE_RATE` is
+  set), `LAPSE_DATA_VERSION` (header of the account page; defaults to the search database's name),
+  `INSTALLED_APPS += lapse_accounts`, the metering middleware, the two throttle classes. The
+  service_role key is never read by this app.
+* Tests: `lapse_accounts/tests/` (15, pytest, no Supabase or search corpus needed: a temporary Django
+  DB, a three-row search database in the Lapse layout and a locally generated P-256 key pair standing
+  in for the JWKS). Run `python -m pytest lapse_accounts/tests -q` from the fork root.

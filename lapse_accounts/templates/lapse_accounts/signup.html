@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en" data-theme="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Free API key | PatentRef</title>
+  <meta name="description" content="Create a PatentRef account and mint a Free API key: {{ monthly_limit }} requests a month, {{ per_minute_limit }} a minute.">
+  <meta name="robots" content="noindex">
+  <style>
+    :root {
+      --bg: #ffffff; --surface: #f6f7f9; --fg: #16181d; --muted: #555b66; --border: #d8dce3;
+      --accent: #1f5fbf; --accent-fg: #ffffff; --warn-bg: #fff4d6; --warn-fg: #5c4300; --focus: #1f5fbf;
+      --ok-bg: #e3f3e6; --ok-fg: #14532d; --err-bg: #fde8e8; --err-fg: #7f1d1d;
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --t-sm: 14px; --t-base: 16px; --t-lg: 20px; --t-xl: 28px; --lh: 1.5;
+      --s-1: 4px; --s-2: 8px; --s-3: 16px; --s-4: 24px; --s-5: 40px;
+      --radius: 4px; --maxw: 72ch; color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
+        --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
+        --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
+      --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
+      --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--fg); font: var(--t-base)/var(--lh) var(--font); margin: 0; }
+    .pr-header, .pr-main, .pr-footer { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--s-3); }
+    .pr-header { padding-top: var(--s-4); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: baseline; }
+    .pr-name { font-size: var(--t-lg); font-weight: 600; color: var(--fg); text-decoration: none; }
+    .pr-asof { margin: 0; color: var(--muted); font-size: var(--t-sm); }
+    .pr-main { padding-top: var(--s-4); padding-bottom: var(--s-5); }
+    .pr-footer { border-top: 1px solid var(--border); padding-top: var(--s-3); padding-bottom: var(--s-4); color: var(--muted); font-size: var(--t-sm); }
+    .pr-footer p { margin: 0 0 var(--s-2); }
+    h1 { font-size: var(--t-xl); line-height: 1.2; margin: 0 0 var(--s-2); }
+    h2 { font-size: var(--t-lg); margin: 0 0 var(--s-2); }
+    p { margin: 0 0 var(--s-3); }
+    .lead { color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin-bottom: var(--s-4); }
+    label { display: block; font-size: var(--t-sm); margin-bottom: var(--s-1); }
+    input[type=email], input[type=password] { width: 100%; font: inherit; padding: var(--s-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--fg); margin-bottom: var(--s-3); }
+    input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    button { font: inherit; padding: var(--s-2) var(--s-3); border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; margin-right: var(--s-2); margin-bottom: var(--s-2); }
+    button.secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    button[disabled] { opacity: .6; cursor: default; }
+    .msg { padding: var(--s-2) var(--s-3); border-radius: var(--radius); margin-bottom: var(--s-3); font-size: var(--t-sm); }
+    .msg.ok { background: var(--ok-bg); color: var(--ok-fg); }
+    .msg.err { background: var(--err-bg); color: var(--err-fg); }
+    .msg.warn { background: var(--warn-bg); color: var(--warn-fg); }
+    .msg:empty { display: none; }
+    code, pre { font-family: var(--mono); font-size: var(--t-sm); }
+    pre { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-2) var(--s-3); overflow-x: auto; margin: 0 0 var(--s-3); white-space: pre-wrap; word-break: break-all; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-3); }
+    dt { color: var(--muted); font-size: var(--t-sm); }
+    dd { margin: 0; }
+    .hidden { display: none; }
+    .tabs { display: flex; gap: var(--s-2); margin-bottom: var(--s-3); }
+    .tabs button { margin: 0; }
+    .tabs button[aria-selected=true] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    ul { padding-left: var(--s-4); margin: 0 0 var(--s-3); }
+    a { color: var(--accent); }
+    @media (max-width: 420px) { dl { grid-template-columns: 1fr; } button { width: 100%; margin-right: 0; } }
+  </style>
+</head>
+<body>
+  <header class="pr-header">
+    <a class="pr-name" href="/api/v1/meta/signup/">PatentRef</a>
+    <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
+  </header>
+  <main class="pr-main">
+    <h1>Free API key</h1>
+    <p class="lead">A Free key allows {{ monthly_limit }} requests a month and {{ per_minute_limit }} a minute on the PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Create an account, confirm your email, sign in, mint the key.</p>
+
+    <div id="auth" class="card">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tab-signup" aria-selected="true" aria-controls="panel-signup">Create account</button>
+        <button type="button" role="tab" id="tab-signin" aria-selected="false" aria-controls="panel-signin" class="secondary">Sign in</button>
+      </div>
+      <div id="auth-msg" class="msg" role="status" aria-live="polite"></div>
+
+      <form id="panel-signup" role="tabpanel" aria-labelledby="tab-signup">
+        <label for="su-email">Email</label>
+        <input id="su-email" type="email" autocomplete="email" required>
+        <label for="su-password">Password (at least 8 characters)</label>
+        <input id="su-password" type="password" autocomplete="new-password" minlength="8" required>
+        <button type="submit" id="su-btn">Create account</button>
+        <p class="lead">You will get one email with a confirmation link. Open it, then sign in here.</p>
+      </form>
+
+      <form id="panel-signin" role="tabpanel" aria-labelledby="tab-signin" class="hidden">
+        <label for="si-email">Email</label>
+        <input id="si-email" type="email" autocomplete="email" required>
+        <label for="si-password">Password</label>
+        <input id="si-password" type="password" autocomplete="current-password" required>
+        <button type="submit" id="si-btn">Sign in</button>
+      </form>
+    </div>
+
+    <div id="account" class="card hidden">
+      <h2>Account</h2>
+      <dl>
+        <dt>Email</dt><dd id="acct-email"></dd>
+        <dt>Plan</dt><dd>Free: {{ monthly_limit }} requests a month, {{ per_minute_limit }} a minute</dd>
+      </dl>
+      <div id="key-msg" class="msg" role="status" aria-live="polite"></div>
+      <div id="key-none">
+        <p>No key yet.</p>
+        <button type="button" id="key-create">Create my Free key</button>
+      </div>
+      <div id="key-have" class="hidden">
+        <dl>
+          <dt>Key prefix</dt><dd id="key-prefix"></dd>
+          <dt>Created</dt><dd id="key-created"></dd>
+        </dl>
+        <p class="lead">The full key is shown only once, right after it is created. If you lost it, rotate: the old key stops working at once and this month's count carries over.</p>
+        <button type="button" id="key-rotate" class="secondary">Rotate key</button>
+      </div>
+      <div id="key-show" class="hidden">
+        <p><strong>Your API key. Copy it now; it will not be shown again.</strong></p>
+        <pre id="key-value"></pre>
+        <button type="button" id="key-copy" class="secondary">Copy key</button>
+        <p>First call:</p>
+        <pre id="key-example"></pre>
+      </div>
+
+      <h2>Usage this month</h2>
+      <dl>
+        <dt>Requests</dt><dd><span id="use-count">0</span> of <span id="use-limit">{{ monthly_limit }}</span></dd>
+        <dt>Per minute</dt><dd id="use-minute">{{ per_minute_limit }}</dd>
+        <dt>Resets</dt><dd id="use-reset"></dd>
+      </dl>
+      <button type="button" id="use-refresh" class="secondary">Refresh usage</button>
+      <button type="button" id="sign-out" class="secondary">Sign out</button>
+      <p class="lead">From code: <code>GET /api/v1/meta/usage/</code> with your <code>X-Api-Key</code> header returns the same numbers as JSON.</p>
+    </div>
+
+    <div class="card">
+      <h2>How requests are counted</h2>
+      <ul>
+        <li>Every request to a data endpoint under <code>/api/v1/</code> made with your key counts, including ones that return 400 for a bad query.</li>
+        <li>Requests refused with 403 (bad key) or 429 (over a limit) do not count. Calls to <code>/api/v1/meta/</code> do not count.</li>
+        <li>The month is the UTC calendar month. Over the monthly allowance the API answers 429 with a <code>Retry-After</code> header until the first of the next month.</li>
+        <li>Over {{ per_minute_limit }} requests in a minute the API answers 429 for the rest of that minute, as PatentsView did.</li>
+      </ul>
+    </div>
+  </main>
+  <footer class="pr-footer">
+    <p>Patent data from PatentsView and the USPTO, used under CC BY 4.0. PatentRef is an independent service and is not affiliated with the USPTO.</p>
+    <p>Sign-in is handled by Supabase Auth. PatentRef stores your email, your key records and your request counts; it never stores your password.</p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
+  <script>
+  (function () {
+    var SUPABASE_URL = "{{ supabase_url|escapejs }}";
+    var SUPABASE_ANON_KEY = "{{ supabase_anon_key|escapejs }}";
+    var PAGE_URL = "{{ page_url|escapejs }}";
+    var $ = function (id) { return document.getElementById(id); };
+    var authMsg = $("auth-msg"), keyMsg = $("key-msg");
+
+    function say(el, kind, text) { el.className = "msg " + kind; el.textContent = text; }
+    function busy(btn, on) { btn.disabled = on; }
+
+    if (!window.supabase || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      say(authMsg, "err", "Sign-in is not available right now: the auth library did not load or the server is not configured. Try again in a minute.");
+      return;
+    }
+    var client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+
+    function showTab(name) {
+      var isSignup = name === "signup";
+      $("panel-signup").classList.toggle("hidden", !isSignup);
+      $("panel-signin").classList.toggle("hidden", isSignup);
+      $("tab-signup").setAttribute("aria-selected", isSignup ? "true" : "false");
+      $("tab-signin").setAttribute("aria-selected", isSignup ? "false" : "true");
+      $("tab-signup").classList.toggle("secondary", !isSignup);
+      $("tab-signin").classList.toggle("secondary", isSignup);
+    }
+    $("tab-signup").onclick = function () { showTab("signup"); };
+    $("tab-signin").onclick = function () { showTab("signin"); };
+
+    $("panel-signup").onsubmit = function (ev) {
+      ev.preventDefault();
+      var email = $("su-email").value.trim(), password = $("su-password").value;
+      busy($("su-btn"), true); say(authMsg, "warn", "Creating the account...");
+      client.auth.signUp({ email: email, password: password, options: { emailRedirectTo: PAGE_URL } }).then(function (res) {
+        busy($("su-btn"), false);
+        if (res.error) { say(authMsg, "err", res.error.message); return; }
+        var u = res.data && res.data.user;
+        if (u && u.identities && u.identities.length === 0) {
+          say(authMsg, "warn", "An account with this email already exists. Sign in, or wait for the confirmation email you were sent earlier.");
+          showTab("signin"); $("si-email").value = email; return;
+        }
+        if (res.data && res.data.session) { onSession(res.data.session); return; }
+        say(authMsg, "ok", "Account created. Check " + email + " for a confirmation link (sender: Supabase Auth). Open it, then sign in here. The email can take a few minutes; check spam.");
+        showTab("signin"); $("si-email").value = email;
+      });
+    };
+
+    $("panel-signin").onsubmit = function (ev) {
+      ev.preventDefault();
+      var email = $("si-email").value.trim(), password = $("si-password").value;
+      busy($("si-btn"), true); say(authMsg, "warn", "Signing in...");
+      client.auth.signInWithPassword({ email: email, password: password }).then(function (res) {
+        busy($("si-btn"), false);
+        if (res.error) {
+          var m = res.error.message || "Sign-in failed";
+          if (/not confirmed/i.test(m)) { m = "Email not confirmed yet. Open the confirmation link in the email first, then sign in."; }
+          say(authMsg, "err", m); return;
+        }
+        say(authMsg, "", "");
+        onSession(res.data.session);
+      });
+    };
+
+    function api(method, path, token, body) {
+      return fetch(path, {
+        method: method,
+        headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json", "Accept": "application/json" },
+        body: body ? JSON.stringify(body) : undefined
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) {
+          j._status = r.status; j._reason = r.headers.get("X-Status-Reason"); return j;
+        });
+      });
+    }
+
+    var session = null;
+    function onSession(s) {
+      session = s;
+      $("auth").classList.add("hidden");
+      $("account").classList.remove("hidden");
+      $("acct-email").textContent = (s.user && s.user.email) || "";
+      loadKeys(); loadUsage();
+    }
+
+    function token() { return session ? session.access_token : ""; }
+
+    function loadKeys() {
+      api("GET", "/api/v1/meta/keys/", token()).then(function (j) {
+        if (j._status !== 200) { say(keyMsg, "err", j._reason || ("Could not load keys (HTTP " + j._status + ")")); return; }
+        var active = (j.keys || []).filter(function (k) { return !k.revoked; })[0];
+        $("key-none").classList.toggle("hidden", !!active);
+        $("key-have").classList.toggle("hidden", !active);
+        if (active) { $("key-prefix").textContent = active.prefix; $("key-created").textContent = active.created_at.replace("T", " ").replace("Z", " UTC"); }
+      });
+    }
+
+    function mint(action) {
+      say(keyMsg, "warn", action === "rotate" ? "Rotating the key..." : "Creating the key...");
+      api("POST", "/api/v1/meta/keys/", token(), { action: action }).then(function (j) {
+        if (j._status !== 200 && j._status !== 201) { say(keyMsg, "err", j._reason || ("Request failed (HTTP " + j._status + ")")); return; }
+        if (j.api_key) {
+          $("key-value").textContent = j.api_key;
+          $("key-example").textContent = 'curl -H "X-Api-Key: ' + j.api_key + '" "https://patentref.io/api/v1/patent/?q=%7B%22patent_id%22%3A%2210000000%22%7D"';
+          $("key-show").classList.remove("hidden");
+          say(keyMsg, "ok", action === "rotate" ? "Key rotated. The old key no longer works." : "Key created.");
+        } else {
+          say(keyMsg, "warn", j.note || "You already have a key.");
+        }
+        loadKeys(); loadUsage();
+      });
+    }
+    $("key-create").onclick = function () { mint("create"); };
+    $("key-rotate").onclick = function () {
+      if (window.confirm("Rotate the key? The current key stops working immediately.")) { mint("rotate"); }
+    };
+    $("key-copy").onclick = function () {
+      var v = $("key-value").textContent;
+      if (navigator.clipboard) { navigator.clipboard.writeText(v).then(function () { say(keyMsg, "ok", "Key copied to the clipboard."); }); }
+      else { say(keyMsg, "warn", "Select the key and copy it by hand."); }
+    };
+
+    function loadUsage() {
+      api("GET", "/api/v1/meta/usage/", token()).then(function (j) {
+        if (j._status !== 200) { return; }
+        $("use-count").textContent = j.count;
+        $("use-limit").textContent = j.monthly_limit === null ? "unlimited" : j.monthly_limit;
+        $("use-minute").textContent = j.per_minute_limit;
+        $("use-reset").textContent = (j.resets_at || "").replace("T", " ").replace("Z", " UTC");
+      });
+    }
+    $("use-refresh").onclick = loadUsage;
+    $("sign-out").onclick = function () {
+      client.auth.signOut().then(function () { window.location.href = PAGE_URL; });
+    };
+
+    client.auth.getSession().then(function (res) {
+      if (res.data && res.data.session) { onSession(res.data.session); }
+    });
+    client.auth.onAuthStateChange(function (event, s) {
+      if (s && !session) { onSession(s); }
+      else if (s && session) { session = s; }
+    });
+  })();
+  </script>
+</body>
+</html>
