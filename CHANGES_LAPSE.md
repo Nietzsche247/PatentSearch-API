@@ -246,17 +246,20 @@ Supabase Auth is the identity system (PatentRef decision 2026-09-30); this app m
 * `lapse_accounts/middleware.py`: counts every keyed request to a data endpoint under `/api/v1/`
   (not `/api/v1/meta/`) whose status is below 500 and not 403 or 429, per `user:<id>` for account
   keys (a rotated key keeps the month's count) and per `key:<prefix>` for keys without an account.
-* `lapse_accounts/throttling.py`: `MonthlyKeyThrottle`, listed after `APIKeyThrottle`, denies when
-  the month's count has reached the plan allowance; DRF answers the upstream 429 shape
+* `lapse_accounts/throttling.py`: `PlanKeyThrottle` is upstream's `APIKeyThrottle` (same ident,
+  cache key and 429) with the rate chosen per key: account keys get the plan's per-minute allowance
+  (45/m for Free), keys without an account keep the `key` rate (`LAPSE_THROTTLE_RATE`, 45/m by
+  default; the server runs the compat suites with a high rate on the operator key).
+  `MonthlyKeyThrottle`, listed after it, denies when the month's count has reached the plan allowance; DRF answers the upstream 429 shape
   (`{"detail": "Request was throttled. Expected available in N seconds."}`, `Retry-After` = seconds
   to 00:00 UTC on the first of next month). Keys without an account have no monthly cap.
   `MetaThrottle` is a per-IP `meta` scope (30/m) on the account endpoints.
 * `pvapi/settings/lapse_local.py`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWKS_URL`,
   `SUPABASE_JWT_ISSUER` (the last two derived from the URL), `LAPSE_FREE_MONTHLY_LIMIT` (1000),
-  `LAPSE_FREE_MINUTE_LIMIT` (45; the `key` throttle rate follows it unless `LAPSE_THROTTLE_RATE` is
-  set), `LAPSE_DATA_VERSION` (header of the account page; defaults to the search database's name),
+  `LAPSE_FREE_MINUTE_LIMIT` (45, the per-minute rate of account keys; `LAPSE_THROTTLE_RATE` stays the
+  rate of keys without an account), `LAPSE_DATA_VERSION` (header of the account page; defaults to the search database's name),
   `INSTALLED_APPS += lapse_accounts`, the metering middleware, the two throttle classes. The
   service_role key is never read by this app.
-* Tests: `lapse_accounts/tests/` (15, pytest, no Supabase or search corpus needed: a temporary Django
+* Tests: `lapse_accounts/tests/` (16, pytest, no Supabase or search corpus needed: a temporary Django
   DB, a three-row search database in the Lapse layout and a locally generated P-256 key pair standing
   in for the JWKS). Run `python -m pytest lapse_accounts/tests -q` from the fork root.

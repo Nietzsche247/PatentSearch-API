@@ -131,3 +131,21 @@ def test_signup_page(client):
     assert "5 requests a month" in html and "45 a minute" in html
     assert "—" not in html  # no em-dashes on PatentRef pages
     assert client.post("/api/v1/meta/signup/").status_code == 405
+
+
+def test_per_minute_rate_is_the_plan_rate_for_account_keys(client, user_key, monkeypatch):
+    """Account keys are throttled at the plan's per-minute allowance even when the server's `key` rate
+    (used for the operator's own keys and the compat suites) is higher."""
+    from django.conf import settings
+
+    token, key, prefix = user_key
+    monkeypatch.setattr(settings, "LAPSE_FREE_MINUTE_LIMIT", 2)
+    metering.forget_prefix(prefix)
+    assert client.get(PATENT_Q, HTTP_X_API_KEY=key).status_code == 200
+    assert client.get(PATENT_Q, HTTP_X_API_KEY=key).status_code == 200
+    r = client.get(PATENT_Q, HTTP_X_API_KEY=key)
+    assert r.status_code == 429 and r.json()["detail"].startswith("Request was throttled.") and int(r["Retry-After"]) <= 60
+    assert client.get("/api/v1/meta/usage/", HTTP_X_API_KEY=key).json()["count"] == 2
+    _, opkey = APIUserKey.objects.create_key(name="operator2", username="op2", email="op2@example.test")
+    for _ in range(4):  # the `key` rate is 45/m in tests; the plan rate of 2/m does not apply
+        assert client.get(PATENT_Q, HTTP_X_API_KEY=opkey).status_code == 200

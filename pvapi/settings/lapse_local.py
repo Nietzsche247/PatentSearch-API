@@ -74,12 +74,13 @@ INSTALLED_APPS = list(INSTALLED_APPS) + ["lapse_accounts"]
 ROOT_URLCONF = "lapse_accounts.root_urls"
 MIDDLEWARE = MIDDLEWARE + ["lapse_accounts.middleware.MeteringMiddleware"]
 
-# Throttle: upstream per-minute rate (LAPSE_THROTTLE_RATE wins; else the Free per-minute limit, 45/m by default)
-# plus the Free-tier monthly cap (lapse_accounts/throttling.py) and a per-IP rate on the account endpoints
+# Throttles (lapse_accounts/throttling.py): upstream's per-minute key throttle with the rate chosen per key
+# (account keys: the plan's per-minute allowance, 45/m for Free; keys without an account: LAPSE_THROTTLE_RATE,
+# upstream's 45/m by default), then the Free-tier monthly cap, plus a per-IP rate on the account endpoints
 REST_FRAMEWORK = dict(REST_FRAMEWORK)
-REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = ["API.throttler.APIKeyThrottle", "lapse_accounts.throttling.MonthlyKeyThrottle"]
+REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = ["lapse_accounts.throttling.PlanKeyThrottle", "lapse_accounts.throttling.MonthlyKeyThrottle"]
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
-    "key": os.environ.get("LAPSE_THROTTLE_RATE", f"{LAPSE_FREE_MINUTE_LIMIT}/m"),
+    "key": os.environ.get("LAPSE_THROTTLE_RATE", "45/m"),
     "meta": os.environ.get("LAPSE_META_THROTTLE_RATE", "30/m"),
 }
 
