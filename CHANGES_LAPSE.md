@@ -347,3 +347,43 @@ evaluation of the ES semantics, pages and cursors included.
   build caps mmap at 2 GiB anyway), `temp_store=MEMORY`.
 * `LAPSE_SQL_LOG=<file>`: one JSON line per executed statement (SQL, parameters, milliseconds) for
   profiling; off when unset.
+
+## 2026-10-06 exact throttles across workers (PatentRef checklist 5.10, throttle fix)
+
+The fresh audit of 5.10 found the Free key's 45-a-minute limit leaking under concurrent traffic (53
+of 60 sequential requests answered 200 while operator-key loops ran). Reproduced and measured before
+the fix: a 60-request parallel burst from one Free key got 60 x 200 on the live box and on the test
+client, and 49 x 200 in the audit's sequential-under-load shape. Two causes, both in DRF's
+`SimpleRateThrottle` on `DatabaseCache` over the SQLite Django DB: the cache `set` (SELECT then UPDATE
+inside a deferred transaction) hits SQLITE_BUSY at the lock upgrade when another worker holds the write
+lock and Django drops the write silently; and the `get`, append, `set` sequence is not atomic across
+the eight workers, so parallel requests read the same history and overwrite each other. The auditor's
+suggested settings change (`transaction_mode: IMMEDIATE`) cures the first and not the second: with it
+alone the parallel burst still got 60 x 200.
+
+* `lapse_accounts/ratelimit.py` (new): one row per (subject, window) bumped with a single conditional
+  `INSERT ... ON CONFLICT DO UPDATE SET count = count + 1 WHERE count < limit RETURNING count`. SQLite
+  runs the statement atomically under its one-writer lock and the busy timeout makes a contending
+  writer wait, so the count is exact across processes and threads with no explicit transaction.
+* `lapse_accounts/throttling.py`: `PlanKeyThrottle` and `MetaThrottle` now count on that table
+  (`lapse_accounts_windowcount`, model `WindowCount`, migration 0002) in fixed clock-minute windows
+  (`int(now // 60)`): "45 per minute" is 45 in a UTC clock minute and the 46th gets 429 with
+  `Retry-After` to the next minute; a burst straddling a minute boundary can get 45 in each. The
+  subject is `user:<id>` for account keys (rotating a key keeps the minute), `key:<prefix>` for other
+  keys, `ip:<addr>` when no key was sent. The 429 body and `Retry-After` are DRF's, unchanged.
+  `MonthlyKeyThrottle` reserves the request against `MonthlyUsage` with the same conditional increment
+  (limit = the plan's monthly allowance, none for keys without an account), so the cap holds exactly
+  under parallel traffic; it skips the reservation when the per-minute rule already denied (DRF runs
+  every throttle before answering).
+* `lapse_accounts/middleware.py`: no longer counts; it refunds the reservation when the response does
+  not count (403, 429, 5xx). The count is still exactly the keyed data requests answered below 500
+  other than 403 and 429. One difference: a keyed request to a path under `/api/v1/` that resolves to no
+  view (404 from the resolver, no throttle ran) is no longer counted.
+* `pvapi/settings/lapse_local.py`: `DATABASES` OPTIONS `transaction_mode: IMMEDIATE`, `timeout` 20
+  (`LAPSE_DJANGO_DB_TIMEOUT`) for the remaining `DatabaseCache` users (the subject cache) and any
+  `transaction.atomic()` on this file.
+* `lapse_accounts/tests/test_throttle_concurrency.py`: 60 threads, each its own connection, one Free
+  key: exactly 45 x 200 and 15 x 429, month count 45, old window dropped on the next minute; a burst
+  at the monthly cap stops exactly at the cap; a 5xx after admission is refunded.
+* Live after the fix (audit `ops/audits/2026-10-06_gate-5.10_throttle-fix_patentref-us1.txt` in the
+  patentref repo): see that file for the parallel and the under-load bursts and the counter check.

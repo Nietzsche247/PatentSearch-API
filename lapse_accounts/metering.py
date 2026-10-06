@@ -2,7 +2,10 @@
 
 What counts: every request to a data endpoint under `/api/v1/` (not `/api/v1/meta/`) that carried an
 `X-Api-Key` and was answered with a status below 500 other than 403 and 429. Bad queries (400) count,
-because the query ran; a rejected key, a throttled request and a server error do not.
+because the query ran; a rejected key, a throttled request and a server error do not. The count is
+reserved at admission by `lapse_accounts.throttling.MonthlyKeyThrottle` with one atomic conditional
+increment (`lapse_accounts.ratelimit.bump`), so the cap holds exactly under parallel traffic, and
+`lapse_accounts.middleware.MeteringMiddleware` refunds a reservation whose response does not count.
 
 The month is the UTC calendar month; the count resets at 00:00 UTC on the first of the next month.
 Keys minted from a Supabase account are counted per user (`user:<id>`), so rotating a key does not
@@ -15,8 +18,6 @@ from datetime import datetime, timezone
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
-from django.db.models import F
 
 from lapse_accounts.models import PLAN_FREE, AccountKey, MonthlyUsage
 
@@ -84,28 +85,6 @@ def usage_count(subject, month=None):
     month = month or current_month()
     row = MonthlyUsage.objects.filter(subject=subject, month=month).only("count").first()
     return row.count if row else 0
-
-
-def record_request(prefix):
-    info = subject_for_prefix(prefix)
-    month = current_month()
-    updated = MonthlyUsage.objects.filter(subject=info["subject"], month=month).update(count=F("count") + 1)
-    if not updated:
-        try:
-            with transaction.atomic():
-                MonthlyUsage.objects.create(subject=info["subject"], month=month, count=1)
-        except IntegrityError:
-            MonthlyUsage.objects.filter(subject=info["subject"], month=month).update(count=F("count") + 1)
-    return info
-
-
-def over_cap(prefix):
-    """True when the key's subject has used its monthly allowance."""
-    info = subject_for_prefix(prefix)
-    limit = info["monthly_limit"]
-    if limit is None:
-        return False
-    return usage_count(info["subject"]) >= limit
 
 
 def usage_summary(prefix=None, account=None):

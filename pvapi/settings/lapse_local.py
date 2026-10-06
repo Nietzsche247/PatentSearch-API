@@ -41,6 +41,11 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": os.environ.get("LAPSE_DJANGO_DB", str(_DATA / "django.sqlite3")),
+        # Eight gunicorn workers write this file (throttle counters, the monthly count, the DatabaseCache).
+        # IMMEDIATE makes every transaction.atomic() take the write lock at BEGIN, so a write inside it waits
+        # for the busy timeout instead of failing at once at the lock upgrade (that failure is what made
+        # DatabaseCache drop throttle writes under load, PatentRef gate 5.10 fix of 2026-10-06).
+        "OPTIONS": {"transaction_mode": "IMMEDIATE", "timeout": int(os.environ.get("LAPSE_DJANGO_DB_TIMEOUT", "20"))},
     }
 }
 
