@@ -878,7 +878,7 @@ INDEX_SET = "2"
 INDEXES = {
     "patents": ["patent_date", "patent_type", "patent_year", "patent_zero_prefix", "withdrawn",
                 ("withdrawn", "patent_date"), ("withdrawn", "patent_type"), ("withdrawn", "patent_year"),
-                ("withdrawn", "patent_zero_prefix")],
+                ("withdrawn", "patent_zero_prefix"), ("patent_id", "withdrawn")],
     "patents__inventors": ["_pid", ("inventor_id", "_pid"), ("inventor_name_last", "_pid"),
                            ("inventor_name_first", "_pid"), ("inventor_city", "_pid"), ("inventor_country", "_pid"),
                            ("inventor_state", "_pid")],
