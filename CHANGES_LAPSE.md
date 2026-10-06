@@ -306,7 +306,7 @@ evaluation of the ES semantics, pages and cursors included.
   single-column indexes, creates what is missing, analyzes only the new indexes, writes the row last).
 * `fts_trgm_<table>`: FTS5 `trigram` tables over the string columns `_contains` and `_begins` are asked
   on (`TRIGRAM` in `build_sample.py`: titles, inventor and assignee names and cities, attorneys,
-  applicants, examiners, `cpc_group_id`, the entity tables). The translator adds
+  applicants, examiners, `cpc_group_id`, `patent_id` and `patent_zero_prefix` for `_begins` on ids, the entity tables). The translator adds
   `rowid IN (SELECT rowid FROM fts_trgm_t WHERE fts_trgm_t MATCH 'col : "needle"')` in front of the
   existing predicate when the needle is ASCII and at least three characters long; the existing
   predicate (Python folding, token test) still decides, so the result set is the same. Shorter or
@@ -314,10 +314,13 @@ evaluation of the ES semantics, pages and cursors included.
   Python; a two-character needle has no trigram). `patent_abstract` has no trigram table (about 30 GB).
 * `_lapse_value_stats` (`VALUE_STATS`): value frequencies of the low-cardinality columns (patent type,
   withdrawn, year, kind, CPC section/class/subclass/type, inventor and assignee country/state/type,
-  application type, series code, WIPO field) plus each table's row count. The translator uses them for:
-  `likelihood(col = ?, p)` hints on equality terms (SQLite's own estimate is rows / distinct values, so
-  it took `patent_type = 'utility'` for 860k rows instead of 8.5M and sorted 8.5M rows for a 100-row
-  page); `must_not` of equality on such a column when the complement is 10 percent of rows or rarer,
+  application type, series code, WIPO field), a by-year histogram of `patent_date` (col `patent_date/4`)
+  and each table's row count. The translator uses them for: `likelihood(col = ?, p)` hints on equality
+  terms (SQLite's own estimate is rows / distinct values, so it took `patent_type = 'utility'` for 860k
+  rows instead of 8.5M and sorted 8.5M rows for a 100-row page); `likelihood(range, p)` on a date or
+  integer range from the histogram or the values (SQLite guesses a quarter of the rows for any one-sided
+  range, so `patent_date >= 1900-01-01` sorted by patent_id walked the date index and sorted 9.4M rows,
+  2.3 s, instead of the key index, 1 ms); `must_not` of equality on such a column when the complement is 10 percent of rows or rarer,
   written as the union of the index ranges around the excluded values (NULL included, as ES counts a
   missing value as not matching), in a `rowid IN (SELECT rowid FROM t WHERE ...)` subquery on a page so
   the planner does not scan the sort index for it (`_neq` on three patent types: 2.2 s to 10 ms);

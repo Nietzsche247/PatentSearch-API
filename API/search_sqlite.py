@@ -242,10 +242,14 @@ class IndexMeta:
         # hints from them, must_not on such a column becomes an index range union, and a nested group
         # whose match is dense is joined with EXISTS instead of IN.
         self.stats, self.rows = {}, {}
+        self.hist = {}  # (table, column) -> (prefix length, {prefix: rows}); a range estimate for the column
         if "_lapse_value_stats" in tables:
             for tbl, col, val, n in con.execute("SELECT tbl, col, val, n FROM _lapse_value_stats"):
                 if col == "*":
                     self.rows[tbl] = n
+                elif "/" in col:
+                    c, width = col.rsplit("/", 1)
+                    self.hist.setdefault((tbl, c), (int(width), {}))[1][val] = n
                 else:
                     self.stats.setdefault((tbl, col), {})[val] = n
         # single-column indexes of the main table, for steering an ORDER BY onto the index of its first key
@@ -265,6 +269,33 @@ class IndexMeta:
             return None
         key = value if isinstance(value, str) else (str(value) if value is not None else None)
         return d.get(key, 0) / total
+
+    def range_freq(self, table, column, lo, hi):
+        """Estimated fraction of `table` rows whose `column` lies in [lo, hi] (either bound may be None),
+        from the value stats (exact for a listed column) or the prefix histogram (a date by year, so the
+        bounding years count whole); None when the column has neither."""
+        total = self.rows.get(table)
+        if not total:
+            return None
+        d = self.stats.get((table, column))
+        width = None
+        if d is None and (table, column) in self.hist:
+            width, d = self.hist[(table, column)]
+        if d is None:
+            return None
+        lo_s = None if lo is None else str(lo)[:width] if width else lo
+        hi_s = None if hi is None else str(hi)[:width] if width else hi
+        n = 0
+        for v, rows in d.items():
+            if v is None:
+                continue
+            key = v if width else (type(lo_s)(v) if lo_s is not None else type(hi_s)(v) if hi_s is not None else v)
+            try:
+                if (lo_s is None or key >= lo_s) and (hi_s is None or key <= hi_s):
+                    n += rows
+            except (TypeError, ValueError):
+                return None
+        return n / total
 
     def columns_of(self, path):
         return self.columns if path is None else self.child_columns.get(path, [])
@@ -575,11 +606,16 @@ class Translator:
                     hi, inc_hi = coerce_keyword(v), int(k == "lte")
             return (f"COALESCE(lapse_tok_range({f.sql}, {self.p(lo)}, {self.p(hi)}, "
                     f"{self.p(inc_lo)}, {self.p(inc_hi)}), 0)")
+        lo_b = hi_b = None  # the bounds as stored, for the selectivity estimate
         for k, v in spec.items():
             if k not in ops:
                 raise es_error("parsing_exception", f"[range] query does not support [{k}]")
             if f.es_type == "date" and not f.keyword:
                 lo, hi, midnight = coerce_date(f.column, v)
+                if k in ("gte", "gt"):
+                    lo_b = lo
+                else:
+                    hi_b = hi
                 # ES rounds a partial value down for gte/lt and up for gt/lte ("2010" is the whole year);
                 # a time later than 00:00 excludes the document stored at midnight of that day
                 if k == "gte":
@@ -593,9 +629,20 @@ class Translator:
             elif f.es_type in INTEGRAL and not f.keyword:
                 op, n = integral_bound(v, k)
                 parts.append(f"{f.sql} {op} {self.p(n)}")
+                if k in ("gte", "gt"):
+                    lo_b = n
+                else:
+                    hi_b = n
             else:
                 parts.append(f"{f.sql} {ops[k]} {self.p(f.value(v))}")
-        return f"({' AND '.join(parts) or '1'}{self.kw_guard(f)})"
+        sql = f"{' AND '.join(parts) or '1'}"
+        p = None
+        if parts and not f.keyword and (lo_b is not None or hi_b is not None):
+            p = self.meta.range_freq(f.table, f.column, lo_b, hi_b)
+        if p is not None:
+            self._p = p
+            sql = f"likelihood({sql}, {min(max(p, 1e-7), 0.9999):.7f})"
+        return f"({sql}{self.kw_guard(f)})"
 
     def _pattern(self, body, qname, ctx, to_like):
         field, spec = self.one(body, qname)

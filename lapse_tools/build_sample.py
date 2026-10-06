@@ -924,7 +924,7 @@ SUPERSEDED = {
 # (the translator uses it as a prefilter for ASCII needles of three or more characters; the exact
 # predicate still runs on the candidates). Titles included, abstracts not (the index would be ~30 GB).
 TRIGRAM = {
-    "patents": ["patent_title"],
+    "patents": ["patent_title", "patent_id", "patent_zero_prefix"],
     "patents__inventors": ["inventor_name_first", "inventor_name_last", "inventor_city"],
     "patents__assignees": ["assignee_organization", "assignee_individual_name_first", "assignee_individual_name_last",
                            "assignee_city"],
@@ -939,9 +939,12 @@ TRIGRAM = {
 }
 # _lapse_value_stats: value frequencies of low-cardinality columns (val as text, NULL kept; col "*" is
 # the table's row count). The translator reads them for likelihood() hints, the must_not range union
-# and the EXISTS-versus-IN choice for nested groups.
+# and the EXISTS-versus-IN choice for nested groups. A (column, n) entry is a histogram over the first
+# n characters of the value (a date column by year), stored under col "column/n"; the translator
+# estimates a range on that column from it, which is what keeps a broad date range on a page sorted by
+# patent_id on the key index (the planner's own guess for any one-sided range is a quarter of the rows).
 VALUE_STATS = {
-    "patents": ["patent_type", "withdrawn", "wipo_kind", "patent_year"],
+    "patents": ["patent_type", "withdrawn", "wipo_kind", "patent_year", ("patent_date", 4)],
     "patents__inventors": ["inventor_country", "inventor_state", "inventor_gender_code"],
     "patents__assignees": ["assignee_country", "assignee_state", "assignee_type"],
     "patents__cpc_current": ["cpc_section", "cpc_class_id", "cpc_subclass_id", "cpc_type"],
@@ -1003,8 +1006,13 @@ def make_indexes(out, upgrade=False):
         have = table_columns(out, t)
         cols = [c for c in cols if c in have]
         name = f"fts_trgm_{t}"
-        if not cols or (upgrade and existing(out, "table", name)):
+        if not cols:
             continue
+        if upgrade and existing(out, "table", name):
+            if table_columns(out, name) == cols:
+                continue
+            out.execute(f'DROP TABLE "{name}"')  # the column list changed: rebuild it
+            log(f"  dropped {name} (columns changed)")
         t0 = time.time()
         out.execute(f'CREATE VIRTUAL TABLE "{name}" USING fts5({", ".join(cols)}, content="{t}", '
                     "content_rowid='rowid', tokenize='trigram')")
@@ -1021,7 +1029,12 @@ def make_indexes(out, upgrade=False):
         out.execute("INSERT INTO _lapse_value_stats VALUES (?,?,?,?)",
                     (t, "*", None, out.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0]))
         for c in cols:
-            if c in have:
+            if isinstance(c, tuple):
+                c, n = c
+                if c in have:
+                    out.execute(f'INSERT INTO _lapse_value_stats SELECT ?, ?, substr(CAST("{c}" AS TEXT), 1, {int(n)}), '
+                                f'count(*) FROM "{t}" GROUP BY 3', (t, f"{c}/{int(n)}"))
+            elif c in have:
                 out.execute(f'INSERT INTO _lapse_value_stats SELECT ?, ?, CAST("{c}" AS TEXT), count(*) FROM "{t}" '
                             f'GROUP BY "{c}"', (t, c))
         out.commit()

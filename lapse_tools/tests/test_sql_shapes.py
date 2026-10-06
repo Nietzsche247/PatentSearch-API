@@ -301,6 +301,12 @@ def test_likelihood_hints_only_with_stats(dbs):
     assert 0.85 < density < 0.95
     sql_old, _, d_old = sql_of(old, q)
     assert "likelihood" not in sql_old and d_old is None
+    # a range on a date column is estimated from the by-year histogram, on an integer column from the values
+    sql_r, _, d_r = sql_of(new, wrap({"range": {"patent_date": {"gte": "2007-01-09"}}}))
+    assert 'likelihood(m."patent_date" >= ?, 0.' in sql_r and 0.4 < d_r < 0.65
+    sql_y, _, d_y = sql_of(new, wrap({"range": {"patent_year": {"gte": 2020, "lte": 2021}}}))
+    assert "likelihood(" in sql_y and 0.02 < d_y < 0.1
+    assert "likelihood(m.\"patent_date\"" not in sql_of(old, wrap({"range": {"patent_date": {"gte": "2007-01-09"}}}))[0]
 
 
 def test_must_not_rare_complement_becomes_range_union(dbs):
