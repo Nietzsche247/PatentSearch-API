@@ -44,8 +44,8 @@ DATABASES = {
     }
 }
 
-# Headers for the documented 501 on deferred endpoints (API/lapse_errors.py)
-MIDDLEWARE = ["API.lapse_errors.LapseErrorHeadersMiddleware"] + list(MIDDLEWARE)
+# Headers for the documented 501 on deferred endpoints, and X-Data-Version on every response (API/lapse_errors.py)
+MIDDLEWARE = ["API.lapse_errors.DataVersionMiddleware", "API.lapse_errors.LapseErrorHeadersMiddleware"] + list(MIDDLEWARE)
 
 # Search backend seam (API/search.py:get_searcher)
 LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")
@@ -68,7 +68,8 @@ SUPABASE_JWT_ISSUER = os.environ.get("SUPABASE_JWT_ISSUER", f"{SUPABASE_URL}/aut
 # Free tier: requests per UTC calendar month and per minute (the per-minute figure is upstream's 45/m)
 LAPSE_FREE_MONTHLY_LIMIT = int(os.environ.get("LAPSE_FREE_MONTHLY_LIMIT", "1000"))
 LAPSE_FREE_MINUTE_LIMIT = int(os.environ.get("LAPSE_FREE_MINUTE_LIMIT", "45"))
-# Shown in the header of the account page; defaults to the search database's file name
+# Fallback data_version for a search database with no `_lapse_build.data_version` row (files built before the
+# refresh runner); otherwise the version comes from the served file (API/search_sqlite.py read_data_version)
 LAPSE_DATA_VERSION = os.environ.get("LAPSE_DATA_VERSION", "")
 INSTALLED_APPS = list(INSTALLED_APPS) + ["lapse_accounts"]
 ROOT_URLCONF = "lapse_accounts.root_urls"

@@ -22,6 +22,7 @@ root_cause types ES returns, so API.exceptions maps them to the same status code
 import datetime as dt
 import fnmatch
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -566,12 +567,41 @@ def _fts_match(text, expr):
 
 
 # ------------------------------------------------------------------ searcher
+def read_data_version(con, real_path, fallback_env=True):
+    """The data_version of an open search database: `_lapse_build.data_version` (stamped by the refresh
+    runner, PatentRef 4.2); for a file built before the runner, LAPSE_DATA_VERSION from the environment
+    if set, else the file's own name without the extension (full2.db -> full2). Never empty."""
+    try:
+        if con.execute("SELECT 1 FROM sqlite_master WHERE name='_lapse_build'").fetchone():
+            row = con.execute("SELECT v FROM _lapse_build WHERE k='data_version'").fetchone()
+            if row and row[0]:
+                return str(row[0])
+    except sqlite3.Error:
+        pass
+    env = os.environ.get("LAPSE_DATA_VERSION", "") if fallback_env else ""
+    return env or os.path.splitext(os.path.basename(real_path))[0] or "unversioned"
+
+
+def current_data_version():
+    """The data_version of the connection this thread is holding, or None when it has opened none yet.
+    Read by `API.lapse_errors.DataVersionMiddleware` after the view ran, so the header on a response
+    names the file that produced its body."""
+    return getattr(LapseSQLiteSearch._local, "data_version", None)
+
+
 class LapseSQLiteSearch:
+    """One instance per request (API.search.get_searcher builds one in the view). The configured path is
+    normally a symlink (`snapshot_current.db`); it is resolved ONCE, here, so every query of a request
+    hits the same file even if the symlink moves mid-request (PatentRef gate 4.3). A thread's cached
+    connection is reopened when the resolved file differs from the one it holds, so after a swap the
+    next request on this thread serves the new file without a worker restart."""
+
     _local = threading.local()
     _meta_cache = {}
 
     def __init__(self, path, timeout=60):
         self.path = path
+        self.real = os.path.realpath(path)
         self.timeout = timeout
 
     @classmethod
@@ -583,8 +613,14 @@ class LapseSQLiteSearch:
 
     def connection(self):
         con = getattr(self._local, "con", None)
-        if con is None or getattr(self._local, "path", None) != self.path:
-            uri = "file:" + self.path.replace("\\", "/") + "?mode=ro"
+        if con is None or getattr(self._local, "real", None) != self.real:
+            if con is not None:
+                try:
+                    con.close()
+                except sqlite3.Error:
+                    pass
+                self._local.con = None
+            uri = "file:" + self.real.replace("\\", "/") + "?mode=ro"
             con = sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=self.timeout)
             con.execute("PRAGMA case_sensitive_like=ON")
             con.execute("PRAGMA query_only=ON")
@@ -595,11 +631,16 @@ class LapseSQLiteSearch:
             con.create_function("lapse_fts_match", 2, _fts_match, deterministic=True)
             con.create_function("lapse_tok_range", 5, _tok_range, deterministic=True)
             con.create_function("lapse_tok_wild", 2, _tok_wild, deterministic=True)
-            self._local.con, self._local.path = con, self.path
+            self._local.con, self._local.real = con, self.real
+            self._local.data_version = read_data_version(con, self.real)
         return con
 
+    def data_version(self):
+        self.connection()
+        return self._local.data_version
+
     def meta(self, index):
-        key = (self.path, index)
+        key = (self.real, index)
         if key not in self._meta_cache:
             self._meta_cache[key] = IndexMeta(self.connection(), index)
         return self._meta_cache[key]
@@ -725,7 +766,7 @@ class LapseSQLiteSearch:
             con.set_progress_handler(None, 0)
 
     def _has_nulls(self, meta, column):
-        key = (self.path, meta.table, column)
+        key = (self.real, meta.table, column)
         if key not in self._null_cache:
             row = self.connection().execute(
                 f'SELECT 1 FROM "{meta.table}" WHERE "{column}" IS NULL LIMIT 1').fetchone()

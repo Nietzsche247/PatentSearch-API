@@ -263,3 +263,29 @@ Supabase Auth is the identity system (PatentRef decision 2026-09-30); this app m
 * Tests: `lapse_accounts/tests/` (16, pytest, no Supabase or search corpus needed: a temporary Django
   DB, a three-row search database in the Lapse layout and a locally generated P-256 key pair standing
   in for the JWKS). Run `python -m pytest lapse_accounts/tests -q` from the fork root.
+
+## 2026-10-06 X-Data-Version and the per-request file resolution (PatentRef checklist 4.3)
+
+Additive only: no upstream body or header changes; one new response header and one new behavior of
+the SQLite backend when the configured path is a symlink.
+
+* `X-Data-Version` on every response (data endpoints, 400, 403, 429, 501, the account endpoints):
+  the `data_version` of the search database that produced the body. Source: the row
+  `_lapse_build.data_version` the refresh runner stamps into every build (`20260929.1` and so on);
+  for a file built before the runner the fallback is `LAPSE_DATA_VERSION` from the environment if
+  set, else the served file's name without the extension (`full2.db` serves as `full2`).
+  Middleware `API.lapse_errors.DataVersionMiddleware`, outermost in `lapse_local` so throttled and
+  refused requests carry it too. The value is read from the thread's cached connection after the view
+  ran, so the header can never name a file other than the one the body came from.
+* `API/search_sqlite.py`: `LapseSQLiteSearch` resolves the configured path (`os.path.realpath`) once
+  per instance, and the view builds one instance per request, so every query of a request hits the
+  same file even if the symlink moves while the request runs. A thread's cached connection is closed
+  and reopened when the resolved file differs from the one it holds, so after
+  `snapshot_current.db` is repointed the next request on each thread serves the new file with no
+  worker restart; the schema caches are keyed by the resolved path. The swap tool still sends the
+  gunicorn master a SIGHUP after the rename so the old file's handles and caches are released.
+* `lapse_accounts/views.py`: the account page shows the served file's `data_version` from the same
+  source as the header.
+* Tests: `lapse_accounts/tests/test_data_version.py` (4): the header follows the symlink across a
+  swap and a rollback with the body from the same file, every response carries exactly one header,
+  a request never reopens mid-request, the unstamped-file fallback.

@@ -154,13 +154,19 @@ class UsageView(MetaAPIView):
 
 
 def _data_version():
-    version = getattr(settings, "LAPSE_DATA_VERSION", "")
+    """The served file's data_version (same source as the X-Data-Version header) and its date."""
     path = settings.LAPSE_SQLITE.get("path", "") if getattr(settings, "LAPSE_SQLITE", None) else ""
-    as_of = ""
+    as_of, version = "", ""
     if path and os.path.exists(path):
         as_of = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc).strftime("%Y-%m-%d")
+        try:
+            from API.search_sqlite import LapseSQLiteSearch
+
+            version = LapseSQLiteSearch.from_django_settings().data_version()
+        except Exception:
+            version = ""
     if not version:
-        version = os.path.splitext(os.path.basename(path))[0] if path else "beta"
+        version = getattr(settings, "LAPSE_DATA_VERSION", "") or (os.path.splitext(os.path.basename(path))[0] if path else "beta")
     return version, as_of
 
 

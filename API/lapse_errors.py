@@ -64,3 +64,43 @@ class LapseErrorHeadersMiddleware:
                 response.content = BODY_501
                 response["Content-Length"] = str(len(BODY_501))
         return response
+
+
+DATA_VERSION_HEADER = "X-Data-Version"
+
+
+class DataVersionMiddleware:
+    """Puts `X-Data-Version` on every response (PatentRef gate 4.3, CHANGES_LAPSE.md "X-Data-Version").
+
+    The value is the data_version of the search database connection the request's thread holds after
+    the view ran: the same connection produced the body, so header and body never name different
+    files. A response whose view never opened the search database (403 without a key, the account
+    endpoints) gets the version of the file the configured path resolves to right now, read through
+    the same thread cache. The header is additive: upstream bodies and other headers are unchanged."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if not response.has_header(DATA_VERSION_HEADER):
+            version = self._version()
+            if version:
+                response[DATA_VERSION_HEADER] = version
+        return response
+
+    @staticmethod
+    def _version():
+        try:
+            from django.conf import settings
+
+            if getattr(settings, "LAPSE_BACKEND", "elasticsearch") != "sqlite":
+                return None
+            from API.search_sqlite import LapseSQLiteSearch, current_data_version
+
+            version = current_data_version()
+            if version is None:
+                version = LapseSQLiteSearch.from_django_settings().data_version()
+            return version
+        except Exception:  # the header never breaks a response
+            return None
