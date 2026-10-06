@@ -52,6 +52,14 @@ LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")
 LAPSE_SQLITE = {
     "path": os.environ.get("LAPSE_SQLITE_PATH", str(_DATA / "sample.db")),
     "timeout": int(os.environ.get("LAPSE_SQLITE_TIMEOUT", "60")),
+    # per-connection page cache (KB) and mmap window; the OS page cache does the heavy lifting on a
+    # 140 GB file, this is the working set one query touches (PatentRef 2.10)
+    "cache_kb": int(os.environ.get("LAPSE_SQLITE_CACHE_KB", "400000")),
+    "mmap_bytes": int(os.environ.get("LAPSE_SQLITE_MMAP", str(1 << 30))),
+    # shared total_hits memo (a small SQLite file every worker reads and writes); "none" turns it off
+    "count_cache": (lambda v: None if v.lower() == "none" else v)(
+        os.environ.get("LAPSE_COUNT_CACHE", str(_DATA / "count_cache.sqlite3"))),
+    "count_cache_min_ms": float(os.environ.get("LAPSE_COUNT_CACHE_MIN_MS", "20")),
 }
 
 # Usage logging without Redis (API/UsageLogging.py)

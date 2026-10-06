@@ -26,6 +26,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 
 from API.exceptions import SearchTimeoutError  # noqa: F401  (kept for parity with API.search)
 
@@ -229,10 +230,41 @@ class IndexMeta:
                 self.child_columns[path] = [r[1] for r in con.execute(f'PRAGMA table_info("{t}")')
                                             if r[1] not in ("_pid", "_ord")]
         self.fts = {}  # table -> set(columns)
+        self.trigram = {}  # table -> set(columns) of fts_trgm_<table> (substring prefilter, PatentRef 2.10)
         for t in tables:
             if t.startswith("fts_") and not t.endswith(("_data", "_idx", "_docsize", "_config", "_content")):
-                base = t[4:]
-                self.fts[base] = {r[1] for r in con.execute(f'PRAGMA table_info("{t}")')}
+                if t.startswith("fts_trgm_"):
+                    self.trigram[t[9:]] = {r[1] for r in con.execute(f'PRAGMA table_info("{t}")')}
+                else:
+                    self.fts[t[4:]] = {r[1] for r in con.execute(f'PRAGMA table_info("{t}")')}
+        # value frequencies of low-cardinality columns (_lapse_value_stats, written by build_sample.py):
+        # (table, column) -> {value: rows}; (table, "*") -> total rows. The planner gets likelihood()
+        # hints from them, must_not on such a column becomes an index range union, and a nested group
+        # whose match is dense is joined with EXISTS instead of IN.
+        self.stats, self.rows = {}, {}
+        if "_lapse_value_stats" in tables:
+            for tbl, col, val, n in con.execute("SELECT tbl, col, val, n FROM _lapse_value_stats"):
+                if col == "*":
+                    self.rows[tbl] = n
+                else:
+                    self.stats.setdefault((tbl, col), {})[val] = n
+        # single-column indexes of the main table, for steering an ORDER BY onto the index of its first key
+        self.single_index = {}  # column -> index name
+        for _, name, _, origin, _ in con.execute(f'PRAGMA index_list("{self.table}")'):
+            if origin != "c":
+                continue
+            cols = [r[2] for r in con.execute(f'PRAGMA index_info("{name}")')]
+            if len(cols) == 1 and cols[0] not in self.single_index:
+                self.single_index[cols[0]] = name
+
+    def freq(self, table, column, value):
+        """Fraction of `table` rows holding `value` in `column` (None when the column has no stats)."""
+        d = self.stats.get((table, column))
+        total = self.rows.get(table)
+        if d is None or not total:
+            return None
+        key = value if isinstance(value, str) else (str(value) if value is not None else None)
+        return d.get(key, 0) / total
 
     def columns_of(self, path):
         return self.columns if path is None else self.child_columns.get(path, [])
@@ -246,9 +278,20 @@ class IndexMeta:
 
 # ------------------------------------------------------------------ DSL -> SQL
 class Translator:
-    def __init__(self, meta):
+    """ES DSL -> SQL WHERE clause. `mode` is "search" or "count": the two differ only where the best SQL
+    shape differs (a dense nested group is EXISTS for a page and IN for a count). `density` is the
+    estimated fraction of parent rows the top-level AND of the query keeps, from `_lapse_value_stats`,
+    or None when any term has no estimate; the searcher uses it to steer an ORDER BY onto an index."""
+
+    DENSE_NESTED = 0.02     # nested match rows / parent rows at or above this: EXISTS probes beat the IN set
+    RARE_COMPLEMENT = 0.10  # must_not whose complement is this rare or rarer: index range union
+
+    def __init__(self, meta, mode="search"):
         self.meta = meta
+        self.mode = mode
         self.params = []
+        self.density = None
+        self._p = None  # estimated selectivity of the leaf just translated (None = unknown)
 
     # ---- field resolution
     def resolve(self, field, ctx):
@@ -273,7 +316,15 @@ class Translator:
 
     # ---- entry
     def where(self, q, ctx=("m", None)):
+        sql = self._where(q, ctx)
+        if ctx == ("m", None):
+            self.density = self._p
+        return sql
+
+    def _where(self, q, ctx):
+        self._p = None
         if not q:
+            self._p = 1.0
             return "1"
         if not isinstance(q, dict) or len(q) != 1:
             raise es_error("parsing_exception", "[_na] query malformed, must start with start_object")
@@ -284,32 +335,120 @@ class Translator:
         return fn(body, ctx)
 
     def q_match_all(self, body, ctx):
+        self._p = 1.0
         return "1"
 
     def q_bool(self, body, ctx):
-        parts = []
+        parts, ps = [], []
         for clause in ("filter", "must"):
             subs = body.get(clause, [])
             subs = subs if isinstance(subs, list) else [subs]
-            parts += [f"({self.where(s, ctx)})" for s in subs]
+            for s in subs:
+                parts.append(f"({self._where(s, ctx)})")
+                ps.append(self._p)
         should = body.get("should", [])
         should = should if isinstance(should, list) else [should]
         if should and not parts:
-            parts.append("(" + " OR ".join(f"({self.where(s, ctx)})" for s in should) + ")")
+            ors, p_or = [], 0.0
+            for s in should:
+                ors.append(f"({self._where(s, ctx)})")
+                p_or = None if (p_or is None or self._p is None) else min(1.0, p_or + self._p)
+            parts.append("(" + " OR ".join(ors) + ")")
+            ps.append(p_or)
         not_ = body.get("must_not", [])
         not_ = not_ if isinstance(not_, list) else [not_]
-        # leaves are plain SQL predicates (index friendly); NULL only needs care under negation,
-        # where ES treats a missing value as "does not match", so NOT(missing) is true
-        parts += [f"NOT COALESCE(({self.where(s, ctx)}), 0)" for s in not_]
+        for s in not_:
+            ranged = self.complement(s, ctx)
+            if ranged is not None:
+                parts.append(ranged)
+                ps.append(self._p)
+                continue
+            # leaves are plain SQL predicates (index friendly); NULL only needs care under negation,
+            # where ES treats a missing value as "does not match", so NOT(missing) is true
+            parts.append(f"NOT COALESCE(({self._where(s, ctx)}), 0)")
+            ps.append(None if self._p is None else 1.0 - self._p)
+        p = 1.0
+        for x in ps:
+            p = None if (p is None or x is None) else p * x
+        self._p = p
         return " AND ".join(parts) if parts else "1"
+
+    def complement(self, q, ctx):
+        """must_not of equality on one low-cardinality column of the main table, when the complement is
+        rare: NOT (c = a OR c = b) is rewritten as the union of the index ranges around a and b (NULL
+        included, as ES counts a missing value as not matching), so SQLite walks a few index ranges
+        instead of testing every row. For a page the union sits in a rowid subquery, which keeps the
+        planner from scanning the sort index for it. Returns None when the rewrite does not apply."""
+        alias, path = ctx
+        if path is not None or not isinstance(q, dict) or len(q) != 1:
+            return None
+        kind, body = next(iter(q.items()))
+        leaves = []
+        if kind in ("match", "terms"):
+            leaves.append((kind, body))
+        elif kind == "bool" and set(body) == {"should"}:
+            for s in body["should"] if isinstance(body["should"], list) else [body["should"]]:
+                if not isinstance(s, dict) or len(s) != 1 or next(iter(s)) not in ("match", "terms"):
+                    return None
+                leaves.append(next(iter(s.items())))
+        else:
+            return None
+        field, values = None, []
+        for kind, body in leaves:
+            if not isinstance(body, dict) or len(body) != 1:
+                return None
+            k, v = next(iter(body.items()))
+            if isinstance(v, dict):
+                v = v.get("query")
+            vs = v if isinstance(v, list) else [v]
+            if field is None:
+                field = k
+            elif field != k:
+                return None
+            values += vs
+        f = self.resolve(field, ctx)
+        if f is None or f.keyword or f.es_type in ("text", "date") or f.es_type in FLOATING:
+            return None
+        if self.meta.stats.get((f.table, f.column)) is None:
+            return None
+        try:
+            coerced = sorted({f.value(v) for v in values if v is not None})
+        except (TypeError, ValueError):
+            return None
+        if not coerced or any(f.es_type in INTEGRAL and has_decimal_part(v) for v in values):
+            return None
+        kept = 1.0 - sum(self.meta.freq(f.table, f.column, v) for v in coerced)
+        if kept > self.RARE_COMPLEMENT:
+            return None
+        col = f'"{f.column}"'
+        ors = [f"{col} < {self.p(coerced[0])}"]
+        for lo, hi in zip(coerced, coerced[1:]):
+            ors.append(f"({col} > {self.p(lo)} AND {col} < {self.p(hi)})")
+        ors.append(f"{col} > {self.p(coerced[-1])}")
+        ors.append(f"{col} IS NULL")
+        ranges = "(" + " OR ".join(ors) + ")"
+        self._p = max(kept, 0.0)
+        if self.mode == "count":
+            return ranges.replace(col, f"{alias}.{col}")  # col is the quoted name, so this is exact
+        return f'{alias}.rowid IN (SELECT rowid FROM "{f.table}" WHERE {ranges})'
 
     def q_nested(self, body, ctx):
         alias, path = ctx
         npath = body.get("path")
         child = self.meta.nested.get(npath)
         if child is None or path is not None:
+            self._p = None
             return "0"
-        inner = self.where(body.get("query", {}), ("c", npath))
+        inner = self._where(body.get("query", {}), ("c", npath))
+        rows = self.meta.rows.get(child)
+        parent_rows = self.meta.rows.get(self.meta.table)
+        dense = (self.mode == "search" and self._p is not None and rows and parent_rows
+                 and self._p * rows / parent_rows >= self.DENSE_NESTED)
+        self._p = None
+        if dense:
+            # a dense group: probing the child per parent in sort order reaches the page size after a
+            # few rows; the IN form first materializes every matching child (millions for a CPC section)
+            return f'EXISTS (SELECT 1 FROM "{child}" c WHERE c."_pid" = {alias}."{self.meta.key}" AND ({inner}))'
         return f'{alias}."{self.meta.key}" IN (SELECT c."_pid" FROM "{child}" c WHERE {inner})'
 
     # ---- leaves
@@ -324,6 +463,7 @@ class Translator:
 
     def eq(self, f, v):
         """Exact (term-level) equality on a resolved non-text field."""
+        self._p = None
         if f.es_type == "date" and not f.keyword:
             lo, hi, midnight = coerce_date(f.column, v)
             if not midnight:
@@ -334,7 +474,15 @@ class Translator:
             return f"({f.sql} >= {self.p(lo)} AND {f.sql} <= {self.p(hi)})"
         if f.es_type in INTEGRAL and not f.keyword and has_decimal_part(v):
             return "0"  # ES: "Value [x] has a decimal part" is a match-none query, not an error
-        return f"({f.sql} = {self.p(f.value(v))}{self.kw_guard(f)})"
+        value = f.value(v)
+        term = f"{f.sql} = {self.p(value)}"
+        p = None if f.keyword else self.meta.freq(f.table, f.column, value)
+        if p is not None:
+            self._p = p
+            # the planner's own estimate is rows / distinct values; the stats know the skew (nine
+            # patents in ten are utility), and likelihood() carries that without touching the result
+            term = f"likelihood({term}, {min(max(p, 1e-7), 0.9999):.7f})"
+        return f"({term}{self.kw_guard(f)})"
 
     def fts(self, f, expr):
         """Rows of f.table whose FTS column matches expr; falls back to a Python matcher when no FTS table."""
@@ -390,15 +538,18 @@ class Translator:
         f = self.resolve(field, ctx)
         if f is None or not values:
             return "0"
-        ors = []
+        ors, p = [], 0.0
         for v in values:
             if f.es_type == "text" and not f.keyword:
                 # terms is not analyzed: only a single lowercase token can equal an indexed term
                 s = coerce_keyword(v)
                 toks = tokens(s)
                 ors.append(self.fts(f, fts_quote(s)) if len(toks) == 1 and toks[0] == s else "0")
+                p = None
             else:
                 ors.append(self.eq(f, v))
+                p = None if (p is None or self._p is None) else min(1.0, p + self._p)
+        self._p = p
         return "(" + " OR ".join(ors) + ")"
 
     def q_range(self, body, ctx):
@@ -477,7 +628,7 @@ class Translator:
             inner = low[1:-1] if len(low) > 2 and low[0] == low[-1] == "*" else None
             if inner is not None and not any(ch in inner for ch in "*?"):
                 # the _contains operator: a cheap substring test on the whole value first, then the token test
-                return (f"(instr(lapse_lower({f.sql}), {self.p(inner)}) > 0 AND "
+                return (f"({self.trigram(f, inner)}instr(lapse_lower({f.sql}), {self.p(inner)}) > 0 AND "
                         f"COALESCE(lapse_tok_wild({f.sql}, {self.p(low)}), 0))")
             return f"COALESCE(lapse_tok_wild({f.sql}, {self.p(low)}), 0)"
         pat = to_like(value)
@@ -485,14 +636,28 @@ class Translator:
         if ci and inner and not any(ch in inner for ch in "*?"):
             # plain substring (the _contains operator): instr() is much cheaper than a leading-% LIKE
             low = inner.lower()
-            return (f"((instr(lower({f.sql}), {self.p(low)}) > 0 OR (octet_length({f.sql}) > length({f.sql}) AND "
+            return (f"({self.trigram(f, low)}(instr(lower({f.sql}), {self.p(low)}) > 0 OR (octet_length({f.sql}) > length({f.sql}) AND "
                     f"instr(lapse_lower({f.sql}), {self.p(low)}) > 0)){self.kw_guard(f)})")
         if ci:
             # SQLite lower() folds ASCII only; values with non-ASCII characters go through Python str.lower()
             low = pat.lower()
-            return (f"((lower({f.sql}) LIKE {self.p(low)} ESCAPE '\\' OR (octet_length({f.sql}) > length({f.sql}) AND "
+            pre = self.trigram(f, value.lower()) if qname == "prefix" and value == like_escape(value) else ""
+            return (f"({pre}(lower({f.sql}) LIKE {self.p(low)} ESCAPE '\\' OR (octet_length({f.sql}) > length({f.sql}) AND "
                     f"lapse_lower({f.sql}) LIKE {self.p(low)} ESCAPE '\\')){self.kw_guard(f)})")
         return f"(lapse_like_cs({f.sql}, {self.p(pat)}){self.kw_guard(f)})"
+
+    def trigram(self, f, needle):
+        """Substring prefilter for _contains and _begins: rows whose fts_trgm_<table> column holds the
+        trigrams of `needle` as a phrase, which every value containing it does. Only an ASCII needle of
+        three or more characters qualifies (the trigram index is case-folded by SQLite, the exact test
+        by Python; the two agree on ASCII, and shorter needles have no trigram). The exact predicate
+        still follows, so the result set is the same with or without the prefilter."""
+        cols = self.meta.trigram.get(f.table)
+        if not cols or f.column not in cols or len(needle) < 3 or not needle.isascii():
+            return ""
+        q = f'"{f.column}" : "{needle.replace(chr(34), chr(34) * 2)}"'
+        return (f'{f.alias}.rowid IN (SELECT rowid FROM "fts_trgm_{f.table}" WHERE "fts_trgm_{f.table}" '
+                f"MATCH {self.p(q)}) AND ")
 
     def q_prefix(self, body, ctx):
         return self._pattern(body, "prefix", ctx, lambda v: like_escape(v) + "%")
@@ -613,18 +778,26 @@ class LapseSQLiteSearch:
 
     _local = threading.local()
     _meta_cache = {}
+    STEER_DENSITY = 0.05  # estimated fraction of rows kept by the filter from which the sort index wins
 
-    def __init__(self, path, timeout=60):
+    def __init__(self, path, timeout=60, cache_kb=400000, mmap_bytes=1073741824, count_cache=None,
+                 count_cache_min_ms=20.0):
         self.path = path
         self.real = os.path.realpath(path)
         self.timeout = timeout
+        self.cache_kb = int(cache_kb)
+        self.mmap_bytes = int(mmap_bytes)
+        self.count_cache = count_cache  # path of the shared total_hits memo, or None
+        self.count_cache_min_ms = float(count_cache_min_ms)
 
     @classmethod
     def from_django_settings(cls):
         from django.conf import settings
 
         cfg = settings.LAPSE_SQLITE
-        return cls(path=cfg["path"], timeout=int(cfg.get("timeout", 60)))
+        return cls(path=cfg["path"], timeout=int(cfg.get("timeout", 60)), cache_kb=cfg.get("cache_kb", 400000),
+                   mmap_bytes=cfg.get("mmap_bytes", 1073741824), count_cache=cfg.get("count_cache") or None,
+                   count_cache_min_ms=cfg.get("count_cache_min_ms", 20.0))
 
     def connection(self):
         con = getattr(self._local, "con", None)
@@ -639,8 +812,9 @@ class LapseSQLiteSearch:
             con = sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=self.timeout)
             con.execute("PRAGMA case_sensitive_like=ON")
             con.execute("PRAGMA query_only=ON")
-            con.execute("PRAGMA cache_size=-200000")
-            con.execute("PRAGMA mmap_size=1073741824")
+            con.execute(f"PRAGMA cache_size=-{self.cache_kb}")
+            con.execute(f"PRAGMA mmap_size={self.mmap_bytes}")
+            con.execute("PRAGMA temp_store=MEMORY")  # the IN sets of nested groups never touch a temp file
             con.create_function("lapse_lower", 1, _lapse_lower, deterministic=True)
             con.create_function("lapse_like_cs", 2, _like_cs, deterministic=True)
             con.create_function("lapse_fts_match", 2, _fts_match, deterministic=True)
@@ -668,17 +842,88 @@ class LapseSQLiteSearch:
             return query["query"] or {}
         return query
 
-    def _where(self, meta, query):
-        tr = Translator(meta)
+    def _where(self, meta, query, mode="search"):
+        tr = Translator(meta, mode)
         sql = tr.where(self._query_body(query))
-        return sql, tr.params
+        return sql, tr.params, tr.density
 
     def count(self, index, query):
         meta = self.meta(index)
-        where, params = self._where(meta, query)
+        where, params, _ = self._where(meta, query, "count")
         sql = f'SELECT count(*) FROM "{meta.table}" m WHERE {where}'
-        n = self._run(sql, params)[0][0]
+        n = self._memo_get(index, sql, params)
+        if n is None:
+            t0 = time.perf_counter()
+            n = self._run(sql, params)[0][0]
+            self._memo_put(index, sql, params, n, (time.perf_counter() - t0) * 1000)
         return {"count": n, "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0}}
+
+    # ---- total_hits memo (the analogue of the Elasticsearch shard request cache)
+    # A count is a pure function of (data file, query), and the file never changes under a data_version,
+    # so a count once computed is stored under the sha256 of (data_version, index, SQL, parameters):
+    # in this process, and in a small shared SQLite file every worker reads (LAPSE_COUNT_CACHE), so a
+    # repeat of a slow count answers in a millisecond on any worker and after a restart. Only counts
+    # that took at least count_cache_min_ms are stored. Nothing here can change a response body: a
+    # stored count is the count the same SQL returned on the same file.
+    _memo_local = {}
+    _memo_order = []
+    MEMO_LOCAL_MAX = 4096
+
+    def _memo_key(self, index, sql, params):
+        import hashlib
+        import json
+
+        raw = "\n".join([self.data_version(), index, sql, json.dumps(list(params), default=str)])
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def _memo_con(self):
+        con = getattr(self._local, "memo_con", None)
+        if con is None:
+            con = sqlite3.connect(self.count_cache, timeout=2, check_same_thread=False)
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("PRAGMA synchronous=NORMAL")
+            con.execute("CREATE TABLE IF NOT EXISTS counts(key TEXT PRIMARY KEY, data_version TEXT, idx TEXT, "
+                        "n INTEGER, ms REAL, created REAL)")
+            con.commit()
+            self._local.memo_con = con
+        return con
+
+    def _memo_get(self, index, sql, params):
+        key = self._memo_key(index, sql, params)
+        n = self._memo_local.get(key)
+        if n is not None:
+            return n
+        if not self.count_cache:
+            return None
+        try:
+            row = self._memo_con().execute("SELECT n FROM counts WHERE key=?", (key,)).fetchone()
+        except sqlite3.Error:
+            return None
+        if row is None:
+            return None
+        self._memo_local[key] = row[0]
+        return row[0]
+
+    def _memo_put(self, index, sql, params, n, ms):
+        if ms < self.count_cache_min_ms:
+            return
+        key = self._memo_key(index, sql, params)
+        if key not in self._memo_local:
+            self._memo_local[key] = n
+            self._memo_order.append(key)
+            if len(self._memo_order) > self.MEMO_LOCAL_MAX:
+                self._memo_local.pop(self._memo_order.pop(0), None)
+        if not self.count_cache:
+            return
+        try:
+            con = self._memo_con()
+            con.execute("INSERT OR REPLACE INTO counts VALUES (?,?,?,?,?,?)",
+                        (key, self.data_version(), index, n, round(ms, 1), time.time()))
+            if int(time.time() * 1000) % 100 == 0:  # about one write in a hundred prunes old versions
+                con.execute("DELETE FROM counts WHERE data_version != ?", (self.data_version(),))
+            con.commit()
+        except sqlite3.Error:
+            pass
 
     # ---- sort / search_after
     def _sort_spec(self, meta, sort):
@@ -709,10 +954,30 @@ class LapseSQLiteSearch:
             out.append((ref, order))
         return out
 
-    def _after(self, sort_spec, after, params):
-        """Keyset condition equivalent to ES search_after with missing values sorted last."""
+    def _after(self, sort_spec, after, params, nullable=None):
+        """Keyset condition equivalent to ES search_after with missing values sorted last.
+        When no sort column holds NULLs and no cursor value is missing, the condition is written in
+        the nested form k1 <= v1 AND (k1 < v1 OR (k2 <= v2 AND (k2 < v2 OR ...))): the same set of rows
+        as the OR expansion below, but its leading range term lets SQLite walk the index of the first
+        sort key from the cursor instead of sorting every row that passes the filter."""
         if not after:
             return "1"
+        keys = sort_spec[:len(after)]
+        if nullable is not None and not any(nullable.get(r.column) for r, _ in keys) \
+                and all(v is not None for v in after[:len(keys)]):
+            local = []
+            sql = None
+            for i in range(len(keys) - 1, -1, -1):
+                ref, order = keys[i]
+                v = ref.value(after[i])
+                op = ">" if order == "asc" else "<"
+                local = [v, v] + local if sql is not None else [v] + local
+                if sql is None:
+                    sql = f"{ref.sql} {op} ?"
+                else:
+                    sql = f"{ref.sql} {op}= ? AND ({ref.sql} {op} ? OR ({sql}))"
+            params.extend(local)
+            return f"({sql})"
         ors = []
         for i, (ref, order) in enumerate(sort_spec):
             if i >= len(after):
@@ -766,8 +1031,6 @@ class LapseSQLiteSearch:
     def _run(self, sql, params):
         """Execute with the configured timeout; an interrupted query surfaces as TimeoutError, which the
         upstream exception handler reports as 500 ERR_ES (same as an ES timeout)."""
-        import time
-
         con = self.connection()
         deadline = time.monotonic() + self.timeout
         con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 200000)
@@ -795,8 +1058,9 @@ class LapseSQLiteSearch:
     def search(self, index, query, fields, size, offset, sort):
         meta = self.meta(index)
         con = self.connection()
-        where, params = self._where(meta, query)
+        where, params, density = self._where(meta, query, "search")
         sort_spec = self._sort_spec(meta, sort)
+        nullable = {r.column: self._has_nulls(meta, r.column) for r, _ in sort_spec}
         after = offset
         if after is not None and not isinstance(after, list):
             after = [after]
@@ -804,10 +1068,10 @@ class LapseSQLiteSearch:
             if len(after) != len(sort_spec):
                 raise es_error("illegal_argument_exception",
                                f"search_after has {len(after)} value(s) but sort has {len(sort_spec)}.")
-            where = f"({where}) AND {self._after(sort_spec, after, params)}"
+            where = f"({where}) AND {self._after(sort_spec, after, params, nullable)}"
         # missing values sort last (ES default); the IS NULL key is dropped for columns without NULLs so
         # SQLite can walk an index for the ORDER BY
-        order = [(f"({r.sql} IS NULL), " if self._has_nulls(meta, r.column) else "") + f"{r.sql} {o.upper()}"
+        order = [(f"({r.sql} IS NULL), " if nullable[r.column] else "") + f"{r.sql} {o.upper()}"
                  for r, o in sort_spec] + ["m.rowid ASC"]
         top, nested = self._wanted(meta, fields)
         key = meta.key
@@ -815,9 +1079,24 @@ class LapseSQLiteSearch:
         size = int(size) if size is not None else 10
         if size < 0:
             raise es_error("illegal_argument_exception", f"[size] parameter cannot be negative, found [{size}]")
-        sql = (f'SELECT {", ".join(chr(34) + c + chr(34) for c in select_cols)} FROM "{meta.table}" m '
+        # A broad filter (the stats say most rows pass) with a sort on an indexed non-key column: walk
+        # that index in sort order and stop at the page size. Left alone the planner picks the filter's
+        # index and sorts millions of rows, because it costs the scan without the LIMIT.
+        hint = ""
+        if density is not None and density >= self.STEER_DENSITY and sort_spec and not after \
+                and sort_spec[0][0].column != key and not nullable[sort_spec[0][0].column]:
+            ix = meta.single_index.get(sort_spec[0][0].column)
+            if ix:
+                hint = f' INDEXED BY "{ix}"'
+        sql = (f'SELECT {", ".join(chr(34) + c + chr(34) for c in select_cols)} FROM "{meta.table}" m{hint} '
                f"WHERE {where} ORDER BY {', '.join(order)} LIMIT {size}")
-        rows = [dict(zip(select_cols, r)) for r in self._run(sql, params)]
+        try:
+            rows = self._run(sql, params)
+        except sqlite3.OperationalError as e:
+            if not hint or "no query solution" not in str(e):
+                raise
+            rows = self._run(sql.replace(hint, "", 1), params)
+        rows = [dict(zip(select_cols, r)) for r in rows]
         docs = []
         for r in rows:
             src = {c: self._convert(meta, None, c, r[c]) for c in top}

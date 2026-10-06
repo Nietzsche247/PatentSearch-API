@@ -869,22 +869,35 @@ def fill_meta_and_fts(out, esdl):
         log("  fts", t, cols)
 
 
+# Index set 2 (PatentRef gate 2.10). A column name alone is a single-column index; a tuple is a composite.
+# Child tables index (column, _pid) so a nested criterion is answered from the index alone, and the
+# patents table carries (withdrawn, column) covering indexes so total_hits on the implicit
+# withdrawn=false filter never visits a row. The `index_set` row of _lapse_build names this set;
+# `--upgrade-indexes` brings an older file to it without a rebuild (same DDL, same names).
+INDEX_SET = "2"
 INDEXES = {
-    "patents": ["patent_date", "patent_type", "patent_year", "patent_zero_prefix", "withdrawn"],
-    "patents__inventors": ["_pid", "inventor_id", "inventor_name_last", "inventor_name_first", "inventor_city"],
-    "patents__assignees": ["_pid", "assignee_id", "assignee_organization", "assignee_city"],
-    "patents__cpc_current": ["_pid", "cpc_section", "cpc_subclass_id", "cpc_group_id"],
+    "patents": ["patent_date", "patent_type", "patent_year", "patent_zero_prefix", "withdrawn",
+                ("withdrawn", "patent_date"), ("withdrawn", "patent_type"), ("withdrawn", "patent_year"),
+                ("withdrawn", "patent_zero_prefix")],
+    "patents__inventors": ["_pid", ("inventor_id", "_pid"), ("inventor_name_last", "_pid"),
+                           ("inventor_name_first", "_pid"), ("inventor_city", "_pid"), ("inventor_country", "_pid"),
+                           ("inventor_state", "_pid")],
+    "patents__assignees": ["_pid", ("assignee_id", "_pid"), ("assignee_organization", "_pid"), ("assignee_city", "_pid"),
+                           ("assignee_country", "_pid"), ("assignee_state", "_pid"), ("assignee_type", "_pid")],
+    "patents__cpc_current": ["_pid", ("cpc_section", "_pid"), ("cpc_class_id", "_pid"), ("cpc_subclass_id", "_pid"),
+                             ("cpc_group_id", "_pid")],
     "inventors": ["inventor_name_last", "inventor_name_first"],
     "assignees": ["assignee_organization"],
     "locations": ["location_name", "location_country"],
     "us_patent_citations": ["patent_id", "citation_patent_id", "patent_zero_prefix"],
-    "patents__cpc_at_issue": ["_pid", "cpc_section", "cpc_subclass_id", "cpc_group_id"],
-    "patents__ipcr": ["_pid", "ipc_id"],
-    "patents__uspc_at_issue": ["_pid", "uspc_mainclass_id", "uspc_subclass_id"],
-    "patents__examiners": ["_pid", "examiner_last_name"],
-    "patents__applicants": ["_pid", "applicant_organization"],
-    "patents__us_related_documents": ["_pid", "related_doc_number"],
-    "patents__attorneys": ["_pid", "attorney_id", "attorney_name_last", "attorney_organization"],
+    "patents__cpc_at_issue": ["_pid", ("cpc_section", "_pid"), ("cpc_class_id", "_pid"), ("cpc_subclass_id", "_pid"),
+                              ("cpc_group_id", "_pid")],
+    "patents__ipcr": ["_pid", ("ipc_id", "_pid")],
+    "patents__uspc_at_issue": ["_pid", ("uspc_mainclass_id", "_pid"), ("uspc_subclass_id", "_pid")],
+    "patents__examiners": ["_pid", ("examiner_last_name", "_pid")],
+    "patents__applicants": ["_pid", ("applicant_organization", "_pid")],
+    "patents__us_related_documents": ["_pid", ("related_doc_number", "_pid")],
+    "patents__attorneys": ["_pid", ("attorney_id", "_pid"), ("attorney_name_last", "_pid"), ("attorney_organization", "_pid")],
     "attorneys": ["attorney_name_last", "attorney_organization"],
     "us_application_citations": ["patent_id", "citation_document_number", "patent_zero_prefix"],
     "foreign_citations": ["patent_id", "citation_number", "patent_zero_prefix"],
@@ -893,16 +906,149 @@ INDEXES = {
     "cpc_groups": ["cpc_subclass_id"],
     "uspc_subclasses": ["uspc_mainclass_id"],
 }
+# Index set 1 names that set 2 replaces (the composite on the same leading column serves every query
+# the single-column index did); dropped by --upgrade-indexes.
+SUPERSEDED = {
+    "patents__inventors": ["inventor_id", "inventor_name_last", "inventor_name_first", "inventor_city"],
+    "patents__assignees": ["assignee_id", "assignee_organization", "assignee_city"],
+    "patents__cpc_current": ["cpc_section", "cpc_subclass_id", "cpc_group_id"],
+    "patents__cpc_at_issue": ["cpc_section", "cpc_subclass_id", "cpc_group_id"],
+    "patents__ipcr": ["ipc_id"],
+    "patents__uspc_at_issue": ["uspc_mainclass_id", "uspc_subclass_id"],
+    "patents__examiners": ["examiner_last_name"],
+    "patents__applicants": ["applicant_organization"],
+    "patents__us_related_documents": ["related_doc_number"],
+    "patents__attorneys": ["attorney_id", "attorney_name_last", "attorney_organization"],
+}
+# fts_trgm_<table>: FTS5 trigram index over the string columns _contains and _begins are asked on
+# (the translator uses it as a prefilter for ASCII needles of three or more characters; the exact
+# predicate still runs on the candidates). Titles included, abstracts not (the index would be ~30 GB).
+TRIGRAM = {
+    "patents": ["patent_title"],
+    "patents__inventors": ["inventor_name_first", "inventor_name_last", "inventor_city"],
+    "patents__assignees": ["assignee_organization", "assignee_individual_name_first", "assignee_individual_name_last",
+                           "assignee_city"],
+    "patents__cpc_current": ["cpc_group_id"],
+    "patents__attorneys": ["attorney_name_first", "attorney_name_last", "attorney_organization"],
+    "patents__applicants": ["applicant_name_first", "applicant_name_last", "applicant_organization"],
+    "patents__examiners": ["examiner_first_name", "examiner_last_name"],
+    "inventors": ["inventor_name_first", "inventor_name_last"],
+    "assignees": ["assignee_organization"],
+    "attorneys": ["attorney_name_first", "attorney_name_last", "attorney_organization"],
+    "locations": ["location_name"],
+}
+# _lapse_value_stats: value frequencies of low-cardinality columns (val as text, NULL kept; col "*" is
+# the table's row count). The translator reads them for likelihood() hints, the must_not range union
+# and the EXISTS-versus-IN choice for nested groups.
+VALUE_STATS = {
+    "patents": ["patent_type", "withdrawn", "wipo_kind", "patent_year"],
+    "patents__inventors": ["inventor_country", "inventor_state", "inventor_gender_code"],
+    "patents__assignees": ["assignee_country", "assignee_state", "assignee_type"],
+    "patents__cpc_current": ["cpc_section", "cpc_class_id", "cpc_subclass_id", "cpc_type"],
+    "patents__cpc_at_issue": ["cpc_section", "cpc_class_id", "cpc_subclass_id"],
+    "patents__application": ["application_type", "series_code"],
+    "patents__wipo": ["wipo_field_id"],
+}
 
 
-def make_indexes(out):
+def index_name(t, cols):
+    return f"ix_{t}_{'_'.join(cols)}"
+
+
+def index_ddl(t, spec):
+    cols = (spec,) if isinstance(spec, str) else tuple(spec)
+    return (index_name(t, cols),
+            f'CREATE INDEX "{index_name(t, cols)}" ON "{t}"({", ".join(chr(34) + c + chr(34) for c in cols)})')
+
+
+def existing(con, kind, name):
+    return con.execute("SELECT 1 FROM sqlite_master WHERE type=? AND name=?", (kind, name)).fetchone() is not None
+
+
+def table_columns(con, t):
+    return [r[1] for r in con.execute(f'PRAGMA table_info("{t}")')]
+
+
+def make_indexes(out, upgrade=False):
+    """Create the index set (`INDEXES`), the trigram tables and the value stats. With upgrade=True the
+    function is idempotent on an existing file: superseded single-column indexes are dropped, missing
+    indexes and tables created, stats rebuilt, and only the new indexes analyzed."""
     log("indexes")
-    for t in SCHEMA:
-        cols = INDEXES.get(t, ["_pid"] if "__" in t else [])
+    new_ix = []
+    tables = [t for t in list(SCHEMA) if existing(out, "table", t)]
+    for t in tables:
+        if upgrade:
+            for c in SUPERSEDED.get(t, []):
+                if existing(out, "index", index_name(t, (c,))):
+                    out.execute(f'DROP INDEX "{index_name(t, (c,))}"')
+                    log("  dropped", index_name(t, (c,)))
+        cols = table_columns(out, t)
+        for spec in INDEXES.get(t, ["_pid"] if "__" in t else []):
+            name, ddl = index_ddl(t, spec)
+            want = (spec,) if isinstance(spec, str) else tuple(spec)
+            if any(c not in cols for c in want):
+                continue
+            if upgrade and existing(out, "index", name):
+                continue
+            t0 = time.time()
+            out.execute(ddl)
+            new_ix.append(name)
+            if upgrade:
+                log(f"  {name} {time.time() - t0:.0f}s")
+        out.commit()
+    log("trigram")
+    for t, cols in TRIGRAM.items():
+        if t not in tables:
+            continue
+        have = table_columns(out, t)
+        cols = [c for c in cols if c in have]
+        name = f"fts_trgm_{t}"
+        if not cols or (upgrade and existing(out, "table", name)):
+            continue
+        t0 = time.time()
+        out.execute(f'CREATE VIRTUAL TABLE "{name}" USING fts5({", ".join(cols)}, content="{t}", '
+                    "content_rowid='rowid', tokenize='trigram')")
+        out.execute(f"INSERT INTO \"{name}\"(\"{name}\") VALUES ('rebuild')")
+        out.commit()
+        log(f"  {name} {cols} {time.time() - t0:.0f}s")
+    log("value stats")
+    out.execute("DROP TABLE IF EXISTS _lapse_value_stats")
+    out.execute("CREATE TABLE _lapse_value_stats(tbl TEXT, col TEXT, val TEXT, n INTEGER)")
+    for t, cols in VALUE_STATS.items():
+        if t not in tables:
+            continue
+        have = table_columns(out, t)
+        out.execute("INSERT INTO _lapse_value_stats VALUES (?,?,?,?)",
+                    (t, "*", None, out.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0]))
         for c in cols:
-            out.execute(f'CREATE INDEX "ix_{t}_{c}" ON "{t}"("{c}")')
-    out.execute("ANALYZE")
+            if c in have:
+                out.execute(f'INSERT INTO _lapse_value_stats SELECT ?, ?, CAST("{c}" AS TEXT), count(*) FROM "{t}" '
+                            f'GROUP BY "{c}"', (t, c))
+        out.commit()
+    out.execute("CREATE INDEX IF NOT EXISTS ix__lapse_value_stats ON _lapse_value_stats(tbl, col)")
+    if upgrade:
+        for name in new_ix:
+            out.execute(f'ANALYZE "{name}"')
+    else:
+        out.execute("ANALYZE")
     out.commit()
+
+
+def upgrade_indexes(path):
+    """Bring an existing database to the current index set in place (the live file gets exactly the DDL
+    a fresh build runs). Write the index_set row of _lapse_build last, so a file that reports the set
+    has all of it."""
+    out = sqlite3.connect(path, timeout=600)
+    out.execute("pragma journal_mode=off")
+    out.execute("pragma synchronous=off")
+    out.execute("pragma cache_size=-2000000")
+    out.execute("pragma temp_store=memory")
+    make_indexes(out, upgrade=True)
+    out.execute("DELETE FROM _lapse_build WHERE k='index_set'")
+    out.execute("INSERT INTO _lapse_build VALUES ('index_set', ?)", (INDEX_SET,))
+    out.commit()
+    out.close()
+    log(f"UPGRADE_DONE index_set {INDEX_SET}")
 
 
 def main():
@@ -912,7 +1058,11 @@ def main():
     ap.add_argument("--stage", default=r"C:\LapseAPI\data\stage.db")
     ap.add_argument("--es-data-load", default=r"C:\LapseAPI\es-data-load")
     ap.add_argument("--mod", type=int, default=94)
+    ap.add_argument("--upgrade-indexes", metavar="DB", help="bring an existing database to the current index set and exit")
     a = ap.parse_args()
+    if a.upgrade_indexes:
+        upgrade_indexes(a.upgrade_indexes)
+        return
     st = build_stage(a.bulk, a.stage, a.mod)
     S = pick_sample(st)
     tmp = a.out + ".building"
@@ -941,7 +1091,7 @@ def main():
     out.execute("CREATE TABLE _lapse_build(k TEXT, v TEXT)")
     out.executemany("INSERT INTO _lapse_build VALUES (?,?)",
                     [("built_at", time.strftime("%Y-%m-%d %H:%M:%S")), ("mod", str(a.mod)),
-                     ("row_counts", json.dumps(counts))])
+                     ("row_counts", json.dumps(counts)), ("index_set", INDEX_SET)])
     out.commit()
     out.close()
     st.close()
