@@ -566,6 +566,21 @@ def _fts_match(text, expr):
     return 1 if any(c in have for c in chunks) else 0
 
 
+# ------------------------------------------------------------------ profiling hook
+SQL_LOG = os.environ.get("LAPSE_SQL_LOG", "")  # path of a JSON-lines file; empty = off (PatentRef gate 2.10)
+
+
+def _log_sql(sql, params, ms):
+    """Append one line per executed statement: the exact SQL, its parameters and the wall time."""
+    import json
+
+    try:
+        with open(SQL_LOG, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ms": round(ms, 2), "sql": sql, "params": list(params)}, default=str) + "\n")
+    except OSError:
+        pass
+
+
 # ------------------------------------------------------------------ searcher
 def read_data_version(con, real_path, fallback_env=True):
     """The data_version of an open search database: `_lapse_build.data_version` (stamped by the refresh
@@ -756,6 +771,7 @@ class LapseSQLiteSearch:
         con = self.connection()
         deadline = time.monotonic() + self.timeout
         con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 200000)
+        t0 = time.perf_counter()
         try:
             return con.execute(sql, params).fetchall()
         except sqlite3.OperationalError as e:
@@ -764,6 +780,8 @@ class LapseSQLiteSearch:
             raise
         finally:
             con.set_progress_handler(None, 0)
+            if SQL_LOG:
+                _log_sql(sql, params, (time.perf_counter() - t0) * 1000)
 
     def _has_nulls(self, meta, column):
         key = (self.real, meta.table, column)
