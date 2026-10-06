@@ -289,3 +289,55 @@ the SQLite backend when the configured path is a symlink.
 * Tests: `lapse_accounts/tests/test_data_version.py` (4): the header follows the symlink across a
   swap and a rollback with the body from the same file, every response carries exactly one header,
   a request never reopens mid-request, the unstamped-file fallback.
+
+## 2026-10-06 latency on the full corpus (PatentRef checklist 2.10), fork b180248
+
+Response bodies unchanged; every change below is an index, a SQL shape, a planner hint or a memo of a
+value the same SQL already returned. `lapse_tools/tests/test_sql_shapes.py` (34 tests) runs every
+query family through the backend with and without the new tables and compares both with a Python
+evaluation of the ES semantics, pages and cursors included.
+
+* Index set 2 (`build_sample.py`, `INDEX_SET = "2"`, row `index_set` in `_lapse_build`): child tables
+  index `(column, _pid)` instead of `(column)`, so a nested criterion is answered from the index alone;
+  `patents` adds `(withdrawn, patent_date)`, `(withdrawn, patent_type)`, `(withdrawn, patent_year)`,
+  `(withdrawn, patent_zero_prefix)`, covering the implicit `withdrawn=false` filter of every `/patent/`
+  count (a count over 9.4M rows is 120 to 300 ms from the index instead of 2.3 s through the rows).
+  `build_sample.py --upgrade-indexes <db>` applies the same DDL to an existing file (drops the superseded
+  single-column indexes, creates what is missing, analyzes only the new indexes, writes the row last).
+* `fts_trgm_<table>`: FTS5 `trigram` tables over the string columns `_contains` and `_begins` are asked
+  on (`TRIGRAM` in `build_sample.py`: titles, inventor and assignee names and cities, attorneys,
+  applicants, examiners, `cpc_group_id`, the entity tables). The translator adds
+  `rowid IN (SELECT rowid FROM fts_trgm_t WHERE fts_trgm_t MATCH 'col : "needle"')` in front of the
+  existing predicate when the needle is ASCII and at least three characters long; the existing
+  predicate (Python folding, token test) still decides, so the result set is the same. Shorter or
+  non-ASCII needles run the scan as before (the Greek final sigma folds differently in SQLite and
+  Python; a two-character needle has no trigram). `patent_abstract` has no trigram table (about 30 GB).
+* `_lapse_value_stats` (`VALUE_STATS`): value frequencies of the low-cardinality columns (patent type,
+  withdrawn, year, kind, CPC section/class/subclass/type, inventor and assignee country/state/type,
+  application type, series code, WIPO field) plus each table's row count. The translator uses them for:
+  `likelihood(col = ?, p)` hints on equality terms (SQLite's own estimate is rows / distinct values, so
+  it took `patent_type = 'utility'` for 860k rows instead of 8.5M and sorted 8.5M rows for a 100-row
+  page); `must_not` of equality on such a column when the complement is 10 percent of rows or rarer,
+  written as the union of the index ranges around the excluded values (NULL included, as ES counts a
+  missing value as not matching), in a `rowid IN (SELECT rowid FROM t WHERE ...)` subquery on a page so
+  the planner does not scan the sort index for it (`_neq` on three patent types: 2.2 s to 10 ms);
+  `EXISTS` instead of `IN` for a nested group on a page when the group's matching rows are at least
+  2 percent of the parent rows (a CPC section: 1 s to 1 ms; the count keeps the `IN` form, which is
+  faster for it).
+* `search_after`: when no sort column holds NULLs and no cursor value is missing, the keyset is written
+  in the nested form `k1 <= v1 AND (k1 < v1 OR (k2 <= v2 AND ...))`, the same rows as the OR expansion,
+  with a leading range term the planner can walk the sort index from (page 2 of a date-descending
+  sort: 4.6 s to 6 ms).
+* `INDEXED BY` the single-column index of the first sort key when the stats say at least 5 percent of
+  rows pass the filter, the sort key is not the key column, has no NULLs and there is no cursor; if
+  SQLite answers "no query solution" the statement is rerun without the hint.
+* `total_hits` memo (`LAPSE_COUNT_CACHE`, default `<LAPSE_DATA_DIR>/count_cache.sqlite3`, `none` to
+  turn it off): a count is a pure function of (data file, query), so a count that took at least
+  `LAPSE_COUNT_CACHE_MIN_MS` (20) is stored under the sha256 of (data_version, index, SQL, parameters),
+  in the process and in a small shared SQLite file every worker reads, and a repeat answers in a
+  millisecond on any worker and after a restart. The analogue of the Elasticsearch shard request
+  cache; a swap changes the data_version and so the keys. Nothing here can change a body.
+* Pragmas from settings: `LAPSE_SQLITE_CACHE_KB` (400000), `LAPSE_SQLITE_MMAP` (1 GiB; the Python
+  build caps mmap at 2 GiB anyway), `temp_store=MEMORY`.
+* `LAPSE_SQL_LOG=<file>`: one JSON line per executed statement (SQL, parameters, milliseconds) for
+  profiling; off when unset.
