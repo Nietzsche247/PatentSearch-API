@@ -396,8 +396,8 @@ reason for each are recorded in the patentref repo (`decisions.md`, audit
 
 * `lapse_accounts/abuse.py` (new). `client_ip()`: behind the proxy (`LAPSE_BEHIND_PROXY=1`, now also a
   settings boolean) the client is the LAST `X-Forwarded-For` entry, believed only when the connecting
-  address is in `LAPSE_TRUSTED_PROXIES` (loopback and 172.17.0.0/16, the docker bridge Caddy reaches the
-  host through); the Caddy site file sets the header to the connecting address, overwriting the client's.
+  address is in `LAPSE_TRUSTED_PROXIES` (loopback and 172.16.0.0/12, the docker address pool: on the box
+  the Caddy container connects from its compose network, 172.18.0.2, as the first deploy showed); the Caddy site file sets the header to the connecting address, overwriting the client's.
   `AbuseLimitMiddleware` (innermost, data paths only, never `/api/v1/meta/`): size caps answered with the
   upstream 400 shape and `X-Status-Reason-Code: ERR_Q` (query string over `LAPSE_MAX_QUERY_STRING` 16 KB,
   body over `LAPSE_MAX_BODY` 64 KB by Content-Length, `q` over `LAPSE_MAX_Q_BYTES` 16 KB); the per-IP

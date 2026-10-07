@@ -76,7 +76,7 @@ def test_client_ip_trusts_only_the_proxy(monkeypatch):
     monkeypatch.setattr(settings, "LAPSE_BEHIND_PROXY", True)
     abuse.reset_caches()
     # from the docker bridge (Caddy): the last X-Forwarded-For entry, whatever the client put in front of it
-    req = rf.get(LIST, REMOTE_ADDR="172.17.0.2", HTTP_X_FORWARDED_FOR="1.2.3.4, 203.0.113.9")
+    req = rf.get(LIST, REMOTE_ADDR="172.18.0.2", HTTP_X_FORWARDED_FOR="1.2.3.4, 203.0.113.9")
     assert abuse.client_ip(req) == "203.0.113.9"
     req = rf.get(LIST, REMOTE_ADDR="127.0.0.1", HTTP_X_FORWARDED_FOR="203.0.113.9")
     assert abuse.client_ip(req) == "203.0.113.9"

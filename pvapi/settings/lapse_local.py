@@ -109,7 +109,7 @@ REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
 
 # Abuse limits (PatentRef checklist 5.6; lapse_accounts/abuse.py, lapse_accounts/throttling.py, API/lapse_cost.py).
 # Every number is recorded with its reason in the patentref repo's decisions.md.
-LAPSE_TRUSTED_PROXIES = os.environ.get("LAPSE_TRUSTED_PROXIES", "127.0.0.1,::1,172.17.0.0/16")  # whose X-Forwarded-For is believed
+LAPSE_TRUSTED_PROXIES = os.environ.get("LAPSE_TRUSTED_PROXIES", "127.0.0.1,::1,172.16.0.0/12")  # whose X-Forwarded-For is believed: loopback and docker networks (the Caddy container is on a compose network, 172.18.0.x on patentref-us1)
 LAPSE_NOKEY_PER_MINUTE = int(os.environ.get("LAPSE_NOKEY_PER_MINUTE", "60"))      # keyless or invalid-key requests per IP per clock minute
 LAPSE_IP_PER_MINUTE = int(os.environ.get("LAPSE_IP_PER_MINUTE", "300"))            # admitted keyed requests per IP per clock minute, all keys
 LAPSE_INFLIGHT_PER_KEY = int(os.environ.get("LAPSE_INFLIGHT_PER_KEY", "4"))        # requests running at once per key

@@ -6,9 +6,10 @@ Three things live here, all additive (a valid request's body is unchanged):
    every request reaches gunicorn from the proxy's address, so the client is the LAST entry of
    `X-Forwarded-For`, which the proxy itself appended or set (`ops/caddy/patentref.caddy` sets it to
    the connecting address, overwriting whatever the client sent). The header is trusted only when the
-   connecting address is one of `LAPSE_TRUSTED_PROXIES` (default: loopback and the docker bridge
-   172.17.0.0/16 the Caddy container reaches the host through); from any other address the header is
-   ignored and `REMOTE_ADDR` is used.
+   connecting address is one of `LAPSE_TRUSTED_PROXIES` (default: loopback and 172.16.0.0/12, the docker
+   address pool; on patentref-us1 the Caddy container speaks from its compose network, 172.18.0.x, not
+   from the 172.17.0.1 bridge address gunicorn listens on); from any other address the header is ignored
+   and `REMOTE_ADDR` is used.
 
 2. `AbuseLimitMiddleware`, in front of the views, on `/api/v1/` data paths (not `/api/v1/meta/`):
    - size caps, answered with the upstream 400 shape (`{"error": true}`, `X-Status-Reason`,
@@ -63,7 +64,7 @@ def _trusted_networks():
     global _networks
     if _networks is None:
         nets = []
-        for item in str(setting("LAPSE_TRUSTED_PROXIES", "127.0.0.1,::1,172.17.0.0/16")).split(","):
+        for item in str(setting("LAPSE_TRUSTED_PROXIES", "127.0.0.1,::1,172.16.0.0/12")).split(","):
             item = item.strip()
             if not item:
                 continue
