@@ -438,6 +438,16 @@ reason for each are recorded in the patentref repo (`decisions.md`, audit
   at `LAPSE_SIGNUP_DOMAIN_DAILY` (20) new accounts per UTC day on the same counter table (scope `signup`,
   86400 s windows), answering DRF's 429 with `Retry-After` to the end of the day and
   `X-Status-Reason-Code: ERR_SIGNUP_LIMIT`.
+* `lapse_accounts/abuse.py` `drain()`: an oversized body (Content-Length over the cap, or a chunked body
+  with no Content-Length) is read off the wire up to cap + 1 bytes BEFORE the 400 is answered. Reason:
+  Caddy's `request_body max_size` at the same figure trips while the proxy is still copying the body
+  upstream, and when the app has already answered, Go's net/http sets a response header from the body
+  copy goroutine while the proxy goroutine writes the response headers: "fatal error: concurrent map
+  writes", the whole Caddy process down (five times in the first public hostile run). Reading first means
+  the app cannot answer before Caddy's limit has fired and closed the upstream request. Without the Caddy
+  cap at all, every oversized request cost one upstream connection (Go closes a connection whose body
+  write is unfinished 50 ms after the response) and the churn stalled every client through Caddy at p95
+  2 s; with the cap and the drain the stall is gone (audit, section D).
 * `pvapi/settings/lapse_local.py`: the throttle list and rates (`ip`), `DATA_UPLOAD_MAX_MEMORY_SIZE` =
   `LAPSE_MAX_BODY`, the `LAPSE_*` limits above, the `AbuseLimitMiddleware`.
 * `lapse_accounts/tests/test_abuse_limits.py` (new, 13 tests): the valid request unchanged and its

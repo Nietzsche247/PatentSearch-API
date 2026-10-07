@@ -177,6 +177,32 @@ def count_nokey(ip, now=None):
     return True, wait
 
 
+def drain(request, limit):
+    """Read and discard up to `limit` bytes of the request body from the WSGI input; returns the count.
+
+    Why read a body we are about to refuse: Caddy in front carries `request_body max_size` at the same
+    figure, and its reader trips the limit while the proxy is still copying the body upstream. If the app
+    has already answered by then (an early 400 or 403), Go's net/http sets a response header from the
+    body-copy goroutine while the proxy goroutine is writing the response headers, and the Caddy process
+    dies with "fatal error: concurrent map writes" (seen five times in the gate 5.6 hostile run). Reading
+    `max_body + 1` bytes first means the app cannot answer before Caddy's own limit has fired and closed
+    the upstream request, so the race never happens; the read returns short in that case. Without Caddy
+    (a direct client) the read costs the cap's worth of bytes and gunicorn discards the rest."""
+    stream = request.META.get("wsgi.input")
+    if stream is None:
+        return 0
+    got = 0
+    try:
+        while got < limit:
+            chunk = stream.read(min(65536, limit - got))
+            if not chunk:
+                break
+            got += len(chunk)
+    except Exception:  # a closed or reset upstream connection: nothing more to read
+        pass
+    return got
+
+
 class AbuseLimitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -217,11 +243,13 @@ class AbuseLimitMiddleware:
         except (TypeError, ValueError):
             length = 0
         if length > max_body:
-            resp = bad_request(f"Request body too large: {length} bytes, the limit is {max_body}")
-            # the body is never read: tell gunicorn to close the connection instead of draining the unread
-            # bytes to keep it alive (a proxy in front then opens a fresh connection for its next request)
-            resp["Connection"] = "close"
-            return resp
+            drain(request, max_body + 1)
+            return bad_request(f"Request body too large: {length} bytes, the limit is {max_body}")
+        if length == 0 and "chunked" in (request.META.get("HTTP_TRANSFER_ENCODING") or "").lower():
+            # no Content-Length: Django reads nothing from such a body, so take it off the wire here up to
+            # the cap (gunicorn de-chunks it); over the cap it is refused like a declared one
+            if drain(request, max_body + 1) > max_body:
+                return bad_request(f"Request body too large: more than {max_body} bytes")
         max_q = int(setting("LAPSE_MAX_Q_BYTES", 16384))
         q = request.GET.get("q")
         if q is not None and len(q.encode("utf-8", "replace")) > max_q:

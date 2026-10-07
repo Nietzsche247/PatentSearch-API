@@ -304,3 +304,34 @@ def test_domain_daily_limit(client, token_factory, monkeypatch):
     assert WindowCount.objects.get(subject="domain:limited.example").count == 3
     # another domain has its own allowance
     assert _mint(client, token_factory(sub=str(uuid.uuid4()), email="a@other.example")).status_code == 201
+
+
+def test_oversized_body_is_read_up_to_the_cap_before_the_400(client, free_key, monkeypatch):
+    """The refusal must not race Caddy's own body limit (see `abuse.drain`): the app reads cap + 1 bytes first."""
+    import io
+
+    monkeypatch.setattr(settings, "LAPSE_MAX_BODY", 1000)
+    seen = {}
+    orig = abuse.drain
+
+    def spy(request, limit):
+        n = orig(request, limit)
+        seen["limit"], seen["read"] = limit, n
+        return n
+
+    monkeypatch.setattr(abuse, "drain", spy)
+    body = b"x" * 5000
+    r = client.post(LIST, data=body, content_type="application/json", HTTP_X_API_KEY=free_key)
+    _bad_request(r, "Request body too large: 5000 bytes, the limit is 1000")
+    assert seen == {"limit": 1001, "read": 1001}
+    # a chunked body with no Content-Length is read off the wire up to the cap and refused above it
+    from django.test import RequestFactory
+
+    req = RequestFactory().post(LIST, data=b"y" * 3000, content_type="application/json", HTTP_X_API_KEY=free_key)
+    req.META["CONTENT_LENGTH"] = ""
+    req.META["HTTP_TRANSFER_ENCODING"] = "chunked"
+    req.META["wsgi.input"] = io.BytesIO(b"y" * 3000)
+    resp = abuse.AbuseLimitMiddleware(lambda r: None)._size_caps(req)
+    assert resp is not None and resp.status_code == 400 and "more than 1000 bytes" in resp["X-Status-Reason"]
+    req.META["wsgi.input"] = io.BytesIO(b"y" * 300)
+    assert abuse.AbuseLimitMiddleware(lambda r: None)._size_caps(req) is None
