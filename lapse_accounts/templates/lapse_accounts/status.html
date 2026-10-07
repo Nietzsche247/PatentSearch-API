@@ -1,0 +1,188 @@
+{% load humanize %}<!doctype html>
+<html lang="en" data-theme="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Status | PatentRef</title>
+  <meta name="description" content="PatentRef API status: external uptime, request counts, error rates, latency, refresh and box health.">
+  <meta name="robots" content="noindex">
+  <link rel="alternate" type="application/json" href="{{ json_url }}">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"PatentRef status","url":"https://patentref.io/api/v1/meta/status/","dateModified":"{{ d.generated_at }}"}</script>
+  <style>
+    :root {
+      --bg: #ffffff; --surface: #f6f7f9; --fg: #16181d; --muted: #555b66; --border: #d8dce3;
+      --accent: #1f5fbf; --accent-fg: #ffffff; --warn-bg: #fff4d6; --warn-fg: #5c4300; --focus: #1f5fbf;
+      --ok-bg: #e3f3e6; --ok-fg: #14532d; --err-bg: #fde8e8; --err-fg: #7f1d1d;
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --t-sm: 14px; --t-base: 16px; --t-lg: 20px; --t-xl: 28px; --lh: 1.5;
+      --s-1: 4px; --s-2: 8px; --s-3: 16px; --s-4: 24px; --s-5: 40px;
+      --radius: 4px; --maxw: 72ch; color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
+        --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
+        --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
+      --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
+      --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--fg); font: var(--t-base)/var(--lh) var(--font); margin: 0; }
+    .pr-header, .pr-main, .pr-footer { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--s-3); }
+    .pr-header { padding-top: var(--s-4); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: baseline; }
+    .pr-name { font-size: var(--t-lg); font-weight: 600; color: var(--fg); text-decoration: none; }
+    .pr-asof { margin: 0; color: var(--muted); font-size: var(--t-sm); }
+    .pr-main { padding-top: var(--s-4); padding-bottom: var(--s-5); }
+    .pr-footer { border-top: 1px solid var(--border); padding-top: var(--s-3); padding-bottom: var(--s-4); color: var(--muted); font-size: var(--t-sm); }
+    .pr-footer p { margin: 0 0 var(--s-2); }
+    .pr-footer nav a { margin-right: var(--s-3); }
+    h1 { font-size: var(--t-xl); line-height: 1.2; margin: 0 0 var(--s-2); }
+    h2 { font-size: var(--t-lg); margin: 0 0 var(--s-2); }
+    p { margin: 0 0 var(--s-3); }
+    .lead { color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin-bottom: var(--s-4); }
+    .state { padding: var(--s-3); border-radius: var(--radius); margin-bottom: var(--s-4); font-weight: 600; }
+    .state.ok { background: var(--ok-bg); color: var(--ok-fg); }
+    .state.degraded { background: var(--warn-bg); color: var(--warn-fg); }
+    .state.down { background: var(--err-bg); color: var(--err-fg); }
+    .state small { display: block; font-weight: 400; font-size: var(--t-sm); }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--s-2); margin-bottom: var(--s-4); }
+    .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-2) var(--s-3); }
+    .tile .n { font-size: var(--t-xl); line-height: 1.1; font-family: var(--mono); }
+    .tile .l { color: var(--muted); font-size: var(--t-sm); }
+    table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); margin: 0 0 var(--s-3); }
+    th, td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+    code { font-family: var(--mono); font-size: var(--t-sm); }
+    .ok-t { color: var(--ok-fg); } .err-t { color: var(--err-fg); } .warn-t { color: var(--warn-fg); }
+    .pill { display: inline-block; padding: 0 var(--s-2); border-radius: var(--radius); font-size: var(--t-sm); }
+    .pill.ok { background: var(--ok-bg); color: var(--ok-fg); } .pill.err { background: var(--err-bg); color: var(--err-fg); } .pill.warn { background: var(--warn-bg); color: var(--warn-fg); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-3); }
+    dt { color: var(--muted); font-size: var(--t-sm); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    a { color: var(--accent); }
+    .muted { color: var(--muted); font-size: var(--t-sm); }
+    .wrap { overflow-x: auto; }
+    @media (max-width: 420px) { dl { grid-template-columns: 1fr; } .tile .n { font-size: var(--t-lg); } }
+  </style>
+</head>
+<body>
+  <header class="pr-header">
+    <a class="pr-name" href="/api/v1/meta/status/">PatentRef</a>
+    <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
+  </header>
+  <main class="pr-main">
+    <h1>Status</h1>
+    <p class="lead">The PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Figures refresh once a minute; this page was generated at {{ d.generated_at }}. Machine-readable twin: <a href="{{ json_url }}">status.json</a>.</p>
+
+    <div class="state {{ state }}" role="status">
+      {% if state == "ok" %}Operational{% elif state == "degraded" %}Degraded{% else %}Down{% endif %}
+      <small>{{ state_text }} Code {{ d.service.code_version }}, data {{ d.service.data_version }}, health check on the box: {{ d.service.health_detail }}.</small>
+    </div>
+
+    {% with u=d.uptime r=d.requests_24h %}
+    <div class="tiles">
+      <div class="tile"><div class="n">{% if u.uptime_percent != None %}{{ u.uptime_percent|floatformat:3 }}%{% else %}n/a{% endif %}</div><div class="l">uptime since {{ u.clock_start|slice:":10" }} (gate 5.8 clock)</div></div>
+      <div class="tile"><div class="n">{{ u.down_minutes|floatformat:0 }}</div><div class="l">minutes down of {{ u.elapsed_minutes|intcomma }} elapsed</div></div>
+      <div class="tile"><div class="n">{% if r.p95_ms != None %}{{ r.p95_ms|floatformat:0 }} ms{% else %}n/a{% endif %}</div><div class="l">p95 latency, last 24 h</div></div>
+      <div class="tile"><div class="n">{{ r.requests|intcomma }}</div><div class="l">API requests, last 24 h</div></div>
+    </div>
+    {% endwith %}
+
+    <section class="card">
+      <h2>External uptime probe</h2>
+      {% with u=d.uptime %}
+      <p class="muted">GitHub Actions runs a probe every {{ u.cadence_minutes }} minutes from GitHub's network against <code>/api/v1/meta/health/</code> and one keyed query. The span between two consecutive failed probes counts as down; one failed probe between two passes counts as nothing. GitHub's scheduler can run a probe several minutes late or skip one under load, so the probe count varies. The history is a public commit log, mirrored to the box every few minutes.</p>
+      {% if u.last_probe %}
+      <dl>
+        <dt>Last probe</dt><dd>{{ u.last_probe.t }} ({{ u.last_probe_age_minutes }} min ago), {% if u.last_probe.ok %}<span class="pill ok">pass</span>{% else %}<span class="pill err">fail</span>{% endif %} HTTP {{ u.last_probe.status }} in {{ u.last_probe.ms }} ms{% if u.last_probe.keyed %}, keyed query HTTP {{ u.last_probe.keyed.status }} in {{ u.last_probe.keyed.ms }} ms{% endif %}{% if u.last_probe.data_version %}, data {{ u.last_probe.data_version }}{% endif %}</dd>
+        <dt>Last 24 h</dt><dd>{{ u.probes_24h }} probes, {{ u.failed_24h }} failed</dd>
+        <dt>Since clock start</dt><dd>{{ u.probes }} probes, {{ u.failed_probes }} failed, {{ u.down_minutes }} minutes down</dd>
+        <dt>Mirror age</dt><dd>{{ u.mirror_age_minutes }} min</dd>
+      </dl>
+      {% if u.outages %}
+      <div class="wrap"><table>
+        <tr><th>Outage from</th><th>to</th><th class="num">minutes</th></tr>
+        {% for o in u.outages %}<tr><td>{{ o.from }}</td><td>{{ o.to }}{% if o.open %} (open){% endif %}</td><td class="num">{{ o.minutes }}</td></tr>{% endfor %}
+      </table></div>
+      {% else %}<p class="muted">No outage recorded since the clock started.</p>{% endif %}
+      {% else %}
+      <p class="warn-t">No probe history on the box yet{% if u.note %}: {{ u.note }}{% endif %}.</p>
+      {% endif %}
+      {% endwith %}
+    </section>
+
+    <section class="card">
+      <h2>Requests, errors, latency</h2>
+      <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account and status endpoints). Client errors are 4xx other than 403 and 429; rejected is 403 (no or bad key) and 429 (a limit); latency is measured over admitted requests, inside the app, without the network.</p>
+      <div class="wrap"><table>
+        <tr><th></th><th class="num">last 24 h</th><th class="num">last 30 days</th></tr>
+        {% with a=d.requests_24h b=d.requests_30d %}
+        <tr><td>Requests</td><td class="num">{{ a.requests|intcomma }}</td><td class="num">{{ b.requests|intcomma }}</td></tr>
+        <tr><td>Answered 2xx or 3xx</td><td class="num">{{ a.ok|intcomma }}</td><td class="num">{{ b.ok|intcomma }}</td></tr>
+        <tr><td>Client errors (4xx)</td><td class="num">{{ a.client_errors|intcomma }}</td><td class="num">{{ b.client_errors|intcomma }}</td></tr>
+        <tr><td>Rejected (403, 429)</td><td class="num">{{ a.rejected|intcomma }}</td><td class="num">{{ b.rejected|intcomma }}</td></tr>
+        <tr><td>Server errors (5xx)</td><td class="num">{{ a.server_errors|intcomma }}</td><td class="num">{{ b.server_errors|intcomma }}</td></tr>
+        <tr><td>Error rate (4xx plus 5xx, of all)</td><td class="num">{% if a.error_rate != None %}{{ a.error_rate }}%{% else %}n/a{% endif %}</td><td class="num">{% if b.error_rate != None %}{{ b.error_rate }}%{% else %}n/a{% endif %}</td></tr>
+        <tr><td>5xx rate</td><td class="num">{% if a.server_error_rate != None %}{{ a.server_error_rate }}%{% else %}n/a{% endif %}</td><td class="num">{% if b.server_error_rate != None %}{{ b.server_error_rate }}%{% else %}n/a{% endif %}</td></tr>
+        <tr><td>p50 latency</td><td class="num">{% if a.p50_ms != None %}{{ a.p50_ms }} ms{% else %}n/a{% endif %}</td><td class="num">{% if b.p50_ms != None %}{{ b.p50_ms }} ms{% else %}n/a{% endif %}</td></tr>
+        <tr><td>p95 latency</td><td class="num">{% if a.p95_ms != None %}{{ a.p95_ms }} ms{% else %}n/a{% endif %}</td><td class="num">{% if b.p95_ms != None %}{{ b.p95_ms }} ms{% else %}n/a{% endif %}</td></tr>
+        <tr><td>Slowest</td><td class="num">{% if a.max_ms != None %}{{ a.max_ms }} ms{% else %}n/a{% endif %}</td><td class="num">{% if b.max_ms != None %}{{ b.max_ms }} ms{% else %}n/a{% endif %}</td></tr>
+        <tr><td>Account, health and status requests</td><td class="num">{{ a.meta_requests|intcomma }}</td><td class="num">{{ b.meta_requests|intcomma }}</td></tr>
+        {% endwith %}
+      </table></div>
+      {% if d.requests_30d.error %}<p class="warn-t">Request log unreadable: {{ d.requests_30d.error }}.</p>{% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Data refresh</h2>
+      {% with f=d.refresh %}
+      <dl>
+        <dt>Serving</dt><dd>{% if f.current %}data version {{ f.current.data_version }}, built {{ f.current.built_at }}, verdict {{ f.current.verdict }}{% if f.current.swapped %}, live since {{ f.current.swapped_at }}{% endif %}{% else %}{{ d.service.data_version }} (no sidecar){% endif %}</dd>
+        <dt>Last catalog check</dt><dd>{% if f.last_check %}{{ f.last_check.t }}: {{ f.last_check.verdict }}{% else %}none recorded{% endif %}</dd>
+        <dt>Next build</dt><dd>{% if f.next %}data version {{ f.next.data_version }}, verdict {{ f.next.verdict }}, built {{ f.next.built_at }} (not yet live; the swap is a separate, verified step){% else %}none waiting{% endif %}</dd>
+        {% if f.current.gates %}<dt>Gates of the live build</dt><dd>{% for g, s in f.current.gates.items %}<code>{{ g }}</code> {{ s }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+      </dl>
+      <p class="muted">The weekly check polls the USPTO catalog on Wednesdays at 06:10 UTC and starts a build only when a wanted file changed. A build never replaces the live file by itself.</p>
+      {% endwith %}
+    </section>
+
+    <section class="card">
+      <h2>Box</h2>
+      {% with b=d.box %}
+      <div class="wrap"><table>
+        <tr><th>Resource</th><th class="num">free</th><th class="num">of</th></tr>
+        {% for disk in b.disks %}<tr><td>Disk {{ disk.mount }}</td><td class="num">{% if disk.free_gb != None %}{{ disk.free_gb }} GB ({{ disk.free_percent }}%){% else %}{{ disk.error }}{% endif %}</td><td class="num">{{ disk.total_gb }} GB</td></tr>{% endfor %}
+        {% if b.memory %}<tr><td>Memory available</td><td class="num">{{ b.memory.available_gb }} GB ({{ b.memory.available_percent }}%)</td><td class="num">{{ b.memory.total_gb }} GB</td></tr>{% endif %}
+        {% if b.load %}<tr><td>Load average (1, 5, 15 min)</td><td class="num">{{ b.load.0 }}, {{ b.load.1 }}, {{ b.load.2 }}</td><td class="num">{{ b.cpus }} CPUs</td></tr>{% endif %}
+      </table></div>
+      <dl>
+        <dt>Last backup</dt><dd>{% if b.backup %}{{ b.backup.t }}, {% if b.backup.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill err">failed</span>{% endif %} in {{ b.backup.seconds }} s (Drive {{ b.backup.drive }}, Storage Box {{ b.backup.storage_box }}){% else %}no journal line{% endif %}</dd>
+        <dt>Watchdog</dt><dd>{% if b.watchdog %}last run {{ b.watchdog.t }}: {% for name, c in b.watchdog.checks.items %}<code>{{ name }}</code> {% if c.ok %}<span class="ok-t">ok</span>{% else %}<span class="err-t">breach</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}{% else %}no state file yet{% endif %}</dd>
+      </dl>
+      {% endwith %}
+    </section>
+
+    <section class="card">
+      <h2>Alerts</h2>
+      {% if d.alerts.open %}
+      <div class="wrap"><table>
+        <tr><th>Check</th><th>Since</th><th>Detail</th></tr>
+        {% for a in d.alerts.open %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.time }}</td><td>{{ a.detail }}</td></tr>{% endfor %}
+      </table></div>
+      {% else %}<p class="muted">No open alerts. {% if d.alerts.recent %}Most recent line: {{ d.alerts.recent.0.time }} <code>{{ d.alerts.recent.0.check }}</code> {{ d.alerts.recent.0.state }}.{% endif %}</p>{% endif %}
+      <p class="muted">The on-box watchdog runs every 2 minutes: API and public health, disk and memory headroom, the refresh and backup timers. A breach files an item on the operator desk (once per 24 hours per check) and a line here.</p>
+    </section>
+  </main>
+  <footer class="pr-footer">
+    <p>Patent data from PatentsView and the USPTO, used under CC BY 4.0. PatentRef is an independent service and is not affiliated with the USPTO.</p>
+    <nav><a href="/api/v1/meta/status/">Status</a> <a href="/api/v1/meta/signup/">Free key</a> <a href="{{ json_url }}">JSON</a></nav>
+  </footer>
+</body>
+</html>

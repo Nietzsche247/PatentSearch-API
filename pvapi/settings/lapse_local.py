@@ -87,9 +87,17 @@ LAPSE_FREE_MINUTE_LIMIT = int(os.environ.get("LAPSE_FREE_MINUTE_LIMIT", "45"))
 # Fallback data_version for a search database with no `_lapse_build.data_version` row (files built before the
 # refresh runner); otherwise the version comes from the served file (API/search_sqlite.py read_data_version)
 LAPSE_DATA_VERSION = os.environ.get("LAPSE_DATA_VERSION", "")
-INSTALLED_APPS = list(INSTALLED_APPS) + ["lapse_accounts"]
+INSTALLED_APPS = list(INSTALLED_APPS) + ["django.contrib.humanize", "lapse_accounts"]  # humanize: the status page
 ROOT_URLCONF = "lapse_accounts.root_urls"
-MIDDLEWARE = MIDDLEWARE + ["lapse_accounts.middleware.MeteringMiddleware", "lapse_accounts.abuse.AbuseLimitMiddleware"]
+# RequestLogMiddleware first, so its clock covers everything below it (gate 5.4 dashboard)
+MIDDLEWARE = ["lapse_accounts.requestlog.RequestLogMiddleware"] + MIDDLEWARE + ["lapse_accounts.middleware.MeteringMiddleware", "lapse_accounts.abuse.AbuseLimitMiddleware"]
+LAPSE_REQUEST_LOG = os.environ.get("LAPSE_REQUEST_LOG", "1") == "1"   # per-request rows (ts, status, ms, prefix, path) in the usage-log file
+# Status page inputs (lapse_accounts/status.py); defaults are the box paths from ops/refresh.md and ops/backup.md
+LAPSE_STATUS_PATHS = {
+    "lapse_data": os.environ.get("LAPSE_DATA", "/data/lapse"),
+    "api_dir": os.environ.get("LAPSE_DATA_DIR", "/data/api"),
+    "backup_journal": os.environ.get("PATENTREF_BACKUP_DIR", "/data/backups") + "/backup_journal.jsonl",
+}
 
 # Throttles (lapse_accounts/throttling.py): upstream's per-minute key throttle with the rate chosen per key
 # (account keys: the plan's per-minute allowance, 45/m for Free; keys without an account: LAPSE_THROTTLE_RATE,
