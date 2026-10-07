@@ -19,7 +19,8 @@ window counter.
 
 Gate 5.6 adds two more, run after the two above and skipped when one of them already denied:
 `IPCeilingThrottle` caps the keyed requests one client address may have admitted per clock minute across
-all its keys (`LAPSE_IP_PER_MINUTE`, 300), so one address cannot multiply its allowance by minting keys;
+all its account keys (`LAPSE_IP_PER_MINUTE`, 300), so one address cannot multiply its allowance by minting
+keys (keys without an account, the operator's own, are outside it);
 `InflightThrottle` caps the requests one key (`LAPSE_INFLIGHT_PER_KEY`, 4) and one address
 (`LAPSE_INFLIGHT_PER_IP`, 8) may have running at once, which bounds how many of the 16 gunicorn threads
 any one client can hold; the reservation is released by `AbuseLimitMiddleware` when the response leaves.
@@ -157,6 +158,12 @@ class IPCeilingThrottle(WindowThrottle):
         key = request.META.get("HTTP_X_API_KEY")
         if not key or "." not in key:
             return None  # no key: the permission class answers 403, the middleware counts it per IP
+        _, account, _ = _key_subject(request)
+        if not account:
+            # a key without an account (the operator's own, minted by hand, never from the sign-up page) has its
+            # own rate (LAPSE_THROTTLE_RATE) and is not what this ceiling is for: the ceiling stops one address
+            # from multiplying the Free allowance by minting keys; the operator's suites run from the box itself
+            return None
         return "ip:" + self.get_ident(request)
 
     def limits(self, request, subject):

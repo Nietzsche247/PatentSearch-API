@@ -408,8 +408,9 @@ reason for each are recorded in the patentref repo (`decisions.md`, audit
   window is remembered in process so the flood costs no further writes. Keyed requests from the same
   address are not touched by this counter.
 * `lapse_accounts/throttling.py`: `IPCeilingThrottle` (`LAPSE_IP_PER_MINUTE` 300 admitted keyed requests
-  per address per clock minute across all its keys; counts only what the per-key and monthly rules
-  admitted) and `InflightThrottle` (`LAPSE_INFLIGHT_PER_KEY` 4 and `LAPSE_INFLIGHT_PER_IP` 8 requests
+  per address per clock minute across all its account keys; counts only what the per-key and monthly rules
+  admitted; a key without an account, the operator's own, is outside it since its own rate is its limit and
+  the box's own suites would otherwise trip the ceiling from 127.0.0.1) and `InflightThrottle` (`LAPSE_INFLIGHT_PER_KEY` 4 and `LAPSE_INFLIGHT_PER_IP` 8 requests
   running at once; reserved with the same atomic counter in the current minute's row and released by the
   middleware when the response leaves, so a reservation a crashed worker never released vanishes with the
   minute). Both run after the per-key and monthly throttles and skip when one of those denied

@@ -133,6 +133,13 @@ def test_ip_ceiling_across_keys(client, monkeypatch):
     assert client.get(DETAIL, REMOTE_ADDR="203.0.113.10", HTTP_X_API_KEY=keys[1]).status_code == 200
     row = WindowCount.objects.get(subject="ip:203.0.113.10", win__startswith="ip:")
     assert row.count == 3  # 2 + 1 admitted, the 8 denied never counted
+    # a key without an account (the operator's own) is outside the ceiling: its own rate is its limit
+    rec, op_key = APIUserKey.objects.create_key(name="op", username="op@example.test", email="op@example.test")
+    metering.forget_prefix(rec.prefix)
+    monkeypatch.setattr(settings, "LAPSE_IP_PER_MINUTE", 2)
+    codes = Counter(client.get(DETAIL, REMOTE_ADDR="203.0.113.11", HTTP_X_API_KEY=op_key).status_code for _ in range(6))
+    assert codes == {200: 6}
+    assert not WindowCount.objects.filter(subject="ip:203.0.113.11", win__startswith="ip:").exists()
 
 
 # ---- 4. in-flight cap per key
