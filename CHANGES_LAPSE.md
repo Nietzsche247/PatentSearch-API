@@ -433,7 +433,7 @@ reason for each are recorded in the patentref repo (`decisions.md`, audit
   the upstream handler's ES branch, which reads `.info` from the exception and raised AttributeError
   (a bare Django 500). `LapseErrorHeadersMiddleware` now applies pending headers for 500 as well as 501.
 * `lapse_accounts/views.py`: on a new account's first key (not on the idempotent create or a rotate), the
-  email domain from the verified Supabase token is checked: a built-in list of 90 disposable domains
+  email domain from the verified Supabase token is checked: a built-in list of 92 disposable domains
   (plus `LAPSE_DISPOSABLE_DOMAINS_FILE`, subdomains included) answers 403 ERR_AUTH; any domain is capped
   at `LAPSE_SIGNUP_DOMAIN_DAILY` (20) new accounts per UTC day on the same counter table (scope `signup`,
   86400 s windows), answering DRF's 429 with `Retry-After` to the end of the day and
