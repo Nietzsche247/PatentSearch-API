@@ -58,10 +58,16 @@ def refund(table, subject, window_col, window):
 
 
 def drop_old_windows(subject, window):
-    """Remove this subject's earlier per-minute windows (called when a new window row is created, so the
-    table holds about one row per active subject)."""
+    """Remove this subject's earlier windows of the same scope (called when a new window row is created,
+    so the table holds about one row per active subject and scope). The scope is the part of the window
+    id before the first colon; windows of other scopes on the same subject (an address counted under
+    `nokey`, `ip`, `inflight` and `meta` at once) are left alone."""
+    scope = window.split(":", 1)[0] + ":"
     with connection.cursor() as cur:
-        cur.execute(f"DELETE FROM {WINDOW_TABLE} WHERE subject = %s AND win < %s", [subject, window])
+        cur.execute(
+            f"DELETE FROM {WINDOW_TABLE} WHERE subject = %s AND win < %s AND substr(win, 1, %s) = %s",
+            [subject, window, len(scope), scope],
+        )
 
 
 def minute_window(scope, duration, now=None):

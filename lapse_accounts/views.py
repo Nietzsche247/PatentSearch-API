@@ -54,6 +54,76 @@ def _key_or_error(request):
     return key, None
 
 
+# ---- sign-up abuse limits (gate 5.6): keyed on the email domain the Supabase token carries
+SCOPE_SIGNUP = "signup"
+DISPOSABLE_DOMAINS = frozenset("""
+10minutemail.com 10minutemail.net 20minutemail.com 33mail.com anonbox.net binkmail.com bobmail.info burnermail.io
+byom.de courriel.fr.nf deadaddress.com discard.email dispostable.com dropmail.me emailondeck.com emailtemporanea.com
+fakeinbox.com fakemail.net filzmail.com getairmail.com getnada.com guerrillamail.biz guerrillamail.com guerrillamail.de
+guerrillamail.info guerrillamail.net guerrillamail.org guerrillamailblock.com grr.la harakirimail.com inboxkitten.com
+jetable.org koszmail.pl kurzepost.de lroid.com mail-temp.com mail.tm mailcatch.com maildrop.cc mailexpire.com
+mailinator.com mailinator.net mailinator2.com mailnesia.com mailnull.com mailsac.com mailtemp.info meltmail.com
+mintemail.com mohmal.com moakt.com mytemp.email nada.email nowmymail.com objectmail.com owlpic.com pokemail.net
+proxymail.eu rcpt.at sharklasers.com spam4.me spamgourmet.com spambox.us spamfree24.org spamherelots.com
+temp-mail.io temp-mail.org tempail.com tempemail.co tempemail.com tempinbox.com tempmail.com tempmail.de tempmail.net
+tempmailo.com tempmailaddress.com tempr.email temporaryemail.net throwawaymail.com throwam.com tmail.ws
+tmpmail.net tmpmail.org trash-mail.com trashmail.com trashmail.de trashmail.me trashmail.net yopmail.com yopmail.fr
+yopmail.net zetmail.com
+""".split())
+_extra_disposable = None
+
+
+def disposable_domains():
+    """The built-in list plus `LAPSE_DISPOSABLE_DOMAINS_FILE` (one domain per line, # comments), read once."""
+    global _extra_disposable
+    if _extra_disposable is None:
+        extra = set()
+        path = getattr(settings, "LAPSE_DISPOSABLE_DOMAINS_FILE", "")
+        if path and os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip().lower()
+                    if line and not line.startswith("#"):
+                        extra.add(line)
+        _extra_disposable = frozenset(extra)
+    return DISPOSABLE_DOMAINS | _extra_disposable
+
+
+def email_domain(email):
+    return (email or "").rsplit("@", 1)[-1].strip().lower()
+
+
+def is_disposable(domain):
+    parts = domain.split(".")
+    known = disposable_domains()
+    return any(".".join(parts[i:]) in known for i in range(len(parts) - 1))
+
+
+def signup_domain_check(email, now=None):
+    """None when the new account may be created, else the error response: 403 ERR_AUTH for a disposable
+    domain, 429 (DRF's body, Retry-After to the end of the UTC day) when the domain has used its day's
+    allowance (`LAPSE_SIGNUP_DOMAIN_DAILY`). The day's count is the same atomic window counter as the
+    throttles, scope `signup`, window 86400 s aligned to the epoch (UTC days)."""
+    from lapse_accounts import abuse, ratelimit
+
+    domain = email_domain(email)
+    if not domain:
+        return _error("ERR_AUTH", "The token carries no email address", status.HTTP_403_FORBIDDEN)
+    if is_disposable(domain):
+        return _error("ERR_AUTH", f"Sign-ups from disposable email domains are not accepted ({domain})", status.HTTP_403_FORBIDDEN)
+    limit = int(getattr(settings, "LAPSE_SIGNUP_DOMAIN_DAILY", 20))
+    window, wait = ratelimit.minute_window(SCOPE_SIGNUP, 86400, now)
+    count = ratelimit.bump(ratelimit.WINDOW_TABLE, "domain:" + domain, "win", window, limit)
+    if count is None:
+        resp = abuse.throttled_response(wait)
+        resp["X-Status-Reason"] = f"Sign-up limit reached for the domain {domain}: {limit} new accounts a day"
+        resp["X-Status-Reason-Code"] = "ERR_SIGNUP_LIMIT"
+        return resp
+    if count == 1:
+        ratelimit.drop_old_windows("domain:" + domain, window)
+    return None
+
+
 def _active_account(user_id):
     return (
         AccountKey.objects.filter(supabase_user_id=user_id, api_key__revoked=False)
@@ -123,6 +193,11 @@ class KeysView(MetaAPIView):
             current = _active_account(user_id)
             if current and action == "create":
                 return Response(_key_info(current))
+            if current is None and not AccountKey.objects.filter(supabase_user_id=user_id).exists():
+                # a new account's first key (gate 5.6): known disposable domains refused, any domain capped per day
+                err = signup_domain_check(email)
+                if err is not None:
+                    return err
             rotated_from = ""
             if current:
                 current.api_key.revoke()

@@ -387,3 +387,63 @@ alone the parallel burst still got 60 x 200.
   at the monthly cap stops exactly at the cap; a 5xx after admission is refunded.
 * Live after the fix (audit `ops/audits/2026-10-06_gate-5.10_throttle-fix_patentref-us1.txt` in the
   patentref repo): see that file for the parallel and the under-load bursts and the counter check.
+
+## 2026-10-07 abuse limits (PatentRef checklist 5.6)
+
+Every limit is additive: a valid request's status, body and headers are unchanged. The numbers and the
+reason for each are recorded in the patentref repo (`decisions.md`, audit
+`ops/audits/2026-10-06_gate-5.6_abuse-limits_patentref-us1.txt`); each has an environment override.
+
+* `lapse_accounts/abuse.py` (new). `client_ip()`: behind the proxy (`LAPSE_BEHIND_PROXY=1`, now also a
+  settings boolean) the client is the LAST `X-Forwarded-For` entry, believed only when the connecting
+  address is in `LAPSE_TRUSTED_PROXIES` (loopback and 172.17.0.0/16, the docker bridge Caddy reaches the
+  host through); the Caddy site file sets the header to the connecting address, overwriting the client's.
+  `AbuseLimitMiddleware` (innermost, data paths only, never `/api/v1/meta/`): size caps answered with the
+  upstream 400 shape and `X-Status-Reason-Code: ERR_Q` (query string over `LAPSE_MAX_QUERY_STRING` 16 KB,
+  body over `LAPSE_MAX_BODY` 64 KB by Content-Length, `q` over `LAPSE_MAX_Q_BYTES` 16 KB); the per-IP
+  keyless limit: a request with no `X-Api-Key`, or with a key this worker has seen rejected, counts
+  against `nokey` for its address (`LAPSE_NOKEY_PER_MINUTE` 60 a clock minute) and gets DRF's 429 with
+  `Retry-After` once the minute is used up, 403 as upstream below it; a 403 from the view (unknown or
+  revoked key) is counted afterwards and the prefix remembered for 10 minutes per worker. A used-up
+  window is remembered in process so the flood costs no further writes. Keyed requests from the same
+  address are not touched by this counter.
+* `lapse_accounts/throttling.py`: `IPCeilingThrottle` (`LAPSE_IP_PER_MINUTE` 300 admitted keyed requests
+  per address per clock minute across all its keys; counts only what the per-key and monthly rules
+  admitted) and `InflightThrottle` (`LAPSE_INFLIGHT_PER_KEY` 4 and `LAPSE_INFLIGHT_PER_IP` 8 requests
+  running at once; reserved with the same atomic counter in the current minute's row and released by the
+  middleware when the response leaves, so a reservation a crashed worker never released vanishes with the
+  minute). Both run after the per-key and monthly throttles and skip when one of those denied
+  (`request._lapse_denied`), so a denied burst never uses the address's allowance. `Retry-After` is 1 s
+  for an in-flight denial. `WindowThrottle.get_ident` is `client_ip()` (the meta rate too).
+  `ratelimit.drop_old_windows` now deletes only windows of the same scope, since one subject
+  (`ip:<addr>`, `user:<id>`) carries rows under several scopes.
+* `API/lapse_cost.py` (new) and `PVAPIView.check_query_cost` (called after `validate_request_parameters`,
+  before the parser, SQLite backend only): a unit estimate from the client's `q`, `o`, `s` (leaf 1,
+  `_begins` 2 or 4 under three characters, `_contains` 6 or 20 with a needle under three characters or a
+  wildcard character, text operators 4, `_not` and `_neq` +2, each distinct nested group +3, `_or` +1 a
+  branch, +1 per 100 rows of the page, +2 per sort field). Over `LAPSE_QUERY_COST_LIMIT` (100), deeper
+  than `LAPSE_QUERY_MAX_DEPTH` (8) or more than `LAPSE_QUERY_MAX_CRITERIA` (64) leaves: 400 ERR_Q with the
+  cost, the limit and the heaviest parts in `X-Status-Reason`, raised as `InvalidQueryStringError` so the
+  unchanged handler answers. The contract examples peak at 16 units and the operator-matrix cells at 35
+  (1000-row pages included); the suites rerun unchanged.
+* `API/search_sqlite.py`: the per-statement ceiling is 20 s (`LAPSE_SQLITE_TIMEOUT`, was 60) and one
+  request's page and count together get `LAPSE_REQUEST_BUDGET` (30 s); an interrupted statement raises
+  `API.lapse_errors.LapseTimeout` (new): 500, `{"error": true}`, `X-Status-Reason-Code: ERR_ES` like an
+  Elasticsearch timeout, with `X-Status-Reason` naming the two figures. Before this a timeout fell into
+  the upstream handler's ES branch, which reads `.info` from the exception and raised AttributeError
+  (a bare Django 500). `LapseErrorHeadersMiddleware` now applies pending headers for 500 as well as 501.
+* `lapse_accounts/views.py`: on a new account's first key (not on the idempotent create or a rotate), the
+  email domain from the verified Supabase token is checked: a built-in list of 90 disposable domains
+  (plus `LAPSE_DISPOSABLE_DOMAINS_FILE`, subdomains included) answers 403 ERR_AUTH; any domain is capped
+  at `LAPSE_SIGNUP_DOMAIN_DAILY` (20) new accounts per UTC day on the same counter table (scope `signup`,
+  86400 s windows), answering DRF's 429 with `Retry-After` to the end of the day and
+  `X-Status-Reason-Code: ERR_SIGNUP_LIMIT`.
+* `pvapi/settings/lapse_local.py`: the throttle list and rates (`ip`), `DATA_UPLOAD_MAX_MEMORY_SIZE` =
+  `LAPSE_MAX_BODY`, the `LAPSE_*` limits above, the `AbuseLimitMiddleware`.
+* `lapse_accounts/tests/test_abuse_limits.py` (new, 13 tests): the valid request unchanged and its
+  reservation released; `client_ip` trust; keyless and invalid-key floods per address with an honest key
+  on the same address still served; the ceiling across keys and that denied requests do not count; the
+  in-flight cap under a real overlapping burst; the three size caps and that the meta endpoints are
+  exempt; the estimate's weights, the contract and matrix shapes under the limit, the 400 for cost, depth
+  and criteria; the request budget's 500; disposable domains and the per-domain day cap. The two burst
+  tests of 2026-10-06 raise the in-flight caps, since they are about the minute rule.

@@ -33,7 +33,8 @@ ALLOWED_HOSTS = ALLOWED_HOSTS + ["127.0.0.1", "localhost", "testserver"]
 # Public hostnames behind the reverse proxy, comma separated (LAPSE_ALLOWED_HOSTS=patentref.io,patentref.com)
 ALLOWED_HOSTS += [h.strip() for h in os.environ.get("LAPSE_ALLOWED_HOSTS", "").split(",") if h.strip()]
 # Behind Caddy, which terminates TLS and sets X-Forwarded-Proto; lets Django build https links
-if os.environ.get("LAPSE_BEHIND_PROXY", "0") == "1":
+LAPSE_BEHIND_PROXY = os.environ.get("LAPSE_BEHIND_PROXY", "0") == "1"  # also: believe X-Forwarded-For from LAPSE_TRUSTED_PROXIES (gate 5.6)
+if LAPSE_BEHIND_PROXY:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     USE_X_FORWARDED_HOST = True
 
@@ -56,7 +57,9 @@ MIDDLEWARE = ["API.lapse_errors.DataVersionMiddleware", "API.lapse_errors.LapseE
 LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")
 LAPSE_SQLITE = {
     "path": os.environ.get("LAPSE_SQLITE_PATH", str(_DATA / "sample.db")),
-    "timeout": int(os.environ.get("LAPSE_SQLITE_TIMEOUT", "60")),
+    # per-statement ceiling (a progress handler interrupts the statement; the request then answers 500 ERR_ES like an
+    # ES timeout); 20 s since gate 5.6, was 60; the per-request budget LAPSE_REQUEST_BUDGET below caps page plus count
+    "timeout": int(os.environ.get("LAPSE_SQLITE_TIMEOUT", "20")),
     # per-connection page cache (KB) and mmap window; the OS page cache does the heavy lifting on a
     # 140 GB file, this is the working set one query touches (PatentRef 2.10)
     "cache_kb": int(os.environ.get("LAPSE_SQLITE_CACHE_KB", "400000")),
@@ -86,17 +89,42 @@ LAPSE_FREE_MINUTE_LIMIT = int(os.environ.get("LAPSE_FREE_MINUTE_LIMIT", "45"))
 LAPSE_DATA_VERSION = os.environ.get("LAPSE_DATA_VERSION", "")
 INSTALLED_APPS = list(INSTALLED_APPS) + ["lapse_accounts"]
 ROOT_URLCONF = "lapse_accounts.root_urls"
-MIDDLEWARE = MIDDLEWARE + ["lapse_accounts.middleware.MeteringMiddleware"]
+MIDDLEWARE = MIDDLEWARE + ["lapse_accounts.middleware.MeteringMiddleware", "lapse_accounts.abuse.AbuseLimitMiddleware"]
 
 # Throttles (lapse_accounts/throttling.py): upstream's per-minute key throttle with the rate chosen per key
 # (account keys: the plan's per-minute allowance, 45/m for Free; keys without an account: LAPSE_THROTTLE_RATE,
 # upstream's 45/m by default), then the Free-tier monthly cap, plus a per-IP rate on the account endpoints
 REST_FRAMEWORK = dict(REST_FRAMEWORK)
-REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = ["lapse_accounts.throttling.PlanKeyThrottle", "lapse_accounts.throttling.MonthlyKeyThrottle"]
+REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
+    "lapse_accounts.throttling.PlanKeyThrottle",
+    "lapse_accounts.throttling.MonthlyKeyThrottle",
+    "lapse_accounts.throttling.IPCeilingThrottle",
+    "lapse_accounts.throttling.InflightThrottle",
+]
 REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
     "key": os.environ.get("LAPSE_THROTTLE_RATE", "45/m"),
     "meta": os.environ.get("LAPSE_META_THROTTLE_RATE", "30/m"),
+    "ip": "300/m",  # the number itself comes from LAPSE_IP_PER_MINUTE below; this entry only satisfies DRF's rate parser
 }
+
+# Abuse limits (PatentRef checklist 5.6; lapse_accounts/abuse.py, lapse_accounts/throttling.py, API/lapse_cost.py).
+# Every number is recorded with its reason in the patentref repo's decisions.md.
+LAPSE_TRUSTED_PROXIES = os.environ.get("LAPSE_TRUSTED_PROXIES", "127.0.0.1,::1,172.17.0.0/16")  # whose X-Forwarded-For is believed
+LAPSE_NOKEY_PER_MINUTE = int(os.environ.get("LAPSE_NOKEY_PER_MINUTE", "60"))      # keyless or invalid-key requests per IP per clock minute
+LAPSE_IP_PER_MINUTE = int(os.environ.get("LAPSE_IP_PER_MINUTE", "300"))            # admitted keyed requests per IP per clock minute, all keys
+LAPSE_INFLIGHT_PER_KEY = int(os.environ.get("LAPSE_INFLIGHT_PER_KEY", "4"))        # requests running at once per key
+LAPSE_INFLIGHT_PER_IP = int(os.environ.get("LAPSE_INFLIGHT_PER_IP", "8"))          # requests running at once per IP
+LAPSE_MAX_QUERY_STRING = int(os.environ.get("LAPSE_MAX_QUERY_STRING", "16384"))    # bytes
+LAPSE_MAX_BODY = int(os.environ.get("LAPSE_MAX_BODY", "65536"))                    # bytes; Caddy request_body max_size carries the same figure
+LAPSE_MAX_Q_BYTES = int(os.environ.get("LAPSE_MAX_Q_BYTES", "16384"))              # bytes of the q JSON
+DATA_UPLOAD_MAX_MEMORY_SIZE = LAPSE_MAX_BODY                                       # Django's own backstop for bodies without a Content-Length
+LAPSE_QUERY_COST_LIMIT = int(os.environ.get("LAPSE_QUERY_COST_LIMIT", "100"))      # API/lapse_cost.py units; above it the query is refused with 400 ERR_Q
+LAPSE_QUERY_MAX_DEPTH = int(os.environ.get("LAPSE_QUERY_MAX_DEPTH", "8"))          # nesting of _and/_or/_not
+LAPSE_QUERY_MAX_CRITERIA = int(os.environ.get("LAPSE_QUERY_MAX_CRITERIA", "64"))   # leaf criteria in one q (a list value counts once per element)
+LAPSE_REQUEST_BUDGET = int(os.environ.get("LAPSE_REQUEST_BUDGET", "30"))           # seconds of SQLite time one request may use (page plus count)
+# Sign-up limits (lapse_accounts/views.py): new accounts (first key) per email domain per UTC day, and known disposable domains refused
+LAPSE_SIGNUP_DOMAIN_DAILY = int(os.environ.get("LAPSE_SIGNUP_DOMAIN_DAILY", "20"))
+LAPSE_DISPOSABLE_DOMAINS_FILE = os.environ.get("LAPSE_DISPOSABLE_DOMAINS_FILE", "")  # optional: one domain per line, added to the built-in list
 
 # Console-only logging (upstream writes to <repo>/logs/django.log)
 for _name, _logger in LOGGING["loggers"].items():

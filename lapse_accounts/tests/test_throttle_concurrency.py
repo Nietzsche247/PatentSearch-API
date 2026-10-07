@@ -58,6 +58,8 @@ def test_parallel_burst_is_exactly_the_minute_limit(free_key, monkeypatch, setti
 
     key, acct = free_key
     monkeypatch.setattr(settings, "LAPSE_FREE_MONTHLY_LIMIT", 1000)
+    monkeypatch.setattr(settings, "LAPSE_INFLIGHT_PER_KEY", 1000)  # this test is about the minute rule, not the in-flight cap (gate 5.6)
+    monkeypatch.setattr(settings, "LAPSE_INFLIGHT_PER_IP", 1000)
     monkeypatch.setattr(throttling, "timer", lambda: 1_800_000_000.0 + 7)  # pinned: the burst sits in one window
     metering.forget_prefix(key.split(".")[0])
     connection.close()
@@ -65,7 +67,7 @@ def test_parallel_burst_is_exactly_the_minute_limit(free_key, monkeypatch, setti
     codes, retry = _burst(60, key)
     assert codes == {200: 45, 429: 15}, codes
     assert metering.usage_count(acct.subject) == 45  # the month counts exactly the 200s
-    assert WindowCount.objects.get(subject=acct.subject).count == 45
+    assert WindowCount.objects.get(subject=acct.subject, win__startswith="key:").count == 45  # the in-flight row (gate 5.6) is separate
     for wait, body in retry:  # upstream's 429 shape, Retry-After to the end of the minute
         assert 1 <= wait <= 60
         assert set(body) == {"detail"} and body["detail"] == f"Request was throttled. Expected available in {wait} seconds."
@@ -74,7 +76,7 @@ def test_parallel_burst_is_exactly_the_minute_limit(free_key, monkeypatch, setti
     monkeypatch.setattr(throttling, "timer", lambda: 1_800_000_000.0 + 67)
     codes, _ = _burst(10, key)
     assert codes == {200: 10}
-    assert WindowCount.objects.filter(subject=acct.subject).count() == 1
+    assert WindowCount.objects.filter(subject=acct.subject, win__startswith="key:").count() == 1
     assert metering.usage_count(acct.subject) == 55
 
 
@@ -84,6 +86,8 @@ def test_parallel_burst_at_the_monthly_cap_is_exact(free_key, monkeypatch, setti
     key, acct = free_key
     monkeypatch.setattr(settings, "LAPSE_FREE_MONTHLY_LIMIT", 20)
     monkeypatch.setattr(settings, "LAPSE_FREE_MINUTE_LIMIT", 1000)
+    monkeypatch.setattr(settings, "LAPSE_INFLIGHT_PER_KEY", 1000)
+    monkeypatch.setattr(settings, "LAPSE_INFLIGHT_PER_IP", 1000)
     monkeypatch.setattr(throttling, "timer", lambda: 1_800_000_000.0 + 7)
     metering.forget_prefix(key.split(".")[0])
     MonthlyUsage.objects.update_or_create(subject=acct.subject, month=metering.current_month(), defaults={"count": 12})

@@ -38,6 +38,24 @@ class LapseNotImplemented(APIException):
         self.index = index
         self.reason = deferred_reason(index)
         _pending.headers = {"X-Status-Reason": self.reason, "X-Status-Reason-Code": DEFERRED_CODE}
+        _pending.status = 501
+
+
+class LapseTimeout(APIException):
+    """Raised by the SQLite backend when a statement is interrupted by the per-statement timeout or the
+    per-request budget (PatentRef gate 5.6). Answers the way upstream reports an Elasticsearch timeout
+    (500, `{"error": true}`, `X-Status-Reason-Code: ERR_ES`) with the reason naming the budget, so a
+    client can tell a timeout from a server fault. Upstream's handler cannot carry a plain TimeoutError
+    (it reads `.info` from it), hence this class."""
+
+    status_code = 500
+    default_code = "timeout"
+
+    def __init__(self, reason="Search timed out"):
+        super().__init__(detail={"error": True})
+        self.reason = reason
+        _pending.headers = {"X-Status-Reason": reason, "X-Status-Reason-Code": "ERR_ES"}
+        _pending.status = 500
 
 
 BODY_501 = b'{"error":true}'
@@ -53,10 +71,13 @@ class LapseErrorHeadersMiddleware:
 
     def __call__(self, request):
         _pending.headers = None
+        _pending.status = None
         response = self.get_response(request)
         headers = getattr(_pending, "headers", None)
+        status = getattr(_pending, "status", None) or 501
         _pending.headers = None
-        if headers and response.status_code == 501:
+        _pending.status = None
+        if headers and response.status_code == status:
             for name, value in headers.items():
                 if not response.has_header(name):
                     response[name] = value

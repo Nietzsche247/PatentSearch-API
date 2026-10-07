@@ -227,11 +227,24 @@ class PVAPIView(APIView):
 
         self.process_request_params()
         self.validate_request_parameters()
+        self.check_query_cost()
         self.parse_request_to_api()
         api_response = self.process_query()
         serializer = APISerializer(api_response, context={"request": request})
         response_object = Response(serializer.data)
         return response_object
+
+    def check_query_cost(self):
+        """Lapse (PatentRef gate 5.6): refuse a query whose estimated cost is over the limit before any SQL
+        runs (API/lapse_cost.py); 400 ERR_Q with the reason in X-Status-Reason. Only with the SQLite backend;
+        upstream settings never reach this."""
+        from django.conf import settings
+
+        if getattr(settings, "LAPSE_BACKEND", "elasticsearch") != "sqlite":
+            return
+        from API.lapse_cost import check
+
+        check(self.q, self.o, self.s)
 
     def generate_response_field_list(self):
         response_field_list = []

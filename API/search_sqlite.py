@@ -29,6 +29,7 @@ import threading
 import time
 
 from API.exceptions import SearchTimeoutError  # noqa: F401  (kept for parity with API.search)
+from API.lapse_errors import LapseTimeout
 
 logger = logging.getLogger("API")
 KEYWORD_IGNORE_ABOVE = 256
@@ -828,10 +829,13 @@ class LapseSQLiteSearch:
     STEER_DENSITY = 0.05  # estimated fraction of rows kept by the filter from which the sort index wins
 
     def __init__(self, path, timeout=60, cache_kb=400000, mmap_bytes=1073741824, count_cache=None,
-                 count_cache_min_ms=20.0):
+                 count_cache_min_ms=20.0, request_budget=None):
         self.path = path
         self.real = os.path.realpath(path)
         self.timeout = timeout
+        # one instance serves one request (page then count): the budget caps the two together (gate 5.6)
+        self.budget = float(request_budget) if request_budget else float(timeout)
+        self.deadline = (time.monotonic() + float(request_budget)) if request_budget else None
         self.cache_kb = int(cache_kb)
         self.mmap_bytes = int(mmap_bytes)
         self.count_cache = count_cache  # path of the shared total_hits memo, or None
@@ -844,7 +848,8 @@ class LapseSQLiteSearch:
         cfg = settings.LAPSE_SQLITE
         return cls(path=cfg["path"], timeout=int(cfg.get("timeout", 60)), cache_kb=cfg.get("cache_kb", 400000),
                    mmap_bytes=cfg.get("mmap_bytes", 1073741824), count_cache=cfg.get("count_cache") or None,
-                   count_cache_min_ms=cfg.get("count_cache_min_ms", 20.0))
+                   count_cache_min_ms=cfg.get("count_cache_min_ms", 20.0),
+                   request_budget=getattr(settings, "LAPSE_REQUEST_BUDGET", None))
 
     def connection(self):
         con = getattr(self._local, "con", None)
@@ -1080,18 +1085,26 @@ class LapseSQLiteSearch:
         upstream exception handler reports as 500 ERR_ES (same as an ES timeout)."""
         con = self.connection()
         deadline = time.monotonic() + self.timeout
+        if self.deadline is not None:
+            deadline = min(deadline, self.deadline)
+            if time.monotonic() > deadline:
+                raise LapseTimeout(self._timeout_reason())  # the request's budget is already spent
         con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 200000)
         t0 = time.perf_counter()
         try:
             return con.execute(sql, params).fetchall()
         except sqlite3.OperationalError as e:
             if "interrupted" in str(e):
-                raise TimeoutError("Search timed out")
+                raise LapseTimeout(self._timeout_reason())
             raise
         finally:
             con.set_progress_handler(None, 0)
             if SQL_LOG:
                 _log_sql(sql, params, (time.perf_counter() - t0) * 1000)
+
+    def _timeout_reason(self):
+        return (f"Search timed out: one statement may run {int(self.timeout)} s and one request's page and count "
+                f"together {int(self.budget)} s (PatentRef gate 5.6); narrow the query or split it")
 
     def _has_nulls(self, meta, column):
         key = (self.real, meta.table, column)
