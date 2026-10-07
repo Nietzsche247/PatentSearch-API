@@ -217,7 +217,11 @@ class AbuseLimitMiddleware:
         except (TypeError, ValueError):
             length = 0
         if length > max_body:
-            return bad_request(f"Request body too large: {length} bytes, the limit is {max_body}")
+            resp = bad_request(f"Request body too large: {length} bytes, the limit is {max_body}")
+            # the body is never read: tell gunicorn to close the connection instead of draining the unread
+            # bytes to keep it alive (a proxy in front then opens a fresh connection for its next request)
+            resp["Connection"] = "close"
+            return resp
         max_q = int(setting("LAPSE_MAX_Q_BYTES", 16384))
         q = request.GET.get("q")
         if q is not None and len(q.encode("utf-8", "replace")) > max_q:
