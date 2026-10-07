@@ -103,7 +103,7 @@
       <dl>
         <dt>Last probe</dt><dd>{{ u.last_probe.t }} ({{ u.last_probe_age_minutes }} min ago), {% if u.last_probe.ok %}<span class="pill ok">pass</span>{% else %}<span class="pill err">fail</span>{% endif %} HTTP {{ u.last_probe.status }} in {{ u.last_probe.ms }} ms{% if u.last_probe.keyed %}, keyed query HTTP {{ u.last_probe.keyed.status }} in {{ u.last_probe.keyed.ms }} ms{% endif %}{% if u.last_probe.data_version %}, data {{ u.last_probe.data_version }}{% endif %}</dd>
         <dt>Last 24 h</dt><dd>{{ u.probes_24h }} probes, {{ u.failed_24h }} failed</dd>
-        <dt>Since clock start</dt><dd>{{ u.probes }} probes, {{ u.failed_probes }} failed, {{ u.down_minutes }} minutes down</dd>
+        <dt>Since clock start</dt><dd>{{ u.probes }} probes, {{ u.failed_probes }} failed, {{ u.down_minutes }} minutes down{% if u.measured_since %}; measured from {{ u.measured_since }}, the {{ u.unobserved_minutes }} minutes between the clock start and the first probe are unobserved and counted as up{% endif %}</dd>
         <dt>Mirror age</dt><dd>{{ u.mirror_age_minutes }} min</dd>
       </dl>
       {% if u.outages %}

@@ -207,6 +207,10 @@ def uptime_figures(history_path, now=None):
     probes = [p for p in probes if parse_iso(p["t"]) >= start]
     out["probes"] = len(probes)
     out["failed_probes"] = sum(1 for p in probes if not p.get("ok"))
+    if probes:
+        # the probe began after the clock: the minutes before the first probe are unobserved and counted as up
+        out["measured_since"] = probes[0]["t"]
+        out["unobserved_minutes"] = int((parse_iso(probes[0]["t"]) - start) / 60)
     day_ago = now - 86400
     out["probes_24h"] = sum(1 for p in probes if parse_iso(p["t"]) >= day_ago)
     out["failed_24h"] = sum(1 for p in probes if parse_iso(p["t"]) >= day_ago and not p.get("ok"))
