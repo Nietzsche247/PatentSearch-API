@@ -134,27 +134,27 @@ def pct(sorted_values, q):
     return sorted_values[k]
 
 
-def request_figures(path, since, meta_prefix="/api/v1/meta/"):
-    """Counts and latency over request_log rows newer than `since` (epoch). Data paths (everything under
-    /api/v1/ that is not /api/v1/meta/) are the API figures; the meta paths (sign-up, keys, usage, health,
-    this page) are counted apart so probes do not pad the numbers."""
-    out = {"requests": 0, "meta_requests": 0, "ok": 0, "client_errors": 0, "rejected": 0, "server_errors": 0,
-           "p50_ms": None, "p95_ms": None, "max_ms": None, "error_rate": None, "server_error_rate": None}
+def request_figures(path, since, api_prefix="/api/v1/", meta_prefix="/api/v1/meta/"):
+    """Counts and latency over request_log rows newer than `since` (epoch). API figures cover the data
+    paths (under /api/v1/ but not /api/v1/meta/); the meta paths (sign-up, keys, usage, health, this page)
+    and everything else (scanners asking for wp-admin, the root redirect) are counted apart so probes and
+    noise do not pad the numbers."""
+    out = {"requests": 0, "meta_requests": 0, "other_requests": 0, "ok": 0, "client_errors": 0, "rejected": 0, "server_errors": 0,
+           "admitted": 0, "p50_ms": None, "p95_ms": None, "max_ms": None, "error_rate": None, "server_error_rate": None}
     if not path or not os.path.exists(path):
         return out
+    api_where = "ts >= ? AND path LIKE ? AND path NOT LIKE ?"
+    api_args = (since, api_prefix + "%", meta_prefix + "%")
     try:
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
         if not con.execute("SELECT 1 FROM sqlite_master WHERE name='request_log'").fetchone():
             con.close()
             return out
-        rows = con.execute(
-            "SELECT status, COUNT(*) FROM request_log WHERE ts >= ? AND path NOT LIKE ? GROUP BY status",
-            (since, meta_prefix + "%"),
-        ).fetchall()
-        meta = con.execute("SELECT COUNT(*) FROM request_log WHERE ts >= ? AND path LIKE ?", (since, meta_prefix + "%")).fetchone()[0]
+        rows = con.execute(f"SELECT status, COUNT(*) FROM request_log WHERE {api_where} GROUP BY status", api_args).fetchall()
+        out["meta_requests"] = con.execute("SELECT COUNT(*) FROM request_log WHERE ts >= ? AND path LIKE ?", (since, meta_prefix + "%")).fetchone()[0]
+        out["other_requests"] = con.execute("SELECT COUNT(*) FROM request_log WHERE ts >= ? AND path NOT LIKE ?", (since, api_prefix + "%")).fetchone()[0]
         total = sum(c for _, c in rows)
         out["requests"] = total
-        out["meta_requests"] = meta
         for status, c in rows:
             if status >= 500:
                 out["server_errors"] += c
@@ -166,18 +166,16 @@ def request_figures(path, since, meta_prefix="/api/v1/meta/"):
                 out["ok"] += c
         if total:
             # latency over admitted requests (not the 403/429 refusals, which answer in microseconds)
-            n = con.execute("SELECT COUNT(*) FROM request_log WHERE ts >= ? AND path NOT LIKE ? AND status NOT IN (403, 429)",
-                            (since, meta_prefix + "%")).fetchone()[0]
+            n = con.execute(f"SELECT COUNT(*) FROM request_log WHERE {api_where} AND status NOT IN (403, 429)", api_args).fetchone()[0]
+            out["admitted"] = n
             if n:
                 def nth(q):
                     k = max(0, min(n - 1, int(round(q * (n - 1)))))
-                    return con.execute(
-                        "SELECT ms FROM request_log WHERE ts >= ? AND path NOT LIKE ? AND status NOT IN (403, 429)"
-                        " ORDER BY ms LIMIT 1 OFFSET ?", (since, meta_prefix + "%", k)).fetchone()[0]
+                    return con.execute(f"SELECT ms FROM request_log WHERE {api_where} AND status NOT IN (403, 429) ORDER BY ms LIMIT 1 OFFSET ?",
+                                       api_args + (k,)).fetchone()[0]
                 out["p50_ms"] = round(nth(0.5), 1)
                 out["p95_ms"] = round(nth(0.95), 1)
                 out["max_ms"] = round(nth(1.0), 1)
-            out["admitted"] = n
             out["error_rate"] = round(100.0 * (out["client_errors"] + out["server_errors"]) / total, 3)
             out["server_error_rate"] = round(100.0 * out["server_errors"] / total, 3)
         con.close()

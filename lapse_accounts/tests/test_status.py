@@ -36,13 +36,14 @@ def test_request_log_rows(tmp_path, monkeypatch):
     w.add((t, 403, 0.4, "", "/api/v1/patent/", "GET"))
     w.add((t, 500, 20000.0, "abcdefgh", "/api/v1/patent/", "POST"))
     w.add((t, 200, 3.0, "", "/api/v1/meta/health/", "GET"))
+    w.add((t, 404, 1.0, "", "/wp-admin/install.php", "GET"))
     w.flush()
     con = sqlite3.connect(path)
-    assert con.execute("SELECT COUNT(*) FROM request_log").fetchone()[0] == 4
+    assert con.execute("SELECT COUNT(*) FROM request_log").fetchone()[0] == 5
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con.close()
     f = status.request_figures(path, t - 60)
-    assert f["requests"] == 3 and f["meta_requests"] == 1
+    assert f["requests"] == 3 and f["meta_requests"] == 1 and f["other_requests"] == 1
     assert f["ok"] == 1 and f["rejected"] == 1 and f["server_errors"] == 1 and f["client_errors"] == 0
     assert f["admitted"] == 2 and f["p50_ms"] == 12.5 and f["p95_ms"] == 20000.0
     assert f["server_error_rate"] == pytest.approx(33.333, abs=0.01)

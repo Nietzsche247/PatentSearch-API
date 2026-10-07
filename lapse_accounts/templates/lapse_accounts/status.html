@@ -120,7 +120,7 @@
 
     <section class="card">
       <h2>Requests, errors, latency</h2>
-      <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account and status endpoints). Client errors are 4xx other than 403 and 429; rejected is 403 (no or bad key) and 429 (a limit); latency is measured over admitted requests, inside the app, without the network.</p>
+      <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account, health and status endpoints). Client errors are 4xx other than 403 and 429; rejected is 403 (no or bad key) and 429 (a limit); latency is measured over admitted requests, inside the app, without the network.</p>
       <div class="wrap"><table>
         <tr><th></th><th class="num">last 24 h</th><th class="num">last 30 days</th></tr>
         {% with a=d.requests_24h b=d.requests_30d %}
@@ -135,6 +135,7 @@
         <tr><td>p95 latency</td><td class="num">{% if a.p95_ms != None %}{{ a.p95_ms }} ms{% else %}n/a{% endif %}</td><td class="num">{% if b.p95_ms != None %}{{ b.p95_ms }} ms{% else %}n/a{% endif %}</td></tr>
         <tr><td>Slowest</td><td class="num">{% if a.max_ms != None %}{{ a.max_ms }} ms{% else %}n/a{% endif %}</td><td class="num">{% if b.max_ms != None %}{{ b.max_ms }} ms{% else %}n/a{% endif %}</td></tr>
         <tr><td>Account, health and status requests</td><td class="num">{{ a.meta_requests|intcomma }}</td><td class="num">{{ b.meta_requests|intcomma }}</td></tr>
+        <tr><td>Other paths (scanners, the root redirect)</td><td class="num">{{ a.other_requests|intcomma }}</td><td class="num">{{ b.other_requests|intcomma }}</td></tr>
         {% endwith %}
       </table></div>
       {% if d.requests_30d.error %}<p class="warn-t">Request log unreadable: {{ d.requests_30d.error }}.</p>{% endif %}
@@ -144,7 +145,7 @@
       <h2>Data refresh</h2>
       {% with f=d.refresh %}
       <dl>
-        <dt>Serving</dt><dd>{% if f.current %}data version {{ f.current.data_version }}, built {{ f.current.built_at }}, verdict {{ f.current.verdict }}{% if f.current.swapped %}, live since {{ f.current.swapped_at }}{% endif %}{% else %}{{ d.service.data_version }} (no sidecar){% endif %}</dd>
+        <dt>Serving</dt><dd>{% if f.current %}data version {{ f.current.data_version }}, built {{ f.current.built_at }}{% if f.current.verdict %}, verdict {{ f.current.verdict }}{% endif %}{% if f.current.swapped %}, live since {{ f.current.swapped_at }}{% endif %}{% else %}{{ d.service.data_version }} (no sidecar){% endif %}</dd>
         <dt>Last catalog check</dt><dd>{% if f.last_check %}{{ f.last_check.t }}: {{ f.last_check.verdict }}{% else %}none recorded{% endif %}</dd>
         <dt>Next build</dt><dd>{% if f.next %}data version {{ f.next.data_version }}, verdict {{ f.next.verdict }}, built {{ f.next.built_at }} (not yet live; the swap is a separate, verified step){% else %}none waiting{% endif %}</dd>
         {% if f.current.gates %}<dt>Gates of the live build</dt><dd>{% for g, s in f.current.gates.items %}<code>{{ g }}</code> {{ s }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
