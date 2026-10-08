@@ -517,3 +517,21 @@ Found by running the rOpenSci `patentsview` R package's documented vignettes aga
 * `API/search_sqlite.py`: `terms` on a non-text, non-date field is one `IN (...)` set (`Translator.in_set`, the same per-value rules as `eq`: coerced, deduplicated, an integral field drops a value with a decimal part), and a `bool` of only `should` clauses that are all equalities on one such field (bare or inside the same `nested` path) is merged into one `terms` first (`merge_equalities`). Before it a list of about 1,000 ids was a chain of ORs deeper than SQLite allows: a 500, "Expression tree is too large (maximum depth 1000)". Text fields and dates keep the OR form (a text match is analyzed; a partial date is a span).
 * Measured on patentref-us1 against the live snapshot (a scratch instance on 127.0.0.1:8768, warm): the top-assignees request 11 ms, the citation-networks request (690 ids on `/patent/us_patent_citation/`, sorted by its key) 17 ms, 1,000 patent ids 46 ms, an `_or` of 280 nested inventor ids 109 ms, 300 CPC groups (256,990 hits) 415 ms, 400 nested assignee ids (901,963 hits) 945 ms; the first request of a fresh worker that sorts the citation table by `citation_sequence` spends about 5 s once in the NULL check of that column, as before.
 * Tests: `lapse_accounts/tests/test_abuse_limits.py` (`test_cost_estimate_id_sets`, `test_id_sets_run_as_one_in_set`, `test_translator_in_set_shapes`; the 65-criteria refusal now uses 65 date ranges, since a 65-id list is a set).
+## 2026-10-08 weekly grants: raw names flagged `disambiguated: false` (PatentRef checklist 4.7)
+
+The patentref runner (`lapse/grants.py`, `lapse refresh --grants`) adds every Tuesday's grants from the USPTO weekly
+grant XML to copies of the files in service, for the patents the PatentsView release does not cover yet. Their
+inventor, assignee and attorney rows carry the names as printed, null ids and `disambiguated = 0`; the runner adds the
+column to `patents__inventors`, `patents__assignees` and `patents__attorneys` with `DEFAULT 1` (PatentsView rows read
+1) and types it boolean in `_lapse_fields`. Here:
+
+- `API/endpoints/patent_endpoint_configuration.py`: `disambiguated` (BooleanField, not required) on the inventor,
+  assignee and attorney nested serializers.
+- `API/search_sqlite.py` (`search`, the nested fill): the flag is shown whenever it is false; when true only if `f`
+  names `<group>.disambiguated`, so a whole-group request on PatentsView rows answers what it did before the column
+  existed. `q` filters on it like any boolean (`{"inventors.disambiguated": false}`).
+- `lapse_accounts/public.py`: `/api/v1/meta/` has `weekly_grants` (PatentsView through, weekly grants through, weeks,
+  patents, the note on names) when the served file carries the overlay; null otherwise.
+- `lapse_accounts/tests/test_weekly_grants.py` (4 tests): the whole-group shape on both kinds of rows, the named flag,
+  `q` on it, the default `f` unchanged, the `/meta/` block. Contract examples are unchanged (no example names the flag;
+  the whole-group example reads PatentsView rows only).

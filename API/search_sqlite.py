@@ -40,6 +40,8 @@ from API.lapse_errors import LapseTimeout
 
 logger = logging.getLogger("API")
 KEYWORD_IGNORE_ABOVE = 256
+# PatentRef 4.7: the flag on inventor, assignee and attorney rows (lapse/grants.py in the patentref repo adds it)
+FLAG_FIELD = "disambiguated"
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
@@ -1397,10 +1399,21 @@ class LapseSQLiteSearch:
                 if path in meta.virtual:
                     continue
                 child = meta.nested[path]
+                # PatentRef 4.7: `disambiguated` (0 on names taken as printed from the weekly grant XML, 1 by the
+                # column default on every PatentsView row) is always shown when false; when true only if f names it,
+                # so a whole-group request on PatentsView rows answers exactly what it answered before the column
+                flag_named = FLAG_FIELD in cols and any(p == f"{path}.{FLAG_FIELD}" for p in (fields or []))
                 q = (f'SELECT "_pid", {", ".join(chr(34) + c + chr(34) for c in cols)} FROM "{child}" '
                      f'WHERE "_pid" IN ({marks}) ORDER BY "_pid", "_ord"')
                 for rec in con.execute(q, ids):
                     obj = {c: self._convert(meta, path, c, v) for c, v in zip(cols, rec[1:])}
+                    if FLAG_FIELD in obj:
+                        if obj[FLAG_FIELD] in (0, False):
+                            obj[FLAG_FIELD] = False
+                        elif flag_named:
+                            obj[FLAG_FIELD] = True
+                        else:
+                            del obj[FLAG_FIELD]
                     by_id[rec[0]].setdefault(path, []).append(obj)
             for path, cols in nested.items():
                 if path not in meta.virtual:

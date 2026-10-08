@@ -161,6 +161,22 @@ def _build_rows():
     return rows, version
 
 
+def _weekly_grants(rows):
+    """PatentRef 4.7: what the served file carries beyond the PatentsView release (the weekly grant overlay of the
+    patentref runner, lapse/grants.py), from its _lapse_build rows; None for a file without it."""
+    try:
+        weeks = json.loads(rows.get("grants") or "[]")
+    except ValueError:
+        return None
+    if not weeks:
+        return None
+    return {"patentsview_through": rows.get("pv_through"), "weekly_grants_through": rows.get("grants_through"),
+            "weeks": len(weeks), "patents": sum(int(w.get("patents") or 0) for w in weeks),
+            "source": "USPTO Patent Grant Full Text Data, weekly (ODP product PTGRXML)",
+            "names": "inventor, assignee and attorney names of these patents are as printed, with no ids and "
+                     "disambiguated: false, until a PatentsView release covers them"}
+
+
 def meta_facts():
     p = getattr(settings, "LAPSE_STATUS_PATHS", {})
     api_dir = p.get("api_dir", "/data/api")
@@ -186,6 +202,7 @@ def meta_facts():
         d = (nxt_i - cur_i) if cur_i is not None and nxt_i is not None else None
         delta.append({"table": table, "current": cur_i, "next": nxt_i,
                       "added": max(d, 0) if d is not None else None, "removed": max(-d, 0) if d is not None else None, "verdict": verdict})
+    weekly = _weekly_grants(rows)
     sha = (side.get("sha256") or {}).get("api") if isinstance(side.get("sha256"), dict) else side.get("sha256")
     prev = side.get("previous")
     prev_version = None
@@ -201,6 +218,7 @@ def meta_facts():
         "previous_version": prev_version, "superseded_versions": sorted(superseded),
         "delta": delta, "delta_note": "rows per table, the build in service against the one it replaced (the runner's count_deltas gate); empty for a file built before the runner",
         "fee": side.get("fee") or None,
+        "weekly_grants": weekly,
         "deferred": ["publications (pre-grant set, checklist 1.5)"],
         "attribution": footer_lines()[0],
         "licenses_url": "https://patentref.io/LICENSES.md",

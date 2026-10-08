@@ -27,6 +27,9 @@ class AssigneeNestedSerializer(PVAPIDocumentSerializer):
     assignee_state = generate_serializer(serializers.CharField, max_length=128)
     assignee_country = generate_serializer(serializers.CharField, max_length=32)
     assignee_sequence = generate_serializer(serializers.IntegerField)
+    # PatentRef addition (checklist 4.7): false on names taken as printed from the USPTO weekly grant XML (no
+    # assignee_id yet); present on a PatentsView row only when named in f (API/search_sqlite.py)
+    disambiguated = generate_serializer(serializers.BooleanField)
 
 
 class InventorNestedSerializer(PVAPIDocumentSerializer):
@@ -40,6 +43,7 @@ class InventorNestedSerializer(PVAPIDocumentSerializer):
     inventor_state = generate_serializer(serializers.CharField, max_length=128)
     inventor_country = generate_serializer(serializers.CharField, max_length=32)
     inventor_sequence = generate_serializer(serializers.IntegerField)
+    disambiguated = generate_serializer(serializers.BooleanField)  # PatentRef 4.7, see AssigneeNestedSerializer
 
 
 class CPCNestedSerializer(PVAPIDocumentSerializer):
@@ -81,6 +85,7 @@ class AttorneyNestedSerializer(PVAPIDocumentSerializer):
     attorney_name_first = generate_serializer(serializers.CharField, max_length=32)
     attorney_name_last = generate_serializer(serializers.CharField, max_length=32)
     attorney_organization = generate_serializer(serializers.CharField, max_length=128)
+    disambiguated = generate_serializer(serializers.BooleanField)  # PatentRef 4.7, see AssigneeNestedSerializer
 
 
 class ExaminerNestedSerializer(PVAPIDocumentSerializer):
