@@ -301,6 +301,8 @@ def make_indexes(out, tables):
     out.execute("CREATE TABLE _lapse_nulls(tbl TEXT, col TEXT, has_null INTEGER)")
     for t in tables:
         for c, _ in TEXT_SCHEMA[t]:
+            if c == TEXT_COLUMN[t]:
+                continue  # never a sort key (upstream refuses a sort by a text field), and its check reads the whole table
             has = out.execute(f'SELECT 1 FROM "{t}" WHERE "{c}" IS NULL LIMIT 1').fetchone() is not None
             out.execute("INSERT INTO _lapse_nulls VALUES (?,?,?)", (t, c, 1 if has else 0))
     out.commit()
