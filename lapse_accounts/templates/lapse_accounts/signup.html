@@ -151,7 +151,7 @@
     </div>
   </main>
   <footer class="pr-footer">
-    <p>Patent data from PatentsView and the USPTO, used under CC BY 4.0. PatentRef is an independent service and is not affiliated with the USPTO.</p>
+    {% for line in footer_lines %}<p>{{ line }}</p>{% endfor %}<p><a href="/LICENSES.md">License register</a> <a href="/llms.txt">llms.txt</a> <a href="/openapi.json">OpenAPI</a> <a href="/api/v1/meta/">Build facts</a></p>
     <p>Sign-in is handled by Supabase Auth. PatentRef stores your email, your key records and your request counts; it never stores your password.</p>
   </footer>
 

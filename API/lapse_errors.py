@@ -11,7 +11,9 @@ Documented 501 contract (CHANGES_LAPSE.md, "Deferred endpoints"):
   X-Status-Reason: Endpoint not implemented: the '<index>' data set is not in this snapshot
   X-Status-Reason-Code: ERR_NOT_IMPLEMENTED
 """
+import json
 import threading
+from http import HTTPStatus
 
 from rest_framework.exceptions import APIException
 
@@ -125,3 +127,104 @@ class DataVersionMiddleware:
             return version
         except Exception:  # the header never breaks a response
             return None
+
+
+PROBLEM_JSON = "application/problem+json"
+PROBLEM_TYPE_BASE = "https://patentref.io/docs/errors/"
+
+
+class ProblemDetailsMiddleware:
+    """RFC 9457 problem details by content negotiation (PatentRef gate 2.11; docs/SCAFFOLD.md 5.1).
+
+    When the request's Accept header names `application/problem+json`, every error response (status 400
+    and up) is rewritten as a problem details object carrying the same facts the upstream form carries in
+    headers: `type` (https://patentref.io/docs/errors/<code>), `title` (the HTTP reason phrase), `status`,
+    `detail` (the X-Status-Reason text, or the body's `detail`), `instance` (the request path), `code`
+    (X-Status-Reason-Code), `data_version`, and `retry_after` on a 429. The upstream headers stay on the
+    response untouched. Without that Accept value nothing changes: the bodies the contract tests check
+    (`{"error": true}` byte for byte, DRF's throttle and 404 bodies) are what every other client gets.
+    Listed before DataVersionMiddleware and LapseErrorHeadersMiddleware so it sees their headers."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        wants_problem = PROBLEM_JSON in request.META.get("HTTP_ACCEPT", "")  # read before DRF's negotiation edits it
+        response = self.get_response(request)
+        try:
+            if response.status_code < 400 or not wants_problem:
+                return response
+            if getattr(response, "streaming", False):
+                return response
+            body = self.problem(request, response)
+            payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            response.content = payload
+            response["Content-Type"] = PROBLEM_JSON
+            response["Content-Length"] = str(len(payload))
+            vary = response.get("Vary", "")
+            if "accept" not in vary.lower():
+                response["Vary"] = (vary + ", " if vary else "") + "Accept"
+        except Exception:  # the negotiation never breaks an error response
+            pass
+        return response
+
+    @staticmethod
+    def problem(request, response):
+        status = response.status_code
+        try:
+            title = HTTPStatus(status).phrase
+        except ValueError:
+            title = f"HTTP {status}"
+        code = response.get("X-Status-Reason-Code") or {429: "THROTTLED", 404: "NOT_FOUND", 403: "ERR_KEY"}.get(status)
+        detail = response.get("X-Status-Reason")
+        if not detail:
+            try:
+                parsed = json.loads(response.content.decode("utf-8"))
+                if isinstance(parsed, dict):
+                    detail = parsed.get("detail") or parsed.get("X-Status-Reason")
+            except (ValueError, AttributeError):
+                detail = None
+        body = {
+            "type": PROBLEM_TYPE_BASE + code if code else "about:blank",
+            "title": title,
+            "status": status,
+            "instance": request.path,
+        }
+        if detail:
+            body["detail"] = str(detail)
+        if code:
+            body["code"] = code
+        version = response.get(DATA_VERSION_HEADER)
+        if version:
+            body["data_version"] = version
+        if response.get("Retry-After"):
+            try:
+                body["retry_after"] = int(response["Retry-After"])
+            except ValueError:
+                body["retry_after"] = response["Retry-After"]
+        return body
+
+
+class ProblemAwareNegotiation:
+    """DRF content negotiation that treats `application/problem+json` in Accept as a request for JSON.
+
+    DRF picks a renderer from the Accept header and answers 406 when none matches; a client that sends
+    only `application/problem+json` (the RFC 9457 opt-in) would get a 406 before the view ran. This
+    class removes that media type from the header DRF sees (keeping everything else, so the usual
+    negotiation still applies) and lets ProblemDetailsMiddleware rewrite the error body afterwards.
+    Registered by `lapse_local` as DEFAULT_CONTENT_NEGOTIATION_CLASS."""
+
+    def __init__(self):
+        from rest_framework.negotiation import DefaultContentNegotiation
+
+        self._inner = DefaultContentNegotiation()
+
+    def select_parser(self, request, parsers):
+        return self._inner.select_parser(request, parsers)
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        accept = request.META.get("HTTP_ACCEPT", "")
+        if PROBLEM_JSON in accept:
+            kept = [p.strip() for p in accept.split(",") if p.strip() and not p.strip().startswith(PROBLEM_JSON)]
+            request.META["HTTP_ACCEPT"] = ", ".join(kept) if kept else "application/json"
+        return self._inner.select_renderer(request, renderers, format_suffix)

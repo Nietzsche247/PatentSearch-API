@@ -51,7 +51,12 @@ DATABASES = {
 }
 
 # Headers for the documented 501 on deferred endpoints, and X-Data-Version on every response (API/lapse_errors.py)
-MIDDLEWARE = ["API.lapse_errors.DataVersionMiddleware", "API.lapse_errors.LapseErrorHeadersMiddleware"] + list(MIDDLEWARE)
+MIDDLEWARE = ["API.lapse_errors.ProblemDetailsMiddleware", "API.lapse_errors.DataVersionMiddleware",
+              "API.lapse_errors.LapseErrorHeadersMiddleware"] + list(MIDDLEWARE)
+# Agent plumbing at the site root (PatentRef gate 2.11, lapse_accounts/public.py): the files come from the
+# patentref repo clone on the box; LICENSES.md also feeds the page footers (checklist 1.11).
+LAPSE_PUBLIC_DIR = os.environ.get("LAPSE_PUBLIC_DIR", "/srv/lapse/public")
+LAPSE_LICENSES_PATH = os.environ.get("LAPSE_LICENSES_PATH", "/srv/lapse/LICENSES.md")
 
 # Search backend seam (API/search.py:get_searcher)
 LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")
@@ -103,6 +108,7 @@ LAPSE_STATUS_PATHS = {
 # (account keys: the plan's per-minute allowance, 45/m for Free; keys without an account: LAPSE_THROTTLE_RATE,
 # upstream's 45/m by default), then the Free-tier monthly cap, plus a per-IP rate on the account endpoints
 REST_FRAMEWORK = dict(REST_FRAMEWORK)
+REST_FRAMEWORK["DEFAULT_CONTENT_NEGOTIATION_CLASS"] = "API.lapse_errors.ProblemAwareNegotiation"  # Accept: application/problem+json is JSON to DRF (gate 2.11)
 REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
     "lapse_accounts.throttling.PlanKeyThrottle",
     "lapse_accounts.throttling.MonthlyKeyThrottle",

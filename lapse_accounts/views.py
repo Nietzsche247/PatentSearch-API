@@ -23,7 +23,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from API.models import APIUserKey
-from lapse_accounts import metering, supabase_jwt
+from lapse_accounts import metering, public, supabase_jwt
 from lapse_accounts.models import PLAN_FREE, AccountKey
 
 
@@ -259,6 +259,7 @@ def signup_page(request):
             "monthly_limit": monthly,
             "per_minute_limit": per_minute,
             "page_url": request.build_absolute_uri(request.path),
+            "footer_lines": public.footer_lines(),
         },
     )
     resp = HttpResponse(html, content_type="text/html; charset=utf-8")

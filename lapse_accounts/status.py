@@ -34,6 +34,8 @@ from django.http import HttpResponse, JsonResponse
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET
 
+from lapse_accounts import public
+
 CACHE_SECONDS = 60
 UPTIME_CLOCK_START = "2026-10-06T03:47:00Z"  # checklist 5.8: the weekly refresh task went live
 PROBE_CADENCE_MIN = 5
@@ -407,6 +409,7 @@ def status_page(request):
         "d": data, "state": data["state"][0], "state_text": data["state"][1],
         "data_version": data["service"]["data_version"] or "unversioned", "as_of": _as_of(data["service"]["data_version"]),
         "json_url": "/api/v1/meta/status.json",
+        "footer_lines": public.footer_lines(),
     })
     resp = HttpResponse(html, content_type="text/html; charset=utf-8")
     resp["Cache-Control"] = f"public, max-age={CACHE_SECONDS}"
