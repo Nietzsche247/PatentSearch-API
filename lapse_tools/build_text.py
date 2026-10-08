@@ -149,10 +149,10 @@ def producer(args):
             buf.append((tuple(row), text))
             kept += 1
             if len(buf) >= batch:
-                q.put(("rows", table, buf))
+                q.put(("rows", table, Path(path).name, buf))
                 buf = []
     if buf:
-        q.put(("rows", table, buf))
+        q.put(("rows", table, Path(path).name, buf))
     q.put(("done", table, Path(path).name, kept, orphans))
     return Path(path).name
 
@@ -176,25 +176,36 @@ def load(out, bulk, desc_from, workers, only=None, log_fn=log):
     if not jobs:
         raise SystemExit("no PVGPATTXT files found in " + str(bulk))
     log_fn(f"{len(jobs)} files: " + ", ".join(f"{t} {sum(1 for x, _ in jobs if x == t)}" for t in tables))
-    ins = {t: f'INSERT INTO "{t}"(rowid, {", ".join(chr(34) + c + chr(34) for c, _ in TEXT_SCHEMA[t])}) '
+    # OR IGNORE: the rowids are assigned here and never repeat, so the only conflict is a uuid the source
+    # carries twice (the same patent in two year files); the first row stays, the later one is dropped and its
+    # rowid stays unused. (2026-10-08: a fallback that retried the batch row by row from the batch's first
+    # rowid collided with the rows executemany had already written and dropped everything after the first
+    # duplicate; the per-file inserted count in the log and the final count check below catch that class.)
+    ins = {t: f'INSERT OR IGNORE INTO "{t}"(rowid, {", ".join(chr(34) + c + chr(34) for c, _ in TEXT_SCHEMA[t])}) '
               f'VALUES ({",".join("?" * (len(TEXT_SCHEMA[t]) + 1))})' for t in tables}
     fts = {t: f'INSERT INTO "fts_{t}"(rowid, "{TEXT_COLUMN[t]}") VALUES (?, ?)' for t in tables}
     next_rowid = {t: 1 for t in tables}
     counts = {t: 0 for t in tables}
     sources = []
     dups = {t: 0 for t in tables}
+    dup_examples = {t: [] for t in tables}
+    per_file = {}  # file name -> [inserted, duplicates]
     ctx = mp.get_context("fork")
     q = ctx.Queue(maxsize=max(2, workers) * 2)
     pending = [(t, str(p), q, BATCH[t]) for t, p in jobs]
     running = []
+    active = [0]   # parsers started whose "done" has not arrived yet: a slot is free as soon as "done" is read
     t0 = time.time()
 
     def start_more():
-        while pending and len(running) < workers:
+        # (2026-10-08: freeing a slot only once the process was seen dead stalled the load whenever every
+        # running parser had sent "done" but not yet exited, with files still pending)
+        while pending and active[0] < workers:
             a = pending.pop(0)
             pr = ctx.Process(target=producer, args=(a,), daemon=True)
             pr.start()
             running.append(pr)
+            active[0] += 1
 
     start_more()
     files_done = 0
@@ -206,43 +217,54 @@ def load(out, bulk, desc_from, workers, only=None, log_fn=log):
             dead = [p for p in running if not p.is_alive() and p.exitcode not in (0, None)]
             if dead:
                 raise RuntimeError(f"a text worker died (exit {dead[0].exitcode}); see the traceback above")
+            if not pending and active[0] == 0:
+                raise RuntimeError(f"no parser running and {len(jobs) - files_done} files unreported")
             continue
         if msg[0] == "rows":
-            _, t, buf = msg
+            _, t, name, buf = msg
             rid = next_rowid[t]
             recs = [(rid + k, *row) for k, (row, _) in enumerate(buf)]
-            try:
-                out.executemany(ins[t], recs)
-            except sqlite3.IntegrityError:
-                # a duplicate uuid in the source: keep the first, drop the rest, keep rowids dense
-                recs, keep_text = [], []
-                for row, text in buf:
-                    try:
-                        out.execute(ins[t], (rid + len(recs), *row))
-                        recs.append((rid + len(recs), *row))
-                        keep_text.append(text)
-                    except sqlite3.IntegrityError:
-                        dups[t] += 1
-                out.executemany(fts[t], [(r[0], tx) for r, tx in zip(recs, keep_text) if tx])
-            else:
+            before = out.total_changes
+            out.executemany(ins[t], recs)
+            inserted = out.total_changes - before
+            if inserted == len(recs):
                 out.executemany(fts[t], [(rid + k, text) for k, (_, text) in enumerate(buf) if text])
+            else:
+                # some uuids were already in the table: index only the rows that went in
+                present = {r[0] for r in out.execute(f'SELECT rowid FROM "{t}" WHERE rowid BETWEEN ? AND ?',
+                                                     (rid, rid + len(recs) - 1))}
+                out.executemany(fts[t], [(rid + k, text) for k, (_, text) in enumerate(buf) if text and rid + k in present])
+                for k, (row, _) in enumerate(buf):
+                    if rid + k not in present and len(dup_examples[t]) < 5:
+                        dup_examples[t].append(f"{row[0]} ({name})")
+                dups[t] += len(recs) - inserted
             next_rowid[t] = rid + len(recs)
-            counts[t] += len(recs)
+            counts[t] += inserted
+            f = per_file.setdefault(name, [0, 0])
+            f[0] += inserted
+            f[1] += len(recs) - inserted
         else:
             _, t, name, kept, orphans = msg
             files_done += 1
-            sources.append({"file": name, "table": t, "rows": kept, "orphans": orphans})
-            log_fn(f"  {name}: {kept:,} rows, {orphans:,} orphans dropped ({files_done}/{len(jobs)}, {time.time() - t0:.0f}s)")
+            ins_n, dup_n = per_file.get(name, [0, 0])
+            sources.append({"file": name, "table": t, "rows": kept, "orphans": orphans, "inserted": ins_n, "duplicates": dup_n})
+            log_fn(f"  {name}: {kept:,} rows, {orphans:,} orphans dropped, {ins_n:,} inserted"
+                   + (f", {dup_n:,} duplicate uuids dropped" if dup_n else "") + f" ({files_done}/{len(jobs)}, {time.time() - t0:.0f}s)")
+            if ins_n + dup_n != kept:
+                raise RuntimeError(f"{name}: the parser kept {kept:,} rows but the writer saw {ins_n + dup_n:,}")
             out.commit()
-            running[:] = [p for p in running if p.is_alive()]
+            active[0] -= 1
+            for p in [p for p in running if not p.is_alive()]:
+                p.join()
+                running.remove(p)
             start_more()
     for p in running:
         p.join()
     out.commit()
     for t in tables:
         if dups[t]:
-            log_fn(f"  {t}: {dups[t]:,} duplicate uuids dropped")
-    return counts, sources
+            log_fn(f"  {t}: {dups[t]:,} duplicate uuids dropped, first: {', '.join(dup_examples[t])}")
+    return counts, sources, dups
 
 
 def make_indexes(out, tables):
@@ -311,7 +333,11 @@ def main():
     out.execute("pragma cache_size=-4000000")
     out.execute("pragma temp_store=file")
     create_schema(out)
-    counts, sources = load(out, a.bulk, a.desc_from, a.workers, tables)
+    counts, sources, dups = load(out, a.bulk, a.desc_from, a.workers, tables)
+    for t in tables:  # the table holds exactly what the writer counted (a silent insert failure stops the build)
+        n = out.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0]
+        if n != counts[t]:
+            raise SystemExit(f"{t}: {n:,} rows in the table, {counts[t]:,} counted by the writer")
     for t in tables:
         log(f"  {t:28s} {counts[t]:,}")
     make_indexes(out, tables)
@@ -321,7 +347,7 @@ def main():
                     [("built_at", time.strftime("%Y-%m-%d %H:%M:%S")), ("kind", "text"), ("index_set", INDEX_SET),
                      ("desc_from", str(a.desc_from)), ("zlib_level", str(ZLEVEL)),
                      ("fts_detail", json.dumps({t: FTS_DETAIL[t] for t in tables})),
-                     ("row_counts", json.dumps(counts)), ("sources", json.dumps(sources))])
+                     ("row_counts", json.dumps(counts)), ("duplicates", json.dumps(dups)), ("sources", json.dumps(sources))])
     out.commit()
     out.close()
     if os.path.exists(a.out):

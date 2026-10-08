@@ -65,10 +65,14 @@ def make_bulk(d):
     tsv_zip(d / "g_patent.tsv.zip", ["patent_id", "patent_type", "patent_date", "patent_title", "wipo_kind", "num_claims", "withdrawn", "filename"],
             [(p, "utility", "2024-07-16", "t", "B2", 2, 0, "x") for p in PATENTS])
     tsv_zip(d / "g_claims_2024.tsv.zip", ["patent_id", "claim_sequence", "claim_text", "dependent", "claim_number", "exemplary"], CLAIMS[:4] + CLAIMS[6:])
-    tsv_zip(d / "g_claims_2025.tsv.zip", ["patent_id", "claim_sequence", "claim_text", "dependent", "claim_number", "exemplary"], CLAIMS[4:6])
+    # the same patent in two year files (a duplicate uuid) FIRST in its batch, then rows that must still load
+    tsv_zip(d / "g_claims_2025.tsv.zip", ["patent_id", "claim_sequence", "claim_text", "dependent", "claim_number", "exemplary"],
+            [CLAIMS[0]] + CLAIMS[4:6])  # same text, so which copy stays (parser race) changes no answer
     tsv_zip(d / "g_detail_desc_text_2004.tsv.zip", ["patent_id", "description_text", "description_length"], [("12050000", "OLD YEAR, must be skipped", 25)])
     tsv_zip(d / "g_detail_desc_text_2024.tsv.zip", ["patent_id", "description_text", "description_length"], [(p, t, len(t)) for p, t in DESCS])
     tsv_zip(d / "g_brf_sum_text_2024.tsv.zip", ["patent_id", "summary_text"], SUMS)
+    tsv_zip(d / "g_brf_sum_text_2025.tsv.zip", ["patent_id", "summary_text"],
+            [("12050000", "zebra duplicate summary"), ("12050007", "A solid lithium cell.")])
     tsv_zip(d / "g_draw_desc_text_2024.tsv.zip", ["patent_id", "draw_desc_sequence", "draw_desc_text"], DRAWS)
 
 
@@ -152,7 +156,20 @@ def get(client, key, path, q=None, f=None, s=None, o=None):
 def test_build_layout_counts_compression_and_nulls(text_db):
     con = sqlite3.connect(f"file:{text_db}?mode=ro", uri=True)
     counts = json.loads(con.execute("SELECT v FROM _lapse_build WHERE k='row_counts'").fetchone()[0])
-    assert counts == {"g_claims": 6, "g_brf_sum_texts": 2, "g_detail_desc_texts": 3, "g_draw_desc_texts": 3}
+    assert counts == {"g_claims": 6, "g_brf_sum_texts": 3, "g_detail_desc_texts": 3, "g_draw_desc_texts": 3}
+    dups = json.loads(con.execute("SELECT v FROM _lapse_build WHERE k='duplicates'").fetchone()[0])
+    assert dups == {"g_claims": 1, "g_brf_sum_texts": 1, "g_detail_desc_texts": 0, "g_draw_desc_texts": 0}
+    # the rows after the duplicate in the same batch went in (the 2026-10-08 defect dropped them)
+    assert con.execute("SELECT count(*) FROM g_claims WHERE patent_id='12050006'").fetchone()[0] == 3
+    assert con.execute("SELECT count(*) FROM g_brf_sum_texts WHERE patent_id='12050007'").fetchone()[0] == 1
+    # the FTS index holds exactly the rows the table holds: no entry for a dropped duplicate
+    for t, col, tok in (("g_claims", "claim_text", "lithium"), ("g_brf_sum_texts", "summary_text", "zebra"),
+                        ("g_brf_sum_texts", "summary_text", "battery")):
+        fts_ids = {r[0] for r in con.execute(f"SELECT rowid FROM fts_{t} WHERE fts_{t} MATCH ?", (tok,))}
+        tbl_ids = {rid for rid, v in con.execute(f"SELECT rowid, {col} FROM {t}") if tok in zlib.decompress(v).decode().lower()}
+        assert fts_ids == tbl_ids, (t, tok, fts_ids, tbl_ids)
+    srcs = json.loads(con.execute("SELECT v FROM _lapse_build WHERE k='sources'").fetchone()[0])
+    assert sum(x["duplicates"] for x in srcs) == 2 and all(x["inserted"] + x["duplicates"] == x["rows"] for x in srcs)
     assert con.execute("SELECT count(*) FROM g_claims WHERE patent_id='99999999'").fetchone()[0] == 0  # orphan dropped
     assert con.execute("SELECT count(*) FROM g_detail_desc_texts WHERE description_length=25").fetchone()[0] == 0  # 2004 skipped
     raw = con.execute("SELECT claim_text FROM g_claims WHERE uuid='12050000-0'").fetchone()[0]
@@ -260,6 +277,8 @@ def test_brief_summaries_and_drawing_descriptions(client, user_key, text_env):
     r = get(client, key, "/api/v1/g_brf_sum_text/", {"_text_any": {"summary_text": "cleaner"}})
     assert r.status_code == 200, r.content
     assert r.json()["g_brf_sum_texts"] == [{"patent_id": "12050006", "summary_text": "A pool cleaner."}]
+    r = get(client, key, "/api/v1/g_brf_sum_text/", {"_text_any": {"summary_text": "lithium"}})
+    assert [x["patent_id"] for x in r.json()["g_brf_sum_texts"]] == ["12050007"]
     r = get(client, key, "/api/v1/g_draw_desc_text/", {"patent_id": "12050000"})
     rows = r.json()["g_draw_desc_texts"]
     assert [(x["draw_desc_sequence"], x["draw_desc_text"]) for x in rows] == [(0, "FIG. 1 is a section of the battery."), (1, "FIG. 2 shows the electrolyte.")]
