@@ -141,7 +141,7 @@ LAPSE_MAX_Q_BYTES = int(os.environ.get("LAPSE_MAX_Q_BYTES", "16384"))           
 DATA_UPLOAD_MAX_MEMORY_SIZE = LAPSE_MAX_BODY                                       # Django's own backstop for bodies without a Content-Length
 LAPSE_QUERY_COST_LIMIT = int(os.environ.get("LAPSE_QUERY_COST_LIMIT", "100"))      # API/lapse_cost.py units; above it the query is refused with 400 ERR_Q
 LAPSE_QUERY_MAX_DEPTH = int(os.environ.get("LAPSE_QUERY_MAX_DEPTH", "8"))          # nesting of _and/_or/_not
-LAPSE_QUERY_MAX_CRITERIA = int(os.environ.get("LAPSE_QUERY_MAX_CRITERIA", "64"))   # leaf criteria in one q (a list value counts once per element)
+LAPSE_QUERY_MAX_CRITERIA = int(os.environ.get("LAPSE_QUERY_MAX_CRITERIA", "64"))   # leaf criteria in one q (a set of ids counts once; any other list value once per element)
 LAPSE_REQUEST_BUDGET = int(os.environ.get("LAPSE_REQUEST_BUDGET", "30"))           # seconds of SQLite time one request may use (page plus count)
 # Sign-up limits (lapse_accounts/views.py): new accounts (first key) per email domain per UTC day, and known disposable domains refused
 LAPSE_SIGNUP_DOMAIN_DAILY = int(os.environ.get("LAPSE_SIGNUP_DOMAIN_DAILY", "20"))

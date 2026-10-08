@@ -217,8 +217,32 @@ def test_cost_estimate_weights():
     assert est.cost == 6 + 3 + 1 + 2 and est.criteria == 2 and est.depth == 2 and est.nested == {"inventors"}
     est = lapse_cost.estimate({"_contains": {"patent_title": "d?ta"}})
     assert est.cost == 20  # wildcard characters: a full scan
+    est = lapse_cost.estimate({"_or": [{"patent_date": "2001-01-02"}, {"patent_date": "2001-01-09"}, {"patent_date": "2001-01-16"}]})
+    assert est.cost == 3 + 2 and est.criteria == 3
+
+
+def test_cost_estimate_id_sets():
+    """A set of ids is one criterion and one unit per 100 values (gate 2.7: the R package's documented
+    vignettes send an _or of 75 assignee_id equalities and a list of 690 patent_ids; the 5.6 weights
+    refused both with "too many criteria")."""
     est = lapse_cost.estimate({"_or": [{"patent_id": "1"}, {"patent_id": "2"}, {"patent_id": "3"}]})
-    assert est.cost == 3 + 2
+    assert est.cost == 1 and est.criteria == 1 and est.depth == 2
+    est = lapse_cost.estimate({"_or": [{"_eq": {"assignee_id": f"a{i}"}} for i in range(75)]}, {"size": 1000})
+    assert est.cost == 1 + 10 and est.criteria == 1
+    est = lapse_cost.estimate({"patent_id": [str(i) for i in range(690)]}, {"size": 1000})
+    assert est.cost == 1 + 6 + 10 and est.criteria == 1
+    est = lapse_cost.estimate({"_eq": {"patent_id": [str(i) for i in range(250)]}})
+    assert est.cost == 1 + 2 and est.criteria == 1
+    est = lapse_cost.estimate({"_or": [{"_eq": {"inventors.inventor_id": f"i{i}"}} for i in range(40)]})
+    assert est.cost == 1 + 3 and est.criteria == 1 and est.nested == {"inventors"}
+    # not an id set: a non-id field, two fields, or a branch that is not a scalar equality
+    assert lapse_cost.estimate({"patent_title": ["a", "b", "c"]}).criteria == 3
+    est = lapse_cost.estimate({"_or": [{"patent_id": "1"}, {"assignee_id": "2"}]})
+    assert est.criteria == 2 and est.cost == 2 + 1
+    est = lapse_cost.estimate({"_or": [{"patent_id": "1"}, {"_begins": {"patent_id": "200"}}]})
+    assert est.criteria == 2 and est.cost == 1 + 2 + 1
+    est = lapse_cost.estimate({"_or": [{"_neq": {"patent_id": "1"}}, {"_neq": {"patent_id": "2"}}]})
+    assert est.criteria == 2
 
 
 def test_contract_examples_and_matrix_shapes_are_under_the_limit():
@@ -252,13 +276,61 @@ def test_cost_cap_refuses_with_the_upstream_400(client, free_key, monkeypatch):
         deep = {"_and": [deep]}
     r = client.get(LIST, {"q": json.dumps(deep)}, HTTP_X_API_KEY=free_key)
     _bad_request(r, "Query too deeply nested")
-    r = client.get(LIST, {"q": json.dumps({"patent_id": [str(i) for i in range(65)]})}, HTTP_X_API_KEY=free_key)
+    many = {"_and": [{"_gte": {"patent_date": f"2001-01-{1 + i % 28:02d}"}} for i in range(65)]}
+    r = client.get(LIST, {"q": json.dumps(many)}, HTTP_X_API_KEY=free_key)
     _bad_request(r, "Query has too many criteria: 65")
-    r = client.get(LIST, {"q": json.dumps({"patent_id": [str(i) for i in range(64)]})}, HTTP_X_API_KEY=free_key)
+    many["_and"] = many["_and"][:64]
+    r = client.get(LIST, {"q": json.dumps(many)}, HTTP_X_API_KEY=free_key)
     assert r.status_code == 200
+    # id sets pass however many values (the R vignettes' shapes), up to the q size cap
+    r = client.get(LIST, {"q": json.dumps({"patent_id": [str(10000000 + i) for i in range(690)]})}, HTTP_X_API_KEY=free_key)
+    assert r.status_code == 200, r.headers.get("X-Status-Reason")
+    ors = {"_or": [{"_eq": {"patent_id": str(10000000 + i)}} for i in range(75)]}
+    r = client.post(LIST, json.dumps({"q": ors, "o": {"size": 1000}}), content_type="application/json", HTTP_X_API_KEY=free_key)
+    assert r.status_code == 200, r.headers.get("X-Status-Reason")
     # a bad query the parser rejects still gets the parser's own message (the estimate never raises on shape)
     r = client.get(LIST, {"q": json.dumps({"patent_id": "1", "patent_type": "x"})}, HTTP_X_API_KEY=free_key)
     _bad_request(r, "Query string should have only one 'key-value' pair")
+
+
+# ---- 6b. id sets in SQL (gate 2.7): one IN set, any size the q cap allows
+def test_id_sets_run_as_one_in_set(client, free_key):
+    ids = [str(20000000 + i) for i in range(1400)] + ["10000000", "10000002"]
+    body = {"q": {"patent_id": ids}, "f": ["patent_id"]}
+    r = client.post(LIST, json.dumps(body), content_type="application/json", HTTP_X_API_KEY=free_key)
+    # before 2.7 an OR chain of one term per value: 500, "Expression tree is too large (maximum depth 1000)"
+    assert r.status_code == 200, r.headers.get("X-Status-Reason")
+    assert sorted(p["patent_id"] for p in r.json()["patents"]) == ["10000000", "10000002"]
+    body = {"q": {"_or": [{"_eq": {"patent_id": i}} for i in ids[-450:]]}, "f": ["patent_id"]}
+    r = client.post(LIST, json.dumps(body), content_type="application/json", HTTP_X_API_KEY=free_key)
+    assert r.status_code == 200, r.headers.get("X-Status-Reason")
+    assert sorted(p["patent_id"] for p in r.json()["patents"]) == ["10000000", "10000002"]
+
+
+def test_translator_in_set_shapes():
+    import os
+    import sqlite3
+
+    from API.search_sqlite import IndexMeta, Translator
+
+    con = sqlite3.connect(os.environ["LAPSE_SQLITE_PATH"])
+    meta = IndexMeta(con, "patents")
+
+    def sql(q):
+        t = Translator(meta)
+        return t.where(q), t.params
+
+    s, p = sql({"terms": {"patent_id": ["1", "2", "2"]}})
+    assert '"patent_id" IN (?, ?)' in s and " OR " not in s and p == ["1", "2"], s
+    s, p = sql({"bool": {"should": [{"match": {"patent_id": "1"}}, {"terms": {"patent_id": ["2", "3"]}}]}})
+    assert '"patent_id" IN (?, ?, ?)' in s and " OR " not in s and p == ["1", "2", "3"], s
+    # left as an OR: two fields, an analyzed text field, a date (a partial date is a span)
+    for q in ({"bool": {"should": [{"match": {"patent_id": "1"}}, {"match": {"patent_type": "utility"}}]}},
+              {"bool": {"should": [{"match": {"patent_title": "laser"}}, {"match": {"patent_title": "ladar"}}]}},
+              {"bool": {"should": [{"match": {"patent_date": "2018"}}, {"match": {"patent_date": "2019-01-01"}}]}}):
+        s, _ = sql(q)
+        assert " OR " in s and '" IN (' not in s, s
+    con.close()
 
 
 # ---- 7. per-request SQLite budget

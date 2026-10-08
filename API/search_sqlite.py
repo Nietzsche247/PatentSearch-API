@@ -453,7 +453,11 @@ class Translator:
                 ps.append(self._p)
         should = body.get("should", [])
         should = should if isinstance(should, list) else [should]
-        if should and not parts:
+        merged = self.merge_equalities(should, ctx) if should and not parts else None
+        if merged is not None:
+            parts.append(f"({self._where(merged, ctx)})")
+            ps.append(self._p)
+        elif should and not parts:
             ors, p_or = [], 0.0
             for s in should:
                 ors.append(f"({self._where(s, ctx)})")
@@ -477,6 +481,72 @@ class Translator:
             p = None if (p is None or x is None) else p * x
         self._p = p
         return " AND ".join(parts) if parts else "1"
+
+    @staticmethod
+    def _equality_leaf(q):
+        """(nested path or None, field, values) when q is one equality on one field: match on a scalar or
+        terms on a list, bare or inside a nested query; None otherwise."""
+        path = None
+        if isinstance(q, dict) and len(q) == 1 and "nested" in q:
+            body = q["nested"]
+            if not isinstance(body, dict) or set(body) != {"path", "query"}:
+                return None
+            path, q = body["path"], body["query"]
+        if not isinstance(q, dict) or len(q) != 1:
+            return None
+        kind, body = next(iter(q.items()))
+        if kind not in ("match", "terms") or not isinstance(body, dict) or len(body) != 1:
+            return None
+        field, v = next(iter(body.items()))
+        if kind == "terms":
+            return (path, field, list(v)) if isinstance(v, list) else None
+        if isinstance(v, (dict, list)):
+            return None
+        return path, field, [v]
+
+    def merge_equalities(self, should, ctx):
+        """An OR of equalities on one non-text field (what `_or` of `_eq` on one id field becomes, the R
+        package's qry_funs$eq(field = ids)) as one terms query, so the SQL is one IN set instead of a chain
+        of ORs: SQLite refuses an expression deeper than 1000 and plans a long OR chain badly. None when the
+        clauses are not all such equalities on the same field."""
+        if len(should) < 2:
+            return None
+        leaves = [self._equality_leaf(s) for s in should]
+        if any(leaf is None for leaf in leaves) or len({(leaf[0], leaf[1]) for leaf in leaves}) != 1:
+            return None
+        path, field = leaves[0][0], leaves[0][1]
+        f = self.resolve(field, ctx if path is None else ("c", path))
+        if f is None or not self.in_set_ok(f):
+            return None
+        terms = {"terms": {field: [v for leaf in leaves for v in leaf[2]]}}
+        return terms if path is None else {"nested": {"path": path, "query": terms}}
+
+    @staticmethod
+    def in_set_ok(f):
+        """Equality on f is a plain `=`: not an analyzed text field and not a date (a partial date is a span)."""
+        return not ((f.es_type == "text" or f.es_type == "date") and not f.keyword)
+
+    def in_set(self, f, values):
+        """f IN (values) with the same per-value rules as eq(): an integral field drops a value with a decimal
+        part (ES matches nothing for it), values are coerced to the stored form and deduplicated."""
+        vals = []
+        for v in values:
+            if v is None:
+                continue
+            if f.es_type in INTEGRAL and not f.keyword and has_decimal_part(v):
+                continue
+            vals.append(f.value(v))
+        vals = list(dict.fromkeys(vals))
+        self._p = None
+        if not vals:
+            return "0"
+        term = f"{f.sql} IN ({', '.join(self.p(x) for x in vals)})"
+        if not f.keyword and len(vals) <= 200:
+            ps = [self.meta.freq(f.table, f.column, x) for x in vals]
+            if all(p is not None for p in ps):
+                self._p = min(1.0, sum(ps))
+                term = f"likelihood({term}, {min(max(self._p, 1e-7), 0.9999):.7f})"
+        return f"({term}{self.kw_guard(f)})"
 
     def complement(self, q, ctx):
         """must_not of equality on one low-cardinality column of the main table, when the complement is
@@ -658,6 +728,9 @@ class Translator:
         f = self.resolve(field, ctx)
         if f is None or not values:
             return "0"
+        if self.in_set_ok(f):
+            # one IN set (an OR chain of 1000 values is deeper than SQLite allows: a 500 before 2.7)
+            return self.in_set(f, values)
         ors, p = [], 0.0
         for v in values:
             if f.es_type == "text" and not f.keyword:
