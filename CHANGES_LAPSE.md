@@ -539,3 +539,26 @@ column to `patents__inventors`, `patents__assignees` and `patents__attorneys` wi
 - `lapse_accounts/tests/test_weekly_grants.py` (4 tests): the whole-group shape on both kinds of rows, the named flag,
   `q` on it, the default `f` unchanged, the `/meta/` block. Contract examples are unchanged (no example names the flag;
   the whole-group example reads PatentsView rows only).
+
+## 2026-10-08 pending approval: the footer, the public status figures, the pin guard (PatentRef 1.11, 2.11, 5.2)
+
+Branch `wave2-pending-approval`, not deployed; it goes live only with the owner's approval through `ops/deploy.sh`.
+
+- `lapse_accounts/public.py` (`footer_lines`, `ATTRIBUTION_HEADING`): the page footer is generated from LICENSES.md
+  again. The register numbers its sections ("## 5. Attribution lines") and the first pattern matched only the
+  unnumbered heading, so every page showed the fixed fallback and the second attribution line never rendered (gate
+  1.11, unticked by the 2026-10-08 re-audit). The heading may now carry a section number. Tests in
+  `lapse_accounts/tests/test_public.py`: the real register (a verbatim copy in `lapse_accounts/tests/fixtures/LICENSES.md`,
+  plus `/srv/lapse/LICENSES.md` or `PATENTREF_LICENSES` when present) yields exactly its bullets and never the
+  fallback; four heading forms.
+- `lapse_accounts/status.py` (`public_view`): status.json and the status page show no server paths, desk ids, host
+  names, load figures, or disk and memory sizes (the 2.11 re-audit found a server path and desk ids in the keyless
+  JSON). Disks and memory keep the free share and the watchdog's ok flag; watchdog checks keep ok, fails, checked,
+  breach_since and last_alert without their detail text; alert lines keep time, check and state; `uptime.source` is
+  the public probe repository. `collect()` keeps the full figures for tools on the box. Template
+  `lapse_accounts/status.html` follows. Test `test_public_status_shows_no_paths_desk_ids_or_sizes`.
+- `lapse_accounts/status.py` (`health`, `patentref_version`): `/api/v1/meta/health/` also reports the short commit of
+  the patentref clone the server reads (`LAPSE_REPO_DIR`, `/srv/lapse`), re-read once a minute. The patentref CI job
+  `pin-drift` (`ops/check_pins.py`) compares it and `version` with `ops/deploy.pins` every hour (gate 5.2).
+- `lapse_accounts/public.py` (`ERROR_CODES`): the ERR_KEY page says a data endpoint's 403 carries no code header; the
+  ERR_NOT_IMPLEMENTED page names the NBER routes and the long text served since 2026-10-08 (2.11 doc defects 7 and 3).

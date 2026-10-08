@@ -158,10 +158,9 @@
       <h2>Box</h2>
       {% with b=d.box %}
       <div class="wrap"><table>
-        <tr><th>Resource</th><th class="num">free</th><th class="num">of</th></tr>
-        {% for disk in b.disks %}<tr><td>Disk {{ disk.mount }}</td><td class="num">{% if disk.free_gb != None %}{{ disk.free_gb }} GB ({{ disk.free_percent }}%){% else %}{{ disk.error }}{% endif %}</td><td class="num">{{ disk.total_gb }} GB</td></tr>{% endfor %}
-        {% if b.memory %}<tr><td>Memory available</td><td class="num">{{ b.memory.available_gb }} GB ({{ b.memory.available_percent }}%)</td><td class="num">{{ b.memory.total_gb }} GB</td></tr>{% endif %}
-        {% if b.load %}<tr><td>Load average (1, 5, 15 min)</td><td class="num">{{ b.load.0 }}, {{ b.load.1 }}, {{ b.load.2 }}</td><td class="num">{{ b.cpus }} CPUs</td></tr>{% endif %}
+        <tr><th>Resource</th><th class="num">free</th><th class="num">threshold</th></tr>
+        {% for disk in b.disks %}<tr><td>Disk, {{ disk.name }}</td><td class="num">{% if disk.error %}{{ disk.error }}{% else %}{{ disk.free_percent }}%{% endif %}</td><td class="num">{% if disk.ok == None %}n/a{% elif disk.ok %}<span class="ok-t">ok</span>{% else %}<span class="err-t">low</span>{% endif %}</td></tr>{% endfor %}
+        {% if b.memory %}<tr><td>Memory available</td><td class="num">{{ b.memory.available_percent }}%</td><td class="num">{% if b.memory.ok == None %}n/a{% elif b.memory.ok %}<span class="ok-t">ok</span>{% else %}<span class="err-t">low</span>{% endif %}</td></tr>{% endif %}
       </table></div>
       <dl>
         <dt>Last backup</dt><dd>{% if b.backup %}{{ b.backup.t }}, {% if b.backup.ok %}<span class="pill ok">ok</span>{% else %}<span class="pill err">failed</span>{% endif %} in {{ b.backup.seconds }} s (Drive {{ b.backup.drive }}, Storage Box {{ b.backup.storage_box }}){% else %}no journal line{% endif %}</dd>
@@ -174,8 +173,8 @@
       <h2>Alerts</h2>
       {% if d.alerts.open %}
       <div class="wrap"><table>
-        <tr><th>Check</th><th>Since</th><th>Detail</th></tr>
-        {% for a in d.alerts.open %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.time }}</td><td>{{ a.detail }}</td></tr>{% endfor %}
+        <tr><th>Check</th><th>Since</th><th>State</th></tr>
+        {% for a in d.alerts.open %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.time }}</td><td>{{ a.state }}</td></tr>{% endfor %}
       </table></div>
       {% else %}<p class="muted">No open alerts. {% if d.alerts.recent %}Most recent line: {{ d.alerts.recent.0.time }} <code>{{ d.alerts.recent.0.check }}</code> {{ d.alerts.recent.0.state }}.{% endif %}</p>{% endif %}
       <p class="muted">The on-box watchdog runs every 2 minutes: API and public health, disk and memory headroom, the refresh and backup timers. A breach files an item on the operator desk (once per 24 hours per check) and a line here.</p>

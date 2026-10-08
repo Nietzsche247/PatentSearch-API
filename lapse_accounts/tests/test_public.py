@@ -1,6 +1,8 @@
 """Gate 2.11: the root files, the error docs, the build facts endpoint, RFC 9457 problem details by content
 negotiation, and the footer generated from LICENSES.md (gate 1.11)."""
 import json
+import os
+from pathlib import Path
 
 import pytest
 from django.conf import settings
@@ -69,6 +71,54 @@ def test_footer_from_licenses(public_dir):
     (public_dir / "LICENSES.md").write_text("# no section\n", encoding="utf-8")
     public._footer_cache.update({"at": 0.0, "lines": None, "mtime": None})
     assert public.footer_lines() == public.FALLBACK_FOOTER
+
+
+REAL_LICENSES_COPY = Path(__file__).parent / "fixtures" / "LICENSES.md"  # verbatim copy of patentref LICENSES.md (3bf3b3f)
+
+
+def _real_registers():
+    """The register as served: the patentref clone on the box (settings default /srv/lapse/LICENSES.md),
+    PATENTREF_LICENSES when set, and always the vendored copy, so the test runs off the box too."""
+    paths = []
+    for p in (os.environ.get("PATENTREF_LICENSES"), "/srv/lapse/LICENSES.md"):
+        if p and Path(p).is_file():
+            paths.append(Path(p))
+    paths.append(REAL_LICENSES_COPY)
+    return paths
+
+
+@pytest.mark.parametrize("register", _real_registers(), ids=str)
+def test_footer_from_the_real_register(register, monkeypatch):
+    """Gate 1.11 re-audit 2026-10-08: the real file says "## 5. Attribution lines", which the first regex
+    never matched, so every page showed the fallback. The footer must be the register's bullets."""
+    text = register.read_text(encoding="utf-8")
+    heading = [ln for ln in text.splitlines() if ln.startswith("## ") and "Attribution lines" in ln]
+    assert heading, "the register has no Attribution lines section"
+    want = []
+    in_section = False
+    for ln in text.splitlines():
+        if ln.startswith("## "):
+            in_section = ln == heading[0]
+            continue
+        if in_section and ln.strip().startswith("- "):
+            want.append(ln.strip()[2:].strip())
+    assert len(want) >= 2
+    monkeypatch.setattr(settings, "LAPSE_LICENSES_PATH", str(register), raising=False)
+    public._footer_cache.update({"at": 0.0, "lines": None, "mtime": None})
+    got = public.footer_lines()
+    assert got == want
+    assert got != public.FALLBACK_FOOTER
+    public._footer_cache.update({"at": 0.0, "lines": None, "mtime": None})
+
+
+@pytest.mark.parametrize("heading", ["## Attribution lines", "## 5. Attribution lines", "## 5 Attribution lines", "## 12.1. Attribution lines"])
+def test_footer_heading_forms(heading, tmp_path, monkeypatch):
+    lic = tmp_path / "LICENSES.md"
+    lic.write_text(f"# r\n\n## 4. Before\n- no\n\n{heading}\n\nIntro sentence.\n\n- One.\n- Two.\n\n## 6. After\n- no\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "LAPSE_LICENSES_PATH", str(lic), raising=False)
+    public._footer_cache.update({"at": 0.0, "lines": None, "mtime": None})
+    assert public.footer_lines() == ["One.", "Two."]
+    public._footer_cache.update({"at": 0.0, "lines": None, "mtime": None})
 
 
 def test_footer_on_pages(client, public_dir):

@@ -1,7 +1,9 @@
 """Health route and the public status page (PatentRef gate 5.4).
 
   GET /api/v1/meta/health/      no auth, no throttle, no search query: {"ok", "version", "data_version", "db",
-                                "time"}; 200 when the served search file opens and answers a one-row read,
+                                "time", "text_data_version", "patentref_version"} (version is the fork's
+                                commit, patentref_version the /srv/lapse commit, both for the 5.2 pin
+                                guard); 200 when the served search file opens and answers a one-row read,
                                 503 otherwise. This is what the external probe and the on-box watchdog call.
   GET /api/v1/meta/status/      the public status page (HTML, phone width, dark mode); the same figures as
                                 JSON at /api/v1/meta/status.json. Built from:
@@ -14,11 +16,14 @@
     - the nightly backup journal, the watchdog state and the alerts log;
     - disk and memory headroom read live.
   Everything is computed at most once a minute per worker and served with Cache-Control max-age=60.
+  Both public forms go through public_view(): no server paths, desk ids, disk or memory sizes, host names
+  or load figures reach a keyless reader (2.11 re-audit 2026-10-08).
 
 Uptime rule (ops/monitoring.md in the patentref repo): probes run every 5 minutes from GitHub's network;
 the span between two consecutive failed probes counts as down; a lone failed probe between two passes
 counts as nothing; uptime = 1 - down minutes / minutes elapsed since the clock started.
 """
+import copy
 import json
 import os
 import shutil
@@ -82,20 +87,35 @@ def parse_iso(s):
             return None
 
 
-def code_version():
-    """Short commit of the fork serving this process, read once with git (the repo directory is the
-    parent of the package); 'unknown' when git or the repo is not there."""
-    if "v" in _version_cache:
-        return _version_cache["v"]
-    repo = Path(__file__).resolve().parent.parent
-    v = "unknown"
+def _git_short(repo):
     try:
         out = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5)
         if out.returncode == 0 and out.stdout.strip():
-            v = out.stdout.strip()
+            return out.stdout.strip()
     except (OSError, subprocess.SubprocessError):
         pass
-    _version_cache["v"] = v
+    return "unknown"
+
+
+def code_version():
+    """Short commit of the fork serving this process, read once with git (the repo directory is the
+    parent of the package); 'unknown' when git or the repo is not there."""
+    if "v" not in _version_cache:
+        _version_cache["v"] = _git_short(Path(__file__).resolve().parent.parent)
+    return _version_cache["v"]
+
+
+def patentref_version():
+    """Short commit of the patentref clone this server reads (LAPSE_REPO_DIR, /srv/lapse on the box: the
+    expiry engine, public/ and LICENSES.md), read once a minute so a pull without a reload still shows.
+    The pin-drift guard (patentref ops/check_pins.py, checklist 5.2) compares it with ops/deploy.pins."""
+    now = time.time()
+    hit = _version_cache.get("p")
+    if hit and now - hit[0] < 60:
+        return hit[1]
+    repo = getattr(settings, "LAPSE_REPO_DIR", None) or os.environ.get("LAPSE_REPO_DIR", "/srv/lapse")
+    v = _git_short(repo)
+    _version_cache["p"] = (now, v)
     return v
 
 
@@ -130,7 +150,7 @@ def text_version():
 def health(request):
     ok, data_version, detail = db_check()
     body = {"ok": ok, "version": code_version(), "data_version": data_version, "db": detail, "time": iso(time.time()),
-            "text_data_version": text_version()}
+            "text_data_version": text_version(), "patentref_version": patentref_version()}
     resp = JsonResponse(body, status=200 if ok else 503)
     resp["Cache-Control"] = "no-store"
     resp["X-Data-Version"] = data_version or "unversioned"
@@ -382,6 +402,47 @@ def collect():
     return data
 
 
+PUBLIC_PROBE_SOURCE = "https://github.com/patentref/status"
+PUBLIC_DISK_NAMES = {"/": ("system", "disk_root"), "/data": ("data", "disk_data")}
+PUBLIC_CHECK_KEYS = ("ok", "fails", "checked", "breach_since", "last_alert")
+
+
+def public_view(data):
+    """The figures a keyless reader gets from status.json and the status page: no server paths, no desk ids,
+    no disk or memory sizes, no host names, no load figures. Disks and memory keep the free share and whether
+    the watchdog's threshold holds; watchdog checks keep their state and times without the detail text (it
+    carries sizes and paths); alert lines keep the check, the state and the time. collect() keeps the full
+    figures for tools on the box (the watchdog reads its own state file, not this view)."""
+    d = copy.deepcopy(data)
+    u = d.get("uptime") or {}
+    if "source" in u:
+        u["source"] = PUBLIC_PROBE_SOURCE
+    box = d.get("box") or {}
+    checks = (box.get("watchdog") or {}).get("checks") or {}
+    disks = []
+    for i, disk in enumerate(box.get("disks") or []):
+        name, check = PUBLIC_DISK_NAMES.get(disk.get("mount"), (f"disk {i + 1}", ""))
+        row = {"name": name, "free_percent": disk.get("free_percent"), "ok": (checks.get(check) or {}).get("ok")}
+        if disk.get("error"):
+            row["error"] = "unreadable"
+        disks.append(row)
+    mem = box.get("memory")
+    public_box = {
+        "disks": disks,
+        "memory": {"available_percent": mem.get("available_percent"), "ok": (checks.get("memory") or {}).get("ok")} if mem else None,
+        "backup": box.get("backup"),
+        "watchdog": None,
+    }
+    if box.get("watchdog"):
+        public_box["watchdog"] = {"t": box["watchdog"].get("t"),
+                                  "checks": {name: {k: c.get(k) for k in PUBLIC_CHECK_KEYS} for name, c in checks.items() if isinstance(c, dict)}}
+    d["box"] = public_box
+    alerts = d.get("alerts") or {}
+    d["alerts"] = {k: [{"time": a.get("time"), "check": a.get("check"), "state": a.get("state")} for a in alerts.get(k, [])]
+                   for k in ("open", "recent")}
+    return d
+
+
 def cached():
     now = time.time()
     with _lock:
@@ -404,7 +465,7 @@ def _as_of(data_version):
 
 @require_GET
 def status_json(request):
-    data = cached()
+    data = public_view(cached())
     resp = JsonResponse(data, json_dumps_params={"indent": 1})
     resp["Cache-Control"] = f"public, max-age={CACHE_SECONDS}"
     resp["Access-Control-Allow-Origin"] = "*"
@@ -415,7 +476,7 @@ def status_json(request):
 def status_page(request):
     if request.GET.get("format") == "json":
         return status_json(request)
-    data = cached()
+    data = public_view(cached())
     html = render_to_string("lapse_accounts/status.html", {
         "d": data, "state": data["state"][0], "state_text": data["state"][1],
         "data_version": data["service"]["data_version"] or "unversioned", "as_of": _as_of(data["service"]["data_version"]),

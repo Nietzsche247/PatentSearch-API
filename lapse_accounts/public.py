@@ -16,7 +16,8 @@
       (/data/api/snapshot_current.json, /data/lapse/refresh_versions.json). No key needed.
 
 The page footers of the sign-up and status pages are generated from LICENSES.md (checklist 1.11):
-`footer_lines()` returns the lines of its "Attribution lines" section, with a fixed fallback when the
+`footer_lines()` returns the lines of its "Attribution lines" section ("## 5. Attribution lines" in the
+register; the number is optional), with a fixed fallback when the
 file is not on the box, so the attribution shown is always the register's.
 """
 import json
@@ -43,11 +44,14 @@ ERROR_CODES = {
     "ERR_Q": "400 Bad Request. The q, f, s or o parameter is invalid: malformed JSON, more than one top-level key in q, an unknown field, a field "
              "outside the endpoint, a sort on a text field, 'offset' in o, a query over the cost cap (100 units, 64 criteria, depth 8), q over 16 KB "
              "or a body over 64 KB. The X-Status-Reason header carries the upstream text.",
-    "ERR_KEY": "403 Forbidden. No X-Api-Key header, or the key is unknown or revoked. Get a Free key at /api/v1/meta/signup/.",
+    "ERR_KEY": "403 Forbidden. No X-Api-Key header, or the key is unknown or revoked. Get a Free key at /api/v1/meta/signup/. "
+               "A data endpoint answers the upstream body {\"detail\": \"You do not have permission to perform this action.\"} with no "
+               "X-Status-Reason-Code header; the code appears as that header only on the account endpoints, and in the problem details body.",
     "ERR_ES": "500 Internal Server Error. The search backend raised an error or a timeout (20 s a statement, 30 s a request), "
               "or an operator was used on a field type that rejects it (prefix or wildcard on numeric, date and boolean fields).",
     "ERR_NOT_IMPLEMENTED": "501 Not Implemented. The endpoint's data set is not in this snapshot: pre-grant publications are deferred "
-                           "(PatentRef checklist 1.5); long-text endpoints arrive with their load. The X-Status-Reason header names the data set.",
+                           "(PatentRef checklist 1.5), the NBER routes are dead upstream, and the long-text endpoints answer it only when no "
+                           "long-text file is in service (GET /api/v1/meta/health/ shows text_data_version). The X-Status-Reason header names the data set.",
     "ERR_AUTH": "401 Unauthorized. The account endpoints need Authorization: Bearer <Supabase access token>; the token is missing, expired or not from the PatentRef project.",
     "ERR_SIGNUP_LIMIT": "429 Too Many Requests. More than the daily number of new accounts from one email domain; try after the Retry-After seconds.",
     "THROTTLED": "429 Too Many Requests. Over the per-minute allowance (45 for a Free key, a fixed UTC clock minute) or the monthly allowance (1,000). "
@@ -108,10 +112,16 @@ def error_docs(request, code=""):
 
 _footer_cache = {"at": 0.0, "lines": None, "mtime": None}
 
+# The register numbers its sections ("## 5. Attribution lines"); an unnumbered heading is accepted too.
+# Gate 1.11 re-audit 2026-10-08: the first form matched only the unnumbered heading, so every page
+# showed the fallback. The section runs to the next level-2 heading or the end of the file.
+ATTRIBUTION_HEADING = re.compile(r"^##[ \t]+(?:\d+(?:\.\d+)*\.?[ \t]+)?Attribution lines[ \t]*$(.*?)(?=^##[ \t]|\Z)", re.M | re.S)
+
 
 def footer_lines(now=None):
-    """The attribution lines of LICENSES.md ("## Attribution lines" section, one bullet per line), re-read
-    when the file changes (checked at most once a minute). Fallback: the fixed PatentsView line."""
+    """The attribution lines of LICENSES.md (its "Attribution lines" section, numbered or not, one bullet
+    per line), re-read when the file changes (checked at most once a minute). Fallback: the fixed
+    PatentsView line."""
     now = now or time.time()
     p = licenses_path()
     try:
@@ -123,7 +133,7 @@ def footer_lines(now=None):
     lines = []
     try:
         text = p.read_text(encoding="utf-8")
-        m = re.search(r"^## Attribution lines\s*$(.*?)(?=^## |\Z)", text, re.M | re.S)
+        m = ATTRIBUTION_HEADING.search(text)
         if m:
             for ln in m.group(1).splitlines():
                 ln = ln.strip()

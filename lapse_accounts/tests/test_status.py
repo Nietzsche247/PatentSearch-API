@@ -15,6 +15,7 @@ def test_health_no_key(client):
     body = r.json()
     assert body["ok"] is True and body["db"] == "ok"
     assert body["data_version"] and body["version"]
+    assert "patentref_version" in body and "text_data_version" in body  # the pin-drift guard reads both commits here
     assert r["Cache-Control"] == "no-store"
     assert r["X-Data-Version"] == body["data_version"]
 
@@ -123,3 +124,47 @@ def test_status_page_and_json(client, monkeypatch, tmp_path):
     assert d["uptime"]["clock_start"] == "2026-10-06T03:47:00Z"
     j2 = client.get("/api/v1/meta/status/?format=json")
     assert j2.json()["generated_at"] == d["generated_at"]  # the 60 s cache served the same figures
+
+
+def test_public_status_shows_no_paths_desk_ids_or_sizes(client, monkeypatch, tmp_path):
+    """2.11 re-audit 2026-10-08: status.json is keyless and carried a server path, desk ids, disk and memory sizes.
+    Both public forms now go through public_view()."""
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
+                                                         "backup_journal": str(tmp_path / "bj.jsonl"), "disks": ["/"]})
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "status_mirror").mkdir()
+    (tmp_path / "status_mirror" / "history.json").write_text(json.dumps({"probes": [{"t": status.iso(time.time() - 60), "ok": True, "status": 200}]}))
+    (tmp_path / "reports" / "alerts.jsonl").write_text(json.dumps({"time": status.iso(time.time()), "check": "disk_data", "state": "breach",
+                                                                   "detail": "/data: 12.0 GB free (1.0%)", "host": "patentref-us1", "desk_id": "0d1609c2c8"}) + "\n")
+    (tmp_path / "reports" / "watchdog_state.json").write_text(json.dumps({"last_run": status.iso(time.time()), "checks": {
+        "disk_root": {"ok": True, "fails": 0, "detail": "/: 106.1 GB free (84.0%)", "checked": "2026-10-08T23:37:13Z", "desk_id": None},
+        "disk_data": {"ok": False, "fails": 3, "detail": "/data: 12.0 GB free (1.0%), threshold 250 GB", "checked": "2026-10-08T23:37:13Z",
+                      "breach_since": "2026-10-08T23:30:00Z", "desk_id": "0d1609c2c8"},
+        "memory": {"ok": True, "fails": 0, "detail": "MemAvailable 55.1 GB, threshold 4 GB", "desk_id": "9c141fcaa7"}}}))
+    (tmp_path / "bj.jsonl").write_text('{"time":"2026-10-07T00:18:26Z","ok":true,"drive":"ok","storage_box":"skipped","seconds":95}\n')
+
+    full = status.collect()
+    assert full["uptime"]["source"].startswith(str(tmp_path))  # the internal figures still know where they came from
+    assert full["box"]["disks"][0]["total_gb"] > 0
+
+    r = client.get("/api/v1/meta/status.json")
+    assert r.status_code == 200
+    text = r.content.decode()
+    d = r.json()
+    for banned in (str(tmp_path), "/data", "0d1609c2c8", "9c141fcaa7", "desk_id", "_gb", "GB", "MemAvailable", "patentref-us1",
+                   '"load"', '"cpus"', '"detail"', '"mount"'):
+        assert banned not in text, banned
+    assert d["uptime"]["source"] == status.PUBLIC_PROBE_SOURCE
+    assert d["box"]["disks"] == [{"name": "system", "free_percent": d["box"]["disks"][0]["free_percent"], "ok": True}]
+    assert isinstance(d["box"]["disks"][0]["free_percent"], float)
+    assert d["box"]["memory"]["ok"] is True and "available_percent" in d["box"]["memory"]
+    assert d["box"]["watchdog"]["checks"]["disk_data"] == {"ok": False, "fails": 3, "checked": "2026-10-08T23:37:13Z",
+                                                          "breach_since": "2026-10-08T23:30:00Z", "last_alert": None}
+    assert d["alerts"]["open"][0] == {"time": d["alerts"]["open"][0]["time"], "check": "disk_data", "state": "breach"}
+    assert d["state"][0] == "degraded"
+
+    html = client.get("/api/v1/meta/status/").content.decode()
+    for banned in (str(tmp_path), "/data", "0d1609c2c8", "GB", "MemAvailable", "CPUs", "Load average"):
+        assert banned not in html, banned
+    assert "Disk, system" in html and "disk_data" in html
