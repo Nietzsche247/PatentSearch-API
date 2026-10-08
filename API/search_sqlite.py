@@ -1160,7 +1160,21 @@ class LapseSQLiteSearch:
                     sql = f"{ref.sql} {op}= ? AND ({ref.sql} {op} ? OR ({sql}))"
             params.extend(local)
             return f"({sql})"
+        # A later key holds NULLs (or a cursor value is missing): the OR expansion. When the FIRST key holds no
+        # NULL and has a cursor value, every row of the expansion has k1 >= v1 (asc; <= for desc), so that range
+        # is written in front as its own term and the expansion's column references carry SQLite's unary plus,
+        # which keeps them from driving an index: the planner walks the first key's index from the cursor and
+        # sorts within equal first keys, instead of a MULTI-INDEX OR over every row past the cursor and a sort
+        # of all of them (PatentRef 1.6: the ref_after_cursor example on 102M claims, 33 s before, see the test).
+        lead = ""
+        first, first_order = sort_spec[0]
+        if nullable is not None and not nullable.get(first.column) and after[0] is not None:
+            lead_v = first.value(after[0])
+        else:
+            lead_v = None
+        col = (lambda r: f"+{r.sql}") if lead_v is not None else (lambda r: r.sql)
         ors = []
+        expansion_params = []
         for i, (ref, order) in enumerate(sort_spec):
             if i >= len(after):
                 break
@@ -1168,19 +1182,25 @@ class LapseSQLiteSearch:
             for j, (ref_j, _) in enumerate(sort_spec[:i]):
                 v = after[j]
                 if v is None:
-                    ands.append(f"{ref_j.sql} IS NULL")
+                    ands.append(f"{col(ref_j)} IS NULL")
                 else:
                     local.append(ref_j.value(v))
-                    ands.append(f"{ref_j.sql} = ?")
+                    ands.append(f"{col(ref_j)} = ?")
             v = after[i]
             if v is None:
                 continue  # nothing sorts after a missing value within this key
             local.append(ref.value(v))
             op = ">" if order == "asc" else "<"
-            ands.append(f"({ref.sql} {op} ? OR {ref.sql} IS NULL)")
+            ands.append(f"({col(ref)} {op} ? OR {col(ref)} IS NULL)")
             ors.append("(" + " AND ".join(ands) + ")")
-            params.extend(local)
-        return "(" + " OR ".join(ors) + ")" if ors else "0"
+            expansion_params.extend(local)
+        if not ors:
+            return "0"
+        if lead_v is not None:
+            params.append(lead_v)
+            lead = f"{first.sql} {'>=' if first_order == 'asc' else '<='} ? AND "
+        params.extend(expansion_params)
+        return f"({lead}(" + " OR ".join(ors) + "))"
 
     # ---- _source filtering
     @staticmethod

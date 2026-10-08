@@ -312,3 +312,38 @@ def test_health_names_the_text_version_and_501_without_the_file(client, user_key
     # the patents index is untouched by the text file either way
     r = get(client, key, "/api/v1/patent/", {"patent_id": "10000364"})
     assert r.status_code == 200
+
+
+def test_after_cursor_over_a_nullable_second_key_walks_the_same_rows(text_env):
+    """ES search_after with missing values last, through the searcher: claims sorted patent_id asc, claim_sequence desc,
+    where claim_sequence holds NULLs (the unnumbered claims of 11000000). Pages of 1, 2 and 3 joined equal the one-page
+    answer, and the cursor SQL leads with a range on patent_id and keeps the OR expansion off the indexes (unary plus),
+    which is what took the ref_after_cursor example from 33 s to milliseconds on 102M claims."""
+    s = LapseSQLiteSearch.from_django_settings()
+    q = {"range": {"patent_id": {"gte": "11000000"}}}
+    sort = [{"patent_id": {"order": "asc"}}, {"claim_sequence": {"order": "desc"}}]
+    full = s.search("g_claims", q, ["patent_id", "claim_sequence"], 100, None, sort)["hits"]["hits"]
+    want = [(h["_source"]["patent_id"], h["_source"]["claim_sequence"]) for h in full]
+    assert want == [("11000000", None), ("11000000", None), ("12050000", 1), ("12050000", 0), ("12050006", 2),
+                    ("12050006", 1), ("12050006", 0), ("12050007", 0)]
+    for size in (2, 3):
+        got, after = [], None
+        for _ in range(10):
+            hits = s.search("g_claims", q, ["patent_id", "claim_sequence"], size, after, sort)["hits"]["hits"]
+            if not hits:
+                break
+            got += [(h["_source"]["patent_id"], h["_source"]["claim_sequence"]) for h in hits]
+            after = hits[-1]["sort"]
+        assert got == want, (size, got)
+    import os
+    log = str(_TMP / "sql_after.jsonl")
+    import API.search_sqlite as S
+    old = S.SQL_LOG
+    S.SQL_LOG = log
+    try:
+        s.search("g_claims", q, ["patent_id"], 2, ["12050006", 2], sort)
+    finally:
+        S.SQL_LOG = old
+    sql = json.loads(open(log).read().splitlines()[-1])["sql"]
+    assert 'm."patent_id" >= ? AND (((+m."patent_id" > ? OR +m."patent_id" IS NULL)) OR (+m."patent_id" = ? AND' in sql, sql
+    os.remove(log)
