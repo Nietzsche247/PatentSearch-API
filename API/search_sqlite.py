@@ -230,6 +230,14 @@ class IndexMeta:
                 self.nested[path] = t
                 self.child_columns[path] = [r[1] for r in con.execute(f'PRAGMA table_info("{t}")')
                                             if r[1] not in ("_pid", "_ord")]
+        # virtual nested groups (PatentRef 2.9): served from the attached catalog, not from a child table;
+        # they appear in f like any group and are refused in q and s (Translator.q_nested, _sort_spec)
+        self.virtual = {}
+        if idx == "patents":
+            from API.lapse_group import LAPSE_FIELDS, LAPSE_PATH
+
+            self.virtual[LAPSE_PATH] = list(LAPSE_FIELDS)
+            self.child_columns[LAPSE_PATH] = list(LAPSE_FIELDS)
         self.fts = {}  # table -> set(columns)
         self.trigram = {}  # table -> set(columns) of fts_trgm_<table> (substring prefilter, PatentRef 2.10)
         for t in tables:
@@ -467,6 +475,10 @@ class Translator:
     def q_nested(self, body, ctx):
         alias, path = ctx
         npath = body.get("path")
+        if npath in self.meta.virtual:
+            from API.lapse_errors import LapseBadRequest
+
+            raise LapseBadRequest(f"Invalid field: the '{npath}' group is returned with f only; it cannot be queried or sorted in this version")
         child = self.meta.nested.get(npath)
         if child is None or path is not None:
             self._p = None
@@ -587,7 +599,7 @@ class Translator:
     def q_range(self, body, ctx):
         field, spec = self.one(body, "range")
         if not isinstance(spec, dict):
-            raise es_error("parsing_exception", f"[range] query malformed, no start_object after query name")
+            raise es_error("parsing_exception", "[range] query malformed, no start_object after query name")
         f = self.resolve(field, ctx)
         if f is None:
             return "0"
@@ -832,6 +844,10 @@ class LapseSQLiteSearch:
                  count_cache_min_ms=20.0, request_budget=None):
         self.path = path
         self.real = os.path.realpath(path)
+        # the Lapse catalog (PatentRef 2.9): resolved once per request like the snapshot, attached read-only
+        from API.lapse_group import catalog_real
+
+        self.catalog = catalog_real()
         self.timeout = timeout
         # one instance serves one request (page then count): the budget caps the two together (gate 5.6)
         self.budget = float(request_budget) if request_budget else float(timeout)
@@ -853,7 +869,7 @@ class LapseSQLiteSearch:
 
     def connection(self):
         con = getattr(self._local, "con", None)
-        if con is None or getattr(self._local, "real", None) != self.real:
+        if con is None or getattr(self._local, "real", None) != self.real or getattr(self._local, "catalog_real", None) != self.catalog:
             if con is not None:
                 try:
                     con.close()
@@ -872,9 +888,17 @@ class LapseSQLiteSearch:
             con.create_function("lapse_fts_match", 2, _fts_match, deterministic=True)
             con.create_function("lapse_tok_range", 5, _tok_range, deterministic=True)
             con.create_function("lapse_tok_wild", 2, _tok_wild, deterministic=True)
-            self._local.con, self._local.real = con, self.real
+            from API.lapse_group import attach
+
+            self._local.cat = attach(con, self.catalog)  # None when no catalog is configured or it cannot be opened
+            self._local.con, self._local.real, self._local.catalog_real = con, self.real, self.catalog
             self._local.data_version = read_data_version(con, self.real)
         return con
+
+    def catalog_facts(self):
+        """The attached catalog's facts (data_version, as_of, fee_rule, columns) or None."""
+        self.connection()
+        return getattr(self._local, "cat", None)
 
     def data_version(self):
         self.connection()
@@ -992,6 +1016,10 @@ class LapseSQLiteSearch:
                 raise es_error("parsing_exception", f"[order] unknown value [{order}]")
             keyword = field.endswith(".keyword")
             name = field[:-8] if keyword else field
+            if name in meta.virtual or name.split(".", 1)[0] in meta.virtual:
+                from API.lapse_errors import LapseBadRequest
+
+                raise LapseBadRequest(f"Invalid field: the '{name.split('.', 1)[0]}' group is returned with f only; it cannot be queried or sorted in this version")
             if name not in meta.columns or (keyword and not meta.type_of(None, name)[1]):
                 # ES: No mapping found for [x] in order to sort on (query_shard_exception, surfaced as 500)
                 raise es_error("query_shard_exception", f"No mapping found for [{field}] in order to sort on")
@@ -1167,11 +1195,21 @@ class LapseSQLiteSearch:
             by_id = {d["_id"]: d["_source"] for d in docs}
             marks = ",".join("?" * len(ids))
             for path, cols in nested.items():
+                if path in meta.virtual:
+                    continue
                 child = meta.nested[path]
                 q = (f'SELECT "_pid", {", ".join(chr(34) + c + chr(34) for c in cols)} FROM "{child}" '
                      f'WHERE "_pid" IN ({marks}) ORDER BY "_pid", "_ord"')
                 for rec in con.execute(q, ids):
                     obj = {c: self._convert(meta, path, c, v) for c, v in zip(cols, rec[1:])}
                     by_id[rec[0]].setdefault(path, []).append(obj)
+            for path, cols in nested.items():
+                if path not in meta.virtual:
+                    continue
+                from API.lapse_group import groups_for
+
+                for pid, objs in groups_for(con, self.catalog_facts(), ids).items():
+                    if pid in by_id:
+                        by_id[pid][path] = [{c: o.get(c) for c in cols} for o in objs]
         return {"took": 0, "timed_out": False,
                 "hits": {"total": {"value": len(docs), "relation": "eq"}, "max_score": None, "hits": docs}}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patentref.io/schemas/check_patent_status.schema.json",
+  "title": "check_patent_status",
+  "description": "The one-call verdict record (PatentRef checklist 2.12, docs/SCAFFOLD.md 5.2): record facts with basis fields and an as-of date, never a legal conclusion. Served by GET /api/v1/lapse/status/<patent_id>/ (alias /api/v1/status/<patent_id>/) and by the MCP tool check_patent_status.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["patent_id", "status", "basis", "reinstatement_possible", "reinstatement_basis", "as_of", "data_version", "permalink", "plain", "next_steps"],
+  "properties": {
+    "patent_id": {"type": "string", "pattern": "^(RE|PP|D|H|T|AI|X)?[0-9]{1,8}$"},
+    "status": {"type": "string", "enum": ["active", "expired_term", "expired_fee_nonpayment", "withdrawn", "unknown"]},
+    "basis": {"type": "array", "items": {"type": "string", "pattern": "^(term_20y|term_17y|term_14y|term_15y|terminal_disclaimer|pta_days:[0-9]+|fee_lapse:[0-9]{4}-[0-9]{2}-[0-9]{2}|reinstated:[0-9]{4}-[0-9]{2}-[0-9]{2})$"}},
+    "reinstatement_possible": {"enum": [true, false, "unknown"]},
+    "reinstatement_basis": {"type": "string", "minLength": 1},
+    "expiry_date_estimated": {"type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "lapse_date": {"type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "reinstated_date": {"type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "as_of": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "data_version": {"type": "string", "pattern": "^[0-9]{8}\\.[0-9]+$"},
+    "catalog_data_version": {"type": ["string", "null"]},
+    "permalink": {"type": "string", "pattern": "^https?://[^/]+/p/[A-Z0-9]+\\?v=[0-9]{8}\\.[0-9]+$"},
+    "plain": {"type": "string", "minLength": 20},
+    "superseded": {
+      "type": "object", "additionalProperties": false,
+      "required": ["requested", "current", "note"],
+      "properties": {"requested": {"type": "string"}, "current": {"type": "string"}, "note": {"type": "string"}, "snapshot_archive": {"type": ["string", "null"]}}
+    },
+    "next_steps": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["kind", "audience"],
+        "properties": {
+          "kind": {"type": "string"}, "url": {"type": "string", "pattern": "^https?://"}, "tool": {"type": "string"},
+          "audience": {"type": "string", "enum": ["human", "agent"]}
+        },
+        "anyOf": [{"required": ["url"]}, {"required": ["tool"]}]
+      }
+    }
+  },
+  "not": {"anyOf": [{"required": ["confidence"]}, {"required": ["free_to_use"]}, {"required": ["too_good_kinds"]}, {"required": ["crackpot"]}]}
+}

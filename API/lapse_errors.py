@@ -60,6 +60,21 @@ class LapseTimeout(APIException):
         _pending.status = 500
 
 
+class LapseBadRequest(APIException):
+    """A 400 in the upstream shape (`{"error": true}`, X-Status-Reason, X-Status-Reason-Code: ERR_Q) raised from the
+    SQLite backend, where upstream's own validation classes are out of reach: q or s on a virtual group such as
+    `lapse` (PatentRef 2.9), which is returned with f only."""
+
+    status_code = 400
+    default_code = "bad_request"
+
+    def __init__(self, reason):
+        super().__init__(detail={"error": True})
+        self.reason = reason
+        _pending.headers = {"X-Status-Reason": reason, "X-Status-Reason-Code": "ERR_Q"}
+        _pending.status = 400
+
+
 BODY_501 = b'{"error":true}'
 
 

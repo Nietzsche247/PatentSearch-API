@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en" data-theme="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>US {{ pid }} record | PatentRef</title>
+  <meta name="description" content="The USPTO record for US {{ pid }} as of {{ as_of }}: status, basis and maintenance-fee facts (data version {{ data_version }}).">
+  <link rel="canonical" href="{{ rec.permalink }}">
+  <style>
+    :root {
+      --bg: #ffffff; --surface: #f6f7f9; --fg: #16181d; --muted: #555b66; --border: #d8dce3;
+      --accent: #1f5fbf; --accent-fg: #ffffff; --warn-bg: #fff4d6; --warn-fg: #5c4300; --focus: #1f5fbf;
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --t-sm: 14px; --t-base: 16px; --t-lg: 20px; --t-xl: 28px; --lh: 1.5;
+      --s-1: 4px; --s-2: 8px; --s-3: 16px; --s-4: 24px; --s-5: 40px;
+      --radius: 4px; --maxw: 72ch; color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
+        --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0; color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
+      --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0; color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--fg); font: var(--t-base)/var(--lh) var(--font); margin: 0; }
+    .pr-header, .pr-main, .pr-footer { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--s-3); }
+    .pr-header { padding-top: var(--s-4); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: baseline; }
+    .pr-name { font-size: var(--t-lg); font-weight: 600; color: var(--fg); text-decoration: none; }
+    .pr-asof { margin: 0; color: var(--muted); font-size: var(--t-sm); }
+    .pr-main { padding-top: var(--s-4); padding-bottom: var(--s-5); }
+    .pr-footer { border-top: 1px solid var(--border); padding-top: var(--s-3); padding-bottom: var(--s-4); color: var(--muted); font-size: var(--t-sm); }
+    .pr-footer p { margin: 0 0 var(--s-2); }
+    h1 { font-size: var(--t-xl); margin: 0 0 var(--s-2); }
+    h2 { font-size: var(--t-lg); margin: var(--s-4) 0 var(--s-2); }
+    .banner { background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); }
+    .status { font-size: var(--t-lg); margin: 0 0 var(--s-3); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin-bottom: var(--s-3); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0; }
+    dt { color: var(--muted); font-size: var(--t-sm); }
+    dd { margin: 0; }
+    code, pre { font-family: var(--mono); font-size: var(--t-sm); }
+    pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); overflow-x: auto; }
+    a { color: var(--accent); }
+    a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .user { border-left: 3px solid var(--border); padding-left: var(--s-3); color: var(--muted); }
+    @media (max-width: 420px) { dl { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="pr-header">
+    <a class="pr-name" href="/api/v1/meta/signup/">PatentRef</a>
+    <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
+  </header>
+  <main class="pr-main">
+    {% if superseded %}<div class="banner" role="status">You asked for data version {{ superseded.requested }}, which has been superseded. This page shows the current version, {{ superseded.current }}. Older snapshot files are listed in the <a href="/LICENSES.md">license register</a>.</div>{% endif %}
+    <h1>US {{ pid }}</h1>
+    {% if title %}<p class="user"><span data-user-content="true">{{ title }}</span></p>{% endif %}
+    <p class="status">{{ rec.plain }}</p>
+    <div class="card">
+      <dl>
+        <dt>Status</dt><dd><code>{{ rec.status }}</code></dd>
+        <dt>Basis</dt><dd>{% for b in rec.basis %}<code>{{ b }}</code> {% empty %}none{% endfor %}{% if basis_text %} ({{ basis_text }}){% endif %}</dd>
+        <dt>Term end estimate</dt><dd>{{ rec.expiry_date_estimated|default:"not derivable from this record" }}</dd>
+        <dt>Fee lapse</dt><dd>{{ rec.lapse_date|default:"none on record" }}</dd>
+        <dt>Reinstatement on record</dt><dd>{{ rec.reinstated_date|default:"none" }}</dd>
+        <dt>Reinstatement possible</dt><dd><code>{{ rec.reinstatement_possible }}</code>: {{ rec.reinstatement_basis }}</dd>
+        <dt>As of</dt><dd>{{ rec.as_of }}</dd>
+        <dt>Data version</dt><dd>{{ rec.data_version }}{% if rec.catalog_data_version and rec.catalog_data_version != rec.data_version %} (fee data {{ rec.catalog_data_version }}){% endif %}</dd>
+      </dl>
+    </div>
+    <p>A petition under 37 CFR 1.378 has no fixed time limit; the record does not show whether one would be granted.</p>
+    <h2>Links</h2>
+    <ul>
+      <li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (key required)</li>
+      <li><a href="/api/v1/lapse/status/{{ pid }}/">This verdict as JSON</a> (key required)</li>
+      <li><a href="https://patentcenter.uspto.gov/applications?patentNumber={{ pid }}">USPTO Patent Center</a></li>
+      <li><a href="{{ rec.permalink }}">Permalink to this version</a></li>
+    </ul>
+    <h2>Record</h2>
+    <pre>{{ status_json }}</pre>
+  </main>
+  <footer class="pr-footer">
+    {% for line in footer_lines %}<p>{{ line }}</p>{% endfor %}<p><a href="/LICENSES.md">License register</a> <a href="/llms.txt">llms.txt</a> <a href="/openapi.json">OpenAPI</a> <a href="/api/v1/meta/">Build facts</a></p>
+    <p>This page states what the USPTO record shows as of the date above. It is not advice.</p>
+  </footer>
+</body>
+</html>

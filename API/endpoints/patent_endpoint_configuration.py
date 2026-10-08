@@ -188,6 +188,26 @@ class FiguresNestedSerializer(PVAPIDocumentSerializer):
     num_sheets = generate_serializer(serializers.IntegerField)
 
 
+class LapseNestedSerializer(PVAPIDocumentSerializer):
+    """PatentRef addition (checklist 2.9, docs/SCAFFOLD.md 5.1): the `lapse` group, returned only when named in f.
+    One object per patent, as a one-element list like every nested group. Values come from API/lapse_group.py."""
+
+    expiry_status = generate_serializer(serializers.CharField, max_length=32)
+    expiry_date_estimated = generate_serializer(serializers.DateField)
+    expiry_basis = generate_serializer(serializers.ListField, child=serializers.CharField(max_length=32))
+    reinstatement_possible = generate_serializer(serializers.JSONField)  # true | false | "unknown"
+    fee_status = generate_serializer(serializers.CharField, max_length=16)
+    lapse_date = generate_serializer(serializers.DateField)
+    reinstated_date = generate_serializer(serializers.DateField)
+    prior = generate_serializer(serializers.FloatField)
+    prior_pct = generate_serializer(serializers.FloatField)
+    fwd_early = generate_serializer(serializers.IntegerField)
+    fwd_late = generate_serializer(serializers.IntegerField)
+    sleeper_flag = generate_serializer(serializers.BooleanField)
+    as_of = generate_serializer(serializers.DateField)
+    data_version = generate_serializer(serializers.CharField, max_length=32)
+
+
 class PatentSerializer(PVAPIDocumentSerializer):
     # standard fields
     patent_id = generate_serializer(serializers.CharField, max_length=32)
@@ -276,6 +296,8 @@ class PatentSerializer(PVAPIDocumentSerializer):
         serializers.ListField, child=USPCNestedSerializer()
     )
     wipo = generate_serializer(serializers.ListField, child=WIPONestedSerializer())
+    # PatentRef addition (2.9): absent unless named in f; never in the default f
+    lapse = generate_serializer(serializers.ListField, child=LapseNestedSerializer(), required=False)
 
 
 class PatentResponseDocument(APIResponseDocument):
@@ -308,6 +330,7 @@ class PatentEndpoint:
             "us_term_of_grant": "us_term_of_grant",
             "uspc_at_issue": "uspc_at_issue",
             "wipo": "wipo",
+            "lapse": "lapse",  # PatentRef 2.9: f only; q and s on it answer 400 ERR_Q
         }
         self.operator_translations = {
             "assignees.assignee_organization": {"_eq": "_text_all"},
