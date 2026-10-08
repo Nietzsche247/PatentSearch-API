@@ -308,3 +308,14 @@ def test_wording_templates_and_banned_check():
     assert lapse_wording.check_banned("") == []
     for t in lapse_wording.TEMPLATES.values():
         assert lapse_wording.check_banned(t) == [] and "{as_of}" in t and "{v}" in t
+
+
+def test_similar_term_selection_uses_document_frequencies(lapse_env):
+    from API import lapse_views
+    from API.search_sqlite import LapseSQLiteSearch
+
+    con = LapseSQLiteSearch.from_django_settings().connection()
+    assert con.execute("SELECT name FROM temp.sqlite_master WHERE name = 'fts_patents_vocab'").fetchone()
+    # 'lens' is in one title, 'a' in several, 'zzz' in none: known tokens only, rarest first, at least three kept
+    assert lapse_views.select_terms(con, ["a", "lens", "zzz", "web", "composition"]) == ["composition", "lens", "web"]
+    assert lapse_views.select_terms(con, []) == []

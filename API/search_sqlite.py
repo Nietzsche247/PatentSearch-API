@@ -879,14 +879,16 @@ class LapseSQLiteSearch:
             uri = "file:" + self.real.replace("\\", "/") + "?mode=ro"
             con = sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=self.timeout)
             con.execute("PRAGMA case_sensitive_like=ON")
-            try:  # document frequencies for /api/v1/lapse/similar (a temp virtual table; main stays read-only)
+            con.execute("PRAGMA temp_store=MEMORY")  # the IN sets of nested groups never touch a temp file
+            try:
+                # document frequencies for /api/v1/lapse/similar: a temp virtual table (main stays read-only),
+                # created after temp_store is set (changing temp_store drops every temp table) and before query_only
                 con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.fts_patents_vocab USING fts5vocab('main', 'fts_patents', 'row')")
             except sqlite3.Error:
                 pass
             con.execute("PRAGMA query_only=ON")
             con.execute(f"PRAGMA cache_size=-{self.cache_kb}")
             con.execute(f"PRAGMA mmap_size={self.mmap_bytes}")
-            con.execute("PRAGMA temp_store=MEMORY")  # the IN sets of nested groups never touch a temp file
             con.create_function("lapse_lower", 1, _lapse_lower, deterministic=True)
             con.create_function("lapse_like_cs", 2, _like_cs, deterministic=True)
             con.create_function("lapse_fts_match", 2, _fts_match, deterministic=True)
