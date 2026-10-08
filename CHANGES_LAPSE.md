@@ -529,9 +529,11 @@ column to `patents__inventors`, `patents__assignees` and `patents__attorneys` wi
 
 - `API/endpoints/patent_endpoint_configuration.py`: `disambiguated` (BooleanField, not required) on the inventor,
   assignee and attorney nested serializers.
-- `API/search_sqlite.py` (`search`, the nested fill): the flag is shown whenever it is false; when true only if `f`
-  names `<group>.disambiguated`, so a whole-group request on PatentsView rows answers what it did before the column
-  existed. `q` filters on it like any boolean (`{"inventors.disambiguated": false}`).
+- `API/search_sqlite.py` (`search`, the nested fill): the flag comes with a whole group (`f` names `inventors`) when
+  it is false, and whenever `f` names `<group>.disambiguated` (true or false); a request for other subfields gets
+  those alone, and a whole-group request on PatentsView rows answers what it did before the column existed. `q`
+  filters on it like any boolean (`{"inventors.disambiguated": false}`). Checked on the 2026 overlay (286,939 grants)
+  with this serializer: contract 31/31 and extra checks 19/19.
 - `lapse_accounts/public.py`: `/api/v1/meta/` has `weekly_grants` (PatentsView through, weekly grants through, weeks,
   patents, the note on names) when the served file carries the overlay; null otherwise.
 - `lapse_accounts/tests/test_weekly_grants.py` (4 tests): the whole-group shape on both kinds of rows, the named flag,
