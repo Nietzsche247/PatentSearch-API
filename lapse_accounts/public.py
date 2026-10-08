@@ -177,6 +177,47 @@ def _weekly_grants(rows):
                      "disambiguated: false, until a PatentsView release covers them"}
 
 
+def _version_key(v):
+    m = re.fullmatch(r"([0-9]{8})\.([0-9]+)", str(v or ""))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def served_versions(api_dir):
+    """Every data_version the swap journal says was put in service (a swap or a rollback to it)."""
+    out = set()
+    try:
+        with open(os.path.join(api_dir, "swap_journal.jsonl"), encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    j = json.loads(line)
+                except ValueError:
+                    continue
+                if j.get("op") in ("swap", "rollback") and j.get("data_version"):
+                    out.add(str(j["data_version"]))
+    except OSError:
+        pass
+    return out
+
+
+def superseded_versions(builds, version, served=()):
+    """The READY builds other than the one in service, except a newer build that was never served: that one is
+    the next build waiting for its swap, not a superseded one (gate 2.7: build 20261006.4 was listed as
+    superseded while 20261006.2 served, so `?v=20261006.4` would have shown the superseded banner before it
+    ever served). A newer build the journal shows in service once (a swap later rolled back) stays superseded.
+    When either version is not of the form YYYYMMDD.N every other READY build counts, as before."""
+    cur = _version_key(version)
+    out = []
+    for b in builds or []:
+        v = b.get("data_version")
+        if b.get("status") not in ("READY", "READY_WITH_FLAGS") or not v or v == version:
+            continue
+        k = _version_key(v)
+        if cur is not None and k is not None and k > cur and v not in served:
+            continue
+        out.append(v)
+    return sorted(out)
+
+
 def meta_facts():
     p = getattr(settings, "LAPSE_STATUS_PATHS", {})
     api_dir = p.get("api_dir", "/data/api")
@@ -189,8 +230,7 @@ def meta_facts():
     versions = _read_json(f"{lapse_data}/refresh_versions.json") or {"builds": []}
     release = side.get("release") or rows.get("release") or (version.split(".")[0] if version[:8].isdigit() else "")
     as_of = f"{release[:4]}-{release[4:6]}-{release[6:8]}" if len(release) == 8 and release.isdigit() else None
-    superseded = [b.get("data_version") for b in versions.get("builds", [])
-                  if b.get("status") in ("READY", "READY_WITH_FLAGS") and b.get("data_version") and b.get("data_version") != version]
+    superseded = superseded_versions(versions.get("builds", []), version, served_versions(api_dir))
     delta = []
     for row in (side.get("counts") or {}).get("api", []):
         try:

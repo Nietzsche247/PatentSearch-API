@@ -115,6 +115,29 @@ def test_meta_index_reads_sidecars(client, public_dir, tmp_path, monkeypatch):
     assert body["delta"][1]["added"] is None and body["fee"]["next"]["lapsed"] == 3075179
 
 
+def test_superseded_versions_leave_out_the_next_build(tmp_path):
+    from lapse_accounts.public import served_versions, superseded_versions
+
+    builds = [{"data_version": "20260929.1", "status": "READY"}, {"data_version": "20261006.1", "status": "READY"},
+              {"data_version": "20261006.2", "status": "READY"}, {"data_version": "20261006.3", "status": "FAILED"},
+              {"data_version": "20261006.4", "status": "READY_WITH_FLAGS"}]
+    # gate 2.7: 20261006.4 built and waiting for its swap was listed as superseded while 20261006.2 served
+    assert superseded_versions(builds, "20261006.2") == ["20260929.1", "20261006.1"]
+    # once it serves, the one before it is superseded
+    assert superseded_versions(builds, "20261006.4") == ["20260929.1", "20261006.1", "20261006.2"]
+    # a newer build that served once and was rolled back stays superseded (its permalinks keep the banner)
+    journal = tmp_path / "swap_journal.jsonl"
+    journal.write_text("\n".join(json.dumps(j) for j in [
+        {"op": "swap", "data_version": "20261006.4"}, {"op": "rollback", "data_version": "20261006.2"},
+        {"op": "catalog_swap", "data_version": "20991231.1"}]) + "\nnot json\n", encoding="utf-8")
+    served = served_versions(str(tmp_path))
+    assert served == {"20261006.4", "20261006.2"}
+    assert superseded_versions(builds, "20261006.2", served) == ["20260929.1", "20261006.1", "20261006.4"]
+    # a version not of the form YYYYMMDD.N: every other READY build, as before
+    assert superseded_versions(builds, "full2") == ["20260929.1", "20261006.1", "20261006.2", "20261006.4"]
+    assert served_versions(str(tmp_path / "missing")) == set()
+
+
 def _get(client, path, key=None, accept=None, **qs):
     headers = {}
     if key:
