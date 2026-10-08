@@ -187,8 +187,10 @@ def load(out, bulk, desc_from, workers, only=None, log_fn=log):
     next_rowid = {t: 1 for t in tables}
     counts = {t: 0 for t in tables}
     sources = []
-    dups = {t: 0 for t in tables}
+    dups = {t: 0 for t in tables}       # identical copies of a row already in the table: dropped
+    renamed = {t: 0 for t in tables}    # same key, different text: kept under the key plus "~2", "~3", ...
     dup_examples = {t: [] for t in tables}
+    ti = {t: [c for c, _ in TEXT_SCHEMA[t]].index(TEXT_COLUMN[t]) for t in tables}
     per_file = {}  # file name -> [inserted, duplicates]
     ctx = mp.get_context("fork")
     q = ctx.Queue(maxsize=max(2, workers) * 2)
@@ -230,14 +232,31 @@ def load(out, bulk, desc_from, workers, only=None, log_fn=log):
             if inserted == len(recs):
                 out.executemany(fts[t], [(rid + k, text) for k, (_, text) in enumerate(buf) if text])
             else:
-                # some uuids were already in the table: index only the rows that went in
+                # some uuids were already in the table (the same row twice in the source, or two rows that share a
+                # key): an identical copy is dropped; a row with a different text is kept under the key plus "~n",
+                # in the rowid its ignored insert left free (2026-10-08: 1,327,958 of the 1,328,037 collisions of
+                # the 2026-04-10 release were identical copies; 23 within a file and up to 56 across files were not)
                 present = {r[0] for r in out.execute(f'SELECT rowid FROM "{t}" WHERE rowid BETWEEN ? AND ?',
                                                      (rid, rid + len(recs) - 1))}
+                n_dup = 0
+                for k, (row, text) in enumerate(buf):
+                    if rid + k in present:
+                        continue
+                    old = out.execute(f'SELECT "{TEXT_COLUMN[t]}" FROM "{t}" WHERE uuid=?', (row[0],)).fetchone()
+                    if old is not None and (zlib.decompress(old[0]).decode("utf-8") if old[0] else None) == text:
+                        n_dup += 1
+                        if len(dup_examples[t]) < 5:
+                            dup_examples[t].append(f"{row[0]} ({name})")
+                        continue
+                    n = 2
+                    while out.execute(f'SELECT 1 FROM "{t}" WHERE uuid=?', (f"{row[0]}~{n}",)).fetchone():
+                        n += 1
+                    out.execute(ins[t], (rid + k, f"{row[0]}~{n}", *row[1:]))
+                    present.add(rid + k)
+                    renamed[t] += 1
+                inserted = len(recs) - n_dup
                 out.executemany(fts[t], [(rid + k, text) for k, (_, text) in enumerate(buf) if text and rid + k in present])
-                for k, (row, _) in enumerate(buf):
-                    if rid + k not in present and len(dup_examples[t]) < 5:
-                        dup_examples[t].append(f"{row[0]} ({name})")
-                dups[t] += len(recs) - inserted
+                dups[t] += n_dup
             next_rowid[t] = rid + len(recs)
             counts[t] += inserted
             f = per_file.setdefault(name, [0, 0])
@@ -249,7 +268,7 @@ def load(out, bulk, desc_from, workers, only=None, log_fn=log):
             ins_n, dup_n = per_file.get(name, [0, 0])
             sources.append({"file": name, "table": t, "rows": kept, "orphans": orphans, "inserted": ins_n, "duplicates": dup_n})
             log_fn(f"  {name}: {kept:,} rows, {orphans:,} orphans dropped, {ins_n:,} inserted"
-                   + (f", {dup_n:,} duplicate uuids dropped" if dup_n else "") + f" ({files_done}/{len(jobs)}, {time.time() - t0:.0f}s)")
+                   + (f", {dup_n:,} identical duplicates dropped" if dup_n else "") + f" ({files_done}/{len(jobs)}, {time.time() - t0:.0f}s)")
             if ins_n + dup_n != kept:
                 raise RuntimeError(f"{name}: the parser kept {kept:,} rows but the writer saw {ins_n + dup_n:,}")
             out.commit()
@@ -262,9 +281,10 @@ def load(out, bulk, desc_from, workers, only=None, log_fn=log):
         p.join()
     out.commit()
     for t in tables:
-        if dups[t]:
-            log_fn(f"  {t}: {dups[t]:,} duplicate uuids dropped, first: {', '.join(dup_examples[t])}")
-    return counts, sources, dups
+        if dups[t] or renamed[t]:
+            log_fn(f"  {t}: {dups[t]:,} identical duplicates dropped (first: {', '.join(dup_examples[t])}); "
+                   f"{renamed[t]:,} rows sharing a key with a different text kept under key~n")
+    return counts, sources, dups, renamed
 
 
 def make_indexes(out, tables):
@@ -333,7 +353,7 @@ def main():
     out.execute("pragma cache_size=-4000000")
     out.execute("pragma temp_store=file")
     create_schema(out)
-    counts, sources, dups = load(out, a.bulk, a.desc_from, a.workers, tables)
+    counts, sources, dups, renamed = load(out, a.bulk, a.desc_from, a.workers, tables)
     for t in tables:  # the table holds exactly what the writer counted (a silent insert failure stops the build)
         n = out.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0]
         if n != counts[t]:
@@ -347,7 +367,7 @@ def main():
                     [("built_at", time.strftime("%Y-%m-%d %H:%M:%S")), ("kind", "text"), ("index_set", INDEX_SET),
                      ("desc_from", str(a.desc_from)), ("zlib_level", str(ZLEVEL)),
                      ("fts_detail", json.dumps({t: FTS_DETAIL[t] for t in tables})),
-                     ("row_counts", json.dumps(counts)), ("duplicates", json.dumps(dups)), ("sources", json.dumps(sources))])
+                     ("row_counts", json.dumps(counts)), ("duplicates", json.dumps(dups)), ("renamed", json.dumps(renamed)), ("sources", json.dumps(sources))])
     out.commit()
     out.close()
     if os.path.exists(a.out):

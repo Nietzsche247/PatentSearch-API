@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BUILD_TEXT = ROOT / "lapse_tools" / "build_text.py"
 ESDL = _TMP / "esdl"
 
-PATENTS = ["12050000", "12050006", "12050007", "D345393"]
+PATENTS = ["11000000", "12050000", "12050006", "12050007", "D345393"]
 CLAIMS = [
     # patent_id, claim_sequence, claim_text, dependent, claim_number, exemplary
     ("12050000", 0, "A lithium battery comprising a solid electrolyte.", "", "1", 1),
@@ -64,7 +64,10 @@ def make_bulk(d):
     d.mkdir(parents=True, exist_ok=True)
     tsv_zip(d / "g_patent.tsv.zip", ["patent_id", "patent_type", "patent_date", "patent_title", "wipo_kind", "num_claims", "withdrawn", "filename"],
             [(p, "utility", "2024-07-16", "t", "B2", 2, 0, "x") for p in PATENTS])
-    tsv_zip(d / "g_claims_2024.tsv.zip", ["patent_id", "claim_sequence", "claim_text", "dependent", "claim_number", "exemplary"], CLAIMS[:4] + CLAIMS[6:])
+    # two claims without a sequence (like reissue RE31177 in 1983): one key, two texts, both must stay
+    tsv_zip(d / "g_claims_2024.tsv.zip", ["patent_id", "claim_sequence", "claim_text", "dependent", "claim_number", "exemplary"],
+            CLAIMS[:4] + CLAIMS[6:] + [("11000000", "", "An unnumbered claim to a kettle.", "", "", ""),
+                                       ("11000000", "", "An unnumbered claim to a teapot.", "", "", "")])
     # the same patent in two year files (a duplicate uuid) FIRST in its batch, then rows that must still load
     tsv_zip(d / "g_claims_2025.tsv.zip", ["patent_id", "claim_sequence", "claim_text", "dependent", "claim_number", "exemplary"],
             [CLAIMS[0]] + CLAIMS[4:6])  # same text, so which copy stays (parser race) changes no answer
@@ -73,7 +76,7 @@ def make_bulk(d):
     tsv_zip(d / "g_brf_sum_text_2024.tsv.zip", ["patent_id", "summary_text"], SUMS)
     tsv_zip(d / "g_brf_sum_text_2025.tsv.zip", ["patent_id", "summary_text"],
             [("12050000", "zebra duplicate summary"), ("12050007", "A solid lithium cell.")])
-    tsv_zip(d / "g_draw_desc_text_2024.tsv.zip", ["patent_id", "draw_desc_sequence", "draw_desc_text"], DRAWS)
+    tsv_zip(d / "g_draw_desc_text_2024.tsv.zip", ["patent_id", "draw_desc_sequence", "draw_desc_text"], DRAWS + DRAWS[:1])  # a verbatim repeat
 
 
 def make_esdl(d):
@@ -156,9 +159,14 @@ def get(client, key, path, q=None, f=None, s=None, o=None):
 def test_build_layout_counts_compression_and_nulls(text_db):
     con = sqlite3.connect(f"file:{text_db}?mode=ro", uri=True)
     counts = json.loads(con.execute("SELECT v FROM _lapse_build WHERE k='row_counts'").fetchone()[0])
-    assert counts == {"g_claims": 6, "g_brf_sum_texts": 3, "g_detail_desc_texts": 3, "g_draw_desc_texts": 3}
+    assert counts == {"g_claims": 8, "g_brf_sum_texts": 4, "g_detail_desc_texts": 3, "g_draw_desc_texts": 3}
     dups = json.loads(con.execute("SELECT v FROM _lapse_build WHERE k='duplicates'").fetchone()[0])
-    assert dups == {"g_claims": 1, "g_brf_sum_texts": 1, "g_detail_desc_texts": 0, "g_draw_desc_texts": 0}
+    renamed = json.loads(con.execute("SELECT v FROM _lapse_build WHERE k='renamed'").fetchone()[0])
+    # identical copies are dropped; a shared key with a different text is kept as key~2
+    assert dups == {"g_claims": 1, "g_brf_sum_texts": 0, "g_detail_desc_texts": 0, "g_draw_desc_texts": 1}
+    assert renamed == {"g_claims": 1, "g_brf_sum_texts": 1, "g_detail_desc_texts": 0, "g_draw_desc_texts": 0}
+    assert sorted(r[0] for r in con.execute("SELECT uuid FROM g_claims WHERE patent_id='11000000'")) == ["11000000-None", "11000000-None~2"]
+    assert sorted(r[0] for r in con.execute("SELECT uuid FROM g_brf_sum_texts WHERE patent_id='12050000'")) == ["12050000", "12050000~2"]
     # the rows after the duplicate in the same batch went in (the 2026-10-08 defect dropped them)
     assert con.execute("SELECT count(*) FROM g_claims WHERE patent_id='12050006'").fetchone()[0] == 3
     assert con.execute("SELECT count(*) FROM g_brf_sum_texts WHERE patent_id='12050007'").fetchone()[0] == 1
@@ -170,6 +178,8 @@ def test_build_layout_counts_compression_and_nulls(text_db):
         assert fts_ids == tbl_ids, (t, tok, fts_ids, tbl_ids)
     srcs = json.loads(con.execute("SELECT v FROM _lapse_build WHERE k='sources'").fetchone()[0])
     assert sum(x["duplicates"] for x in srcs) == 2 and all(x["inserted"] + x["duplicates"] == x["rows"] for x in srcs)
+    assert {r[0] for r in con.execute("SELECT rowid FROM fts_g_claims WHERE fts_g_claims MATCH 'teapot OR kettle'")} == \
+        {r[0] for r in con.execute("SELECT rowid FROM g_claims WHERE patent_id='11000000'")}
     assert con.execute("SELECT count(*) FROM g_claims WHERE patent_id='99999999'").fetchone()[0] == 0  # orphan dropped
     assert con.execute("SELECT count(*) FROM g_detail_desc_texts WHERE description_length=25").fetchone()[0] == 0  # 2004 skipped
     raw = con.execute("SELECT claim_text FROM g_claims WHERE uuid='12050000-0'").fetchone()[0]
@@ -182,7 +192,7 @@ def test_build_layout_counts_compression_and_nulls(text_db):
     assert "detail=full" in ddl["fts_g_detail_desc_texts"] and "detail=full" in ddl["fts_g_claims"]
     assert "content=''" in ddl["fts_g_claims"]
     nulls = dict(((t, c), h) for t, c, h in con.execute("SELECT tbl, col, has_null FROM _lapse_nulls"))
-    assert nulls[("g_claims", "claim_sequence")] == 0 and nulls[("g_claims", "patent_id")] == 0
+    assert nulls[("g_claims", "claim_sequence")] == 1 and nulls[("g_claims", "patent_id")] == 0  # the unnumbered claims
     assert {r[0] for r in con.execute("SELECT idx FROM _lapse_indices")} == {"g_claims", "g_brf_sum_texts", "g_detail_desc_texts", "g_draw_desc_texts"}
     assert con.execute("SELECT count(*) FROM _lapse_fields WHERE idx='g_claims'").fetchone()[0] == 9
     assert dict(con.execute("SELECT k, v FROM _lapse_build"))["kind"] == "text"
