@@ -86,37 +86,57 @@ def make_esdl(d):
                                                           "draw_desc_sequence": {"type": "integer"}, "patent_zero_prefix": {"type": "keyword"}, "document_date": {"type": "date"}}))
 
 
-@pytest.fixture(scope="module")
-def text_db():
+def _build(name, *extra):
     bulk = _TMP / "text_bulk"
-    make_bulk(bulk)
-    make_esdl(ESDL)
-    out = _TMP / "text_next.db"
+    if not bulk.exists():
+        make_bulk(bulk)
+        make_esdl(ESDL)
+    out = _TMP / name
     r = subprocess.run([sys.executable, str(BUILD_TEXT), "--bulk", str(bulk), "--out", str(out), "--es-data-load", str(ESDL),
-                        "--workers", "2"], capture_output=True, text=True, timeout=600)
+                        "--workers", "2", *extra], capture_output=True, text=True, timeout=600)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "BUILD_DONE" in r.stdout
     return str(out)
 
 
-@pytest.fixture
-def text_env(text_db):
+@pytest.fixture(scope="module")
+def text_db():
+    return _build("text_next.db")
+
+
+@pytest.fixture(scope="module")
+def text_db_none():
+    """The same text with --desc-fts-detail none: the descriptions' index keeps no positions."""
+    return _build("text_none.db", "--desc-fts-detail", "none")
+
+
+def _env(path):
     search = str(_TMP / "lapse_search.db")
     build_search_db(search)
     old = dict(settings.LAPSE_SQLITE)
     old_text = getattr(settings, "LAPSE_TEXT_PATH", None)
     settings.LAPSE_SQLITE["path"] = search
-    settings.LAPSE_TEXT_PATH = text_db
+    settings.LAPSE_TEXT_PATH = path
     LapseSQLiteSearch._local.__dict__.clear()
     LapseSQLiteSearch._meta_cache.clear()
     try:
-        yield text_db
+        yield path
     finally:
         settings.LAPSE_SQLITE.clear()
         settings.LAPSE_SQLITE.update(old)
         settings.LAPSE_TEXT_PATH = old_text
         LapseSQLiteSearch._local.__dict__.clear()
         LapseSQLiteSearch._meta_cache.clear()
+
+
+@pytest.fixture
+def text_env(text_db):
+    yield from _env(text_db)
+
+
+@pytest.fixture
+def text_env_none(text_db_none):
+    yield from _env(text_db_none)
 
 
 def get(client, key, path, q=None, f=None, s=None, o=None):
@@ -142,7 +162,7 @@ def test_build_layout_counts_compression_and_nulls(text_db):
     assert con.execute("SELECT rowid FROM fts_g_claims WHERE fts_g_claims MATCH 'lithium' ORDER BY rowid").fetchall() == \
         con.execute("SELECT rowid FROM g_claims WHERE patent_id IN ('12050000','12050007') AND claim_sequence=0 ORDER BY rowid").fetchall()
     ddl = dict(con.execute("SELECT name, sql FROM sqlite_master WHERE name LIKE 'fts_g_%' AND sql LIKE 'CREATE VIRTUAL%'"))
-    assert "detail=none" in ddl["fts_g_detail_desc_texts"] and "detail=full" in ddl["fts_g_claims"]
+    assert "detail=full" in ddl["fts_g_detail_desc_texts"] and "detail=full" in ddl["fts_g_claims"]
     assert "content=''" in ddl["fts_g_claims"]
     nulls = dict(((t, c), h) for t, c, h in con.execute("SELECT tbl, col, has_null FROM _lapse_nulls"))
     assert nulls[("g_claims", "claim_sequence")] == 0 and nulls[("g_claims", "patent_id")] == 0
@@ -208,7 +228,13 @@ def test_contains_sort_and_filters_on_claims(client, user_key, text_env):
     assert r.status_code == 400  # a text field is not sortable (upstream's validation)
 
 
-def test_descriptions_phrase_through_detail_none_prefilter(client, user_key, text_env):
+@pytest.mark.parametrize("variant", ["full", "none"])
+def test_descriptions_phrase_on_both_index_variants(client, user_key, variant, request):
+    path = request.getfixturevalue("text_env" if variant == "full" else "text_env_none")
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    ddl = con.execute("SELECT sql FROM sqlite_master WHERE name='fts_g_detail_desc_texts'").fetchone()[0]
+    con.close()
+    assert f"detail={variant}" in ddl
     _, key, _ = user_key
     r = get(client, key, "/api/v1/g_detail_desc_text/", {"_text_phrase": {"description_text": "solid electrolyte battery"}}, f=["patent_id", "description_length"])
     assert r.status_code == 200, r.content

@@ -13,10 +13,12 @@ only when the PVGPATTXT files change (`lapse refresh --build` decides from the s
 
 Layout (the same the search snapshot has, API/search_sqlite.py):
   g_claims, g_brf_sum_texts, g_detail_desc_texts, g_draw_desc_texts   one row per upstream document, key uuid
-  fts_<table>              FTS5 over the text column, CONTENTLESS (content=''), fed row by row at load time;
-                           detail=full except g_detail_desc_texts (detail=none: positions dropped, the index is
-                           about a third of the size; the translator answers phrase queries on it with an AND
-                           prefilter plus the exact Python phrase test)
+  fts_<table>              FTS5 over the text column, CONTENTLESS (content=''), fed row by row at load time,
+                           detail=full (positions kept, so _text_phrase is answered by the index). --desc-fts-detail
+                           none drops the positions of the descriptions (their index shrinks from about 30 to about
+                           5 percent of the raw text); the translator then answers a phrase with an AND prefilter
+                           plus the exact Python test, which is too slow for a common phrase over 5.7M descriptions
+                           (measured 2026-10-08: 35,798 candidates in one year at 1.5 ms each), so full is the default
   _lapse_fields, _lapse_indices, _lapse_build, _lapse_nulls (tbl, col, has_null: the searcher's null check
                            without a scan of a 150M-row table)
 The text column of every table is stored zlib-compressed (level 6; 2.2x on claims, more on long documents);
@@ -62,7 +64,7 @@ TEXT_FAMILY = {"g_claims": "g_claims", "g_brf_sum_texts": "g_brf_sum_text",
                "g_detail_desc_texts": "g_detail_desc_text", "g_draw_desc_texts": "g_draw_desc_text"}
 TEXT_COLUMN = {"g_claims": "claim_text", "g_brf_sum_texts": "summary_text",
                "g_detail_desc_texts": "description_text", "g_draw_desc_texts": "draw_desc_text"}
-FTS_DETAIL = {"g_claims": "full", "g_brf_sum_texts": "full", "g_detail_desc_texts": "none", "g_draw_desc_texts": "full"}
+FTS_DETAIL = {"g_claims": "full", "g_brf_sum_texts": "full", "g_detail_desc_texts": "full", "g_draw_desc_texts": "full"}
 TEXT_SCHEMA_FILES = {"g_claims": "granted/claim.json", "g_brf_sum_texts": "granted/brf_sum_text.json",
                      "g_detail_desc_texts": "granted/detail_desc_text.json", "g_draw_desc_texts": "granted/draw_desc_text.json"}
 # every sortable field of the four endpoints leads an index (the null check and the ORDER BY walk need it)
@@ -287,7 +289,10 @@ def main():
     ap.add_argument("--desc-from", type=int, default=DESC_FROM_DEFAULT, help="first grant year of detail descriptions")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--only", action="append", help="build only this table (repeatable; a test aid)")
+    ap.add_argument("--desc-fts-detail", choices=["full", "none"], default="full",
+                    help="FTS5 detail of the descriptions (none: about 63 GB smaller, phrases answered slowly)")
     a = ap.parse_args()
+    FTS_DETAIL["g_detail_desc_texts"] = a.desc_fts_detail
     tables = [t for t in TEXT_SCHEMA if not a.only or t in a.only]
     tmp = a.out + ".building"
     for p in (tmp, tmp + "-journal"):
