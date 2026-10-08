@@ -116,10 +116,21 @@ def db_check():
         return False, getattr(settings, "LAPSE_DATA_VERSION", "") or "", exc.__class__.__name__
 
 
+def text_version():
+    """The attached long-text file's data_version (PatentRef 1.6), or None when the box serves none."""
+    try:
+        from API.search_sqlite import LapseSQLiteSearch
+
+        return LapseSQLiteSearch.from_django_settings().text_data_version()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @require_GET
 def health(request):
     ok, data_version, detail = db_check()
-    body = {"ok": ok, "version": code_version(), "data_version": data_version, "db": detail, "time": iso(time.time())}
+    body = {"ok": ok, "version": code_version(), "data_version": data_version, "db": detail, "time": iso(time.time()),
+            "text_data_version": text_version()}
     resp = JsonResponse(body, status=200 if ok else 503)
     resp["Cache-Control"] = "no-store"
     resp["X-Data-Version"] = data_version or "unversioned"

@@ -60,6 +60,9 @@ LAPSE_PUBLIC_DIR = os.environ.get("LAPSE_PUBLIC_DIR", "/srv/lapse/public")
 # attached read-only beside the search snapshot for the `lapse` group and the verdict tool (gates 1.7, 2.9, 2.12)
 LAPSE_REPO_DIR = os.environ.get("LAPSE_REPO_DIR", "/srv/lapse")
 LAPSE_CATALOG_PATH = os.environ.get("LAPSE_CATALOG_PATH", "/data/lapse/snapshot_current.db")
+# The long-text file (claims, brief summaries, detail and drawing descriptions; PatentRef 1.6), attached read-only
+# as `txt` beside the search snapshot; a missing file means the four text endpoints answer the documented 501
+LAPSE_TEXT_PATH = os.environ.get("LAPSE_TEXT_PATH", "/data/api/text_current.db")
 LAPSE_LICENSES_PATH = os.environ.get("LAPSE_LICENSES_PATH", "/srv/lapse/LICENSES.md")
 
 # Search backend seam (API/search.py:get_searcher)

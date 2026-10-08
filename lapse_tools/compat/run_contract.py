@@ -29,6 +29,11 @@ IMPLEMENTED = ["/api/v1/patent/us_patent_citation/", "/api/v1/patent/", "/api/v1
 NOT_IMPLEMENTED_PREFIX = ["/api/v1/patent/attorney/", "/api/v1/patent/us_application_citation/",
                           "/api/v1/patent/foreign_citation/", "/api/v1/patent/other_reference/",
                           "/api/v1/patent/rel_app_text/"]
+# the long-text endpoints (checklist 1.6): loaded when the text file names their index (LAPSE_TEXT_PATH or
+# --text-db); without it they answer the documented 501 and count as "n/a (not loaded)"
+TEXT_ENDPOINTS = {"/api/v1/g_claim/": "g_claims", "/api/v1/g_brf_sum_text/": "g_brf_sum_texts",
+                  "/api/v1/g_detail_desc_text/": "g_detail_desc_texts", "/api/v1/g_draw_desc_text/": "g_draw_desc_texts"}
+LOADED_TEXT = set()  # indices found in the text file (filled by main)
 # endpoints deferred by decision (checklist 1.5): they must answer the documented 501, and count as pass
 DEFERRED_PREFIX = ["/api/v1/publication/"]
 DEFERRED_STATUS = 501
@@ -68,7 +73,24 @@ def call(base, key, method, path, params=None, body=None, raw_body=None):
 def implemented(endpoint):
     if any(endpoint.startswith(p) for p in NOT_IMPLEMENTED_PREFIX):
         return False
+    for url, idx in TEXT_ENDPOINTS.items():
+        if endpoint.startswith(url):
+            return idx in LOADED_TEXT
     return any(endpoint.startswith(p) for p in IMPLEMENTED)
+
+
+def text_indices(path):
+    """The indices a long-text file carries (its _lapse_indices), or an empty set when there is no file."""
+    if not path or not os.path.exists(path):
+        return set()
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            return {r[0] for r in con.execute("SELECT idx FROM _lapse_indices")}
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return set()
 
 
 def deferred(endpoint):
@@ -329,10 +351,13 @@ def main():
     ap.add_argument("--base", default="http://127.0.0.1:8765")
     ap.add_argument("--key-file", default=os.environ.get("LAPSE_API_KEY_FILE", r"C:\LapseAPI\data\test_api_key.txt"))
     ap.add_argument("--db", default=os.environ.get("LAPSE_SQLITE_PATH", r"C:\LapseAPI\data\sample.db"))
+    ap.add_argument("--text-db", default=os.environ.get("LAPSE_TEXT_PATH", "/data/api/text_current.db"),
+                    help="the long-text file the instance serves (checklist 1.6); its indices make the text endpoints applicable")
     ap.add_argument("--latency-rounds", type=int, default=5)
     ap.add_argument("--out", default=str(HERE / "contract_results.md"))
     a = ap.parse_args()
     key = Path(a.key_file).read_text().strip()
+    LOADED_TEXT.update(text_indices(a.text_db))
     examples = json.load(open(HERE / "contract_examples.json", encoding="utf-8"))["examples"]
     rows, npass, napp, ndef, nnotloaded = [], 0, 0, 0, 0
     for ex in examples:

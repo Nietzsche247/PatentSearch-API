@@ -11,6 +11,12 @@ Database layout (built by lapse_tools/build_sample.py):
   fts_<table>              FTS5 over the ES "text" fields of <table>
   _lapse_fields            idx, path, field, es_type, keyword_subfield
   _lapse_indices           idx, tbl, key_field
+The long-text indices (g_claims, g_brf_sum_texts, g_detail_desc_texts, g_draw_desc_texts; PatentRef 1.6) live
+in a second file with the same layout (lapse_tools/build_text.py), ATTACHed read-only as `txt` beside the
+snapshot (LAPSE_TEXT_PATH, a symlink resolved once per request like the snapshot); an index is looked up in
+main first, then in txt. Their text columns are zlib-compressed BLOBs: `_convert` and the Python matchers
+decompress, so a response and a `_text_*` operator see plain text. Their FTS tables are contentless; the one
+built with detail=none (descriptions) answers a phrase through an AND prefilter plus the exact Python test.
 
 Semantics emulated (see REPORT.md section 2): match on .keyword / keyword = exact; match on text =
 analyzed OR (FTS5); match with operator and/or; match_phrase; terms; range; prefix and wildcard with
@@ -27,6 +33,7 @@ import re
 import sqlite3
 import threading
 import time
+import zlib
 
 from API.exceptions import SearchTimeoutError  # noqa: F401  (kept for parity with API.search)
 from API.lapse_errors import LapseTimeout
@@ -49,8 +56,47 @@ def es_error(err_type, reason, status=400):
     return cls(message=err_type, meta=meta, body=body)
 
 
+def plain(v):
+    """A stored value as text: a zlib-compressed BLOB (the long-text file) is decompressed, anything else
+    returned as is. A BLOB that is not zlib (no such column exists today) comes back as its bytes."""
+    if isinstance(v, (bytes, memoryview)):
+        b = bytes(v)
+        try:
+            return zlib.decompress(b).decode("utf-8", errors="replace")
+        except zlib.error:
+            return b
+    return v
+
+
 def tokens(text):
-    return [t.lower() for t in _TOKEN_RE.findall(str(text))]
+    return [t.lower() for t in _TOKEN_RE.findall(str(plain(text)))]
+
+
+def text_path():
+    """The long-text database (PatentRef 1.6): settings.LAPSE_TEXT_PATH or the environment; the box default."""
+    try:
+        from django.conf import settings
+
+        p = getattr(settings, "LAPSE_TEXT_PATH", None)
+    except Exception:  # noqa: BLE001  (no Django settings: tests, tools)
+        p = None
+    return p or os.environ.get("LAPSE_TEXT_PATH", "/data/api/text_current.db")
+
+
+def text_real():
+    p = text_path()
+    return os.path.realpath(p) if p and os.path.exists(p) else None
+
+
+def attach_text(con, real):
+    """ATTACH the long-text file read-only as `txt`. Returns its data_version (or None when not attached)."""
+    if not real:
+        return None
+    try:
+        con.execute("ATTACH DATABASE ? AS txt", ("file:" + real.replace("\\", "/") + "?mode=ro",))
+        return read_data_version(con, real, fallback_env=False, schema="txt")
+    except sqlite3.Error:
+        return None
 
 
 def fts_quote(tok):
@@ -208,19 +254,29 @@ class FieldRef:
 # ------------------------------------------------------------------ schema metadata
 class IndexMeta:
     def __init__(self, con, idx):
-        row = con.execute("SELECT tbl, key_field FROM _lapse_indices WHERE idx=?", (idx,)).fetchone()
+        # main first, then the attached long-text file (schema `txt`, PatentRef 1.6)
+        self.schema = "main"
+        row = con.execute("SELECT tbl, key_field FROM main._lapse_indices WHERE idx=?", (idx,)).fetchone()
+        if row is None and _has_schema(con, "txt"):
+            try:
+                row = con.execute("SELECT tbl, key_field FROM txt._lapse_indices WHERE idx=?", (idx,)).fetchone()
+            except sqlite3.Error:
+                row = None
+            if row is not None:
+                self.schema = "txt"
         if row is None:
             # documented 501 for views whose data set is not in the snapshot (API/lapse_errors.py)
             from API.lapse_errors import LapseNotImplemented
 
             raise LapseNotImplemented(idx)
+        sch = self.schema
         self.index, self.table, self.key = idx, row[0], row[1]
         self.types = {}  # (path, field) -> (es_type, has_keyword_subfield)
         for path, field, t, kw in con.execute(
-                "SELECT path, field, es_type, keyword_subfield FROM _lapse_fields WHERE idx=?", (idx,)):
+                f"SELECT path, field, es_type, keyword_subfield FROM {sch}._lapse_fields WHERE idx=?", (idx,)):
             self.types[(path, field)] = (t, bool(kw))
-        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view')")}
-        self.columns = [r[1] for r in con.execute(f'PRAGMA table_info("{self.table}")')]
+        tables = {r[0] for r in con.execute(f"SELECT name FROM {sch}.sqlite_master WHERE type IN ('table','view')")}
+        self.columns = [r[1] for r in con.execute(f'PRAGMA {sch}.table_info("{self.table}")')]
         self.nested = {}  # path -> child table
         self.child_columns = {}
         prefix = self.table + "__"
@@ -228,7 +284,7 @@ class IndexMeta:
             if t.startswith(prefix):
                 path = t[len(prefix):]
                 self.nested[path] = t
-                self.child_columns[path] = [r[1] for r in con.execute(f'PRAGMA table_info("{t}")')
+                self.child_columns[path] = [r[1] for r in con.execute(f'PRAGMA {sch}.table_info("{t}")')
                                             if r[1] not in ("_pid", "_ord")]
         # virtual nested groups (PatentRef 2.9): served from the attached catalog, not from a child table;
         # they appear in f like any group and are refused in q and s (Translator.q_nested, _sort_spec)
@@ -240,12 +296,21 @@ class IndexMeta:
             self.child_columns[LAPSE_PATH] = list(LAPSE_FIELDS)
         self.fts = {}  # table -> set(columns)
         self.trigram = {}  # table -> set(columns) of fts_trgm_<table> (substring prefilter, PatentRef 2.10)
-        for t in tables:
-            if t.startswith("fts_") and not t.endswith(("_data", "_idx", "_docsize", "_config", "_content")):
-                if t.startswith("fts_trgm_"):
-                    self.trigram[t[9:]] = {r[1] for r in con.execute(f'PRAGMA table_info("{t}")')}
-                else:
-                    self.fts[t[4:]] = {r[1] for r in con.execute(f'PRAGMA table_info("{t}")')}
+        self.fts_detail = {}  # table -> "full" | "column" | "none" (the FTS5 detail option, from the DDL)
+        for t, ddl in con.execute(f"SELECT name, sql FROM {sch}.sqlite_master WHERE type='table' AND name LIKE 'fts_%'"):
+            if t.endswith(("_data", "_idx", "_docsize", "_config", "_content")):
+                continue
+            if t.startswith("fts_trgm_"):
+                self.trigram[t[9:]] = {r[1] for r in con.execute(f'PRAGMA {sch}.table_info("{t}")')}
+            else:
+                self.fts[t[4:]] = {r[1] for r in con.execute(f'PRAGMA {sch}.table_info("{t}")')}
+                m = re.search(r"detail\s*=\s*'?(full|column|none)", ddl or "", re.I)
+                self.fts_detail[t[4:]] = m.group(1).lower() if m else "full"
+        # columns known to hold no NULL (the long-text file records them; main is checked with a scan)
+        self.nulls = {}
+        if "_lapse_nulls" in tables:
+            for tbl, col, has in con.execute(f"SELECT tbl, col, has_null FROM {sch}._lapse_nulls"):
+                self.nulls[(tbl, col)] = bool(has)
         # value frequencies of low-cardinality columns (_lapse_value_stats, written by build_sample.py):
         # (table, column) -> {value: rows}; (table, "*") -> total rows. The planner gets likelihood()
         # hints from them, must_not on such a column becomes an index range union, and a nested group
@@ -253,7 +318,7 @@ class IndexMeta:
         self.stats, self.rows = {}, {}
         self.hist = {}  # (table, column) -> (prefix length, {prefix: rows}); a range estimate for the column
         if "_lapse_value_stats" in tables:
-            for tbl, col, val, n in con.execute("SELECT tbl, col, val, n FROM _lapse_value_stats"):
+            for tbl, col, val, n in con.execute(f"SELECT tbl, col, val, n FROM {sch}._lapse_value_stats"):
                 if col == "*":
                     self.rows[tbl] = n
                 elif "/" in col:
@@ -263,10 +328,10 @@ class IndexMeta:
                     self.stats.setdefault((tbl, col), {})[val] = n
         # single-column indexes of the main table, for steering an ORDER BY onto the index of its first key
         self.single_index = {}  # column -> index name
-        for _, name, _, origin, _ in con.execute(f'PRAGMA index_list("{self.table}")'):
+        for _, name, _, origin, _ in con.execute(f'PRAGMA {sch}.index_list("{self.table}")'):
             if origin != "c":
                 continue
-            cols = [r[2] for r in con.execute(f'PRAGMA index_info("{name}")')]
+            cols = [r[2] for r in con.execute(f'PRAGMA {sch}.index_info("{name}")')]
             if len(cols) == 1 and cols[0] not in self.single_index:
                 self.single_index[cols[0]] = name
 
@@ -529,9 +594,20 @@ class Translator:
         return f"({term}{self.kw_guard(f)})"
 
     def fts(self, f, expr):
-        """Rows of f.table whose FTS column matches expr; falls back to a Python matcher when no FTS table."""
+        """Rows of f.table whose FTS column matches expr; falls back to a Python matcher when no FTS table.
+        An index built with detail=none (the long descriptions) has no positions, so a phrase of two or more
+        tokens is answered by the AND of its tokens on the index and the exact phrase test in Python on those
+        candidates (same rows as a positional index would give)."""
         cols = self.meta.fts.get(f.table, set())
         if f.column in cols:
+            if self.meta.fts_detail.get(f.table, "full") != "full":
+                # detail=none also refuses column filters; such a table (build_text.py) holds this one column
+                m = re.fullmatch(r'"((?:[^"]|"")*)"', expr)
+                if m and len(m.group(1).replace('""', '"').split()) > 1:
+                    pre = " AND ".join(fts_quote(t) for t in m.group(1).replace('""', '"').split())
+                    return (f'({f.alias}.rowid IN (SELECT rowid FROM "fts_{f.table}" WHERE "fts_{f.table}" MATCH {self.p(pre)}) '
+                            f"AND COALESCE(lapse_fts_match({f.sql}, {self.p(expr)}), 0))")
+                return f'{f.alias}.rowid IN (SELECT rowid FROM "fts_{f.table}" WHERE "fts_{f.table}" MATCH {self.p(expr)})'
             q = f'"{f.column}" : ({expr})'
             return f'{f.alias}.rowid IN (SELECT rowid FROM "fts_{f.table}" WHERE "fts_{f.table}" MATCH {self.p(q)})'
         return f"COALESCE(lapse_fts_match({f.sql}, {self.p(expr)}), 0)"
@@ -728,12 +804,13 @@ class Translator:
 
 # ------------------------------------------------------------------ SQL functions
 def _lapse_lower(s):
-    return None if s is None else str(s).lower()
+    return None if s is None else str(plain(s)).lower()
 
 
 def _like_cs(value, pattern):
     if value is None:
         return 0
+    value = plain(value)
     rx, i = [], 0
     while i < len(pattern):
         ch = pattern[i]
@@ -807,13 +884,20 @@ def _log_sql(sql, params, ms):
 
 
 # ------------------------------------------------------------------ searcher
-def read_data_version(con, real_path, fallback_env=True):
+def _has_schema(con, name):
+    try:
+        return any(r[1] == name for r in con.execute("PRAGMA database_list"))
+    except sqlite3.Error:
+        return False
+
+
+def read_data_version(con, real_path, fallback_env=True, schema="main"):
     """The data_version of an open search database: `_lapse_build.data_version` (stamped by the refresh
     runner, PatentRef 4.2); for a file built before the runner, LAPSE_DATA_VERSION from the environment
     if set, else the file's own name without the extension (full2.db -> full2). Never empty."""
     try:
-        if con.execute("SELECT 1 FROM sqlite_master WHERE name='_lapse_build'").fetchone():
-            row = con.execute("SELECT v FROM _lapse_build WHERE k='data_version'").fetchone()
+        if con.execute(f"SELECT 1 FROM {schema}.sqlite_master WHERE name='_lapse_build'").fetchone():
+            row = con.execute(f"SELECT v FROM {schema}._lapse_build WHERE k='data_version'").fetchone()
             if row and row[0]:
                 return str(row[0])
     except sqlite3.Error:
@@ -848,6 +932,7 @@ class LapseSQLiteSearch:
         from API.lapse_group import catalog_real
 
         self.catalog = catalog_real()
+        self.text = text_real()  # the long-text file (PatentRef 1.6), resolved once per request too
         self.timeout = timeout
         # one instance serves one request (page then count): the budget caps the two together (gate 5.6)
         self.budget = float(request_budget) if request_budget else float(timeout)
@@ -869,7 +954,8 @@ class LapseSQLiteSearch:
 
     def connection(self):
         con = getattr(self._local, "con", None)
-        if con is None or getattr(self._local, "real", None) != self.real or getattr(self._local, "catalog_real", None) != self.catalog:
+        if con is None or getattr(self._local, "real", None) != self.real or getattr(self._local, "catalog_real", None) != self.catalog \
+                or getattr(self._local, "text_real", None) != self.text:
             if con is not None:
                 try:
                     con.close()
@@ -897,9 +983,16 @@ class LapseSQLiteSearch:
             from API.lapse_group import attach
 
             self._local.cat = attach(con, self.catalog)  # None when no catalog is configured or it cannot be opened
+            self._local.text_version = attach_text(con, self.text)  # None when there is no long-text file
             self._local.con, self._local.real, self._local.catalog_real = con, self.real, self.catalog
+            self._local.text_real = self.text
             self._local.data_version = read_data_version(con, self.real)
         return con
+
+    def text_data_version(self):
+        """The attached long-text file's data_version, or None when none is attached."""
+        self.connection()
+        return getattr(self._local, "text_version", None)
 
     def catalog_facts(self):
         """The attached catalog's facts (data_version, as_of, fee_rule, columns) or None."""
@@ -911,7 +1004,7 @@ class LapseSQLiteSearch:
         return self._local.data_version
 
     def meta(self, index):
-        key = (self.real, index)
+        key = (self.real, self.text, index)
         if key not in self._meta_cache:
             self._meta_cache[key] = IndexMeta(self.connection(), index)
         return self._meta_cache[key]
@@ -955,7 +1048,10 @@ class LapseSQLiteSearch:
         import hashlib
         import json
 
-        raw = "\n".join([self.data_version(), index, sql, json.dumps(list(params), default=str)])
+        ver = self.data_version()
+        if self.meta(index).schema == "txt":
+            ver = f"{ver}+text:{self.text_data_version()}"
+        raw = "\n".join([ver, index, sql, json.dumps(list(params), default=str)])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     def _memo_con(self):
@@ -1108,6 +1204,8 @@ class LapseSQLiteSearch:
     def _convert(self, meta, path, col, v):
         if v is None:
             return None
+        if isinstance(v, (bytes, memoryview)):
+            return plain(v)  # a compressed text column of the long-text file
         if meta.type_of(path, col)[0] == "boolean":
             return bool(v)
         return v
@@ -1141,7 +1239,9 @@ class LapseSQLiteSearch:
                 f"together {int(self.budget)} s (PatentRef gate 5.6); narrow the query or split it")
 
     def _has_nulls(self, meta, column):
-        key = (self.real, meta.table, column)
+        key = (self.real if meta.schema == "main" else self.text, meta.table, column)
+        if key not in self._null_cache and (meta.table, column) in meta.nulls:
+            self._null_cache[key] = meta.nulls[(meta.table, column)]
         if key not in self._null_cache:
             row = self.connection().execute(
                 f'SELECT 1 FROM "{meta.table}" WHERE "{column}" IS NULL LIMIT 1').fetchone()
