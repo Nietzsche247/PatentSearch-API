@@ -879,6 +879,10 @@ class LapseSQLiteSearch:
             uri = "file:" + self.real.replace("\\", "/") + "?mode=ro"
             con = sqlite3.connect(uri, uri=True, check_same_thread=False, timeout=self.timeout)
             con.execute("PRAGMA case_sensitive_like=ON")
+            try:  # document frequencies for /api/v1/lapse/similar (a temp virtual table; main stays read-only)
+                con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.fts_patents_vocab USING fts5vocab('main', 'fts_patents', 'row')")
+            except sqlite3.Error:
+                pass
             con.execute("PRAGMA query_only=ON")
             con.execute(f"PRAGMA cache_size=-{self.cache_kb}")
             con.execute(f"PRAGMA mmap_size={self.mmap_bytes}")

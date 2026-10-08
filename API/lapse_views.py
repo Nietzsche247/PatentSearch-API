@@ -7,7 +7,10 @@
       `superseded` object (never a 404); a version that never existed is 404. X-Api-Key as every data path.
   GET /api/v1/lapse/similar?text=<string>&n=20
       FTS5 bm25 over patent_title and patent_abstract of the served snapshot, OR of the input's tokens, ties
-      by patent_id ascending (scaffold 5.3). X-Api-Key.
+      by patent_id ascending (scaffold 5.3). The tokens that go into the query are the rarest of the input
+      (select_terms: document frequency from the snapshot, tokens in more than 2 percent of patents dropped,
+      16 kept), which is what keeps the call near a second on 9.4 million patents; the response lists them
+      as `terms`. X-Api-Key.
   GET /p/<patent_id>?v=<data_version>
       The per-patent record page (HTML), the human-facing target of the permalink. No key; per-IP rate.
 
@@ -32,7 +35,10 @@ from API.search_sqlite import fts_quote, tokens
 
 SIMILAR_MAX_TEXT = 4000
 SIMILAR_MAX_N = 20
-SIMILAR_MAX_TOKENS = 64  # distinct tokens in order of appearance; the whole input counts against SIMILAR_MAX_TEXT
+SIMILAR_MAX_TOKENS = 48   # distinct input tokens looked up, in order of appearance
+SIMILAR_KEEP = 16         # the rarest of them that go into the OR query
+SIMILAR_MIN_KEEP = 3      # when fewer pass the frequency cap, the rarest are kept up to this many
+SIMILAR_MAX_DF = 0.02     # a token in more than this share of patents carries no signal and costs seconds
 PID_RE = re.compile(r"^(?:US)?(RE|PP|D|H|T|AI|X|)0*([0-9]{1,8})$", re.I)
 
 
@@ -122,12 +128,14 @@ class SimilarView(APIView):
             if len(terms) >= SIMILAR_MAX_TOKENS:
                 break
         searcher = get_searcher()
+        con = searcher.connection()
         data_version = searcher.data_version() or ""
         cat = searcher.catalog_facts() or {}
         as_of = cat.get("as_of") or _as_of(searcher)
+        keep = select_terms(con, terms)
         neighbors = []
-        if terms:
-            match = "{patent_title patent_abstract}: " + " OR ".join(fts_quote(t) for t in terms)
+        if keep:
+            match = "{patent_title patent_abstract}: " + " OR ".join(fts_quote(t) for t in keep)
             sql = ('SELECT p.patent_id, p.patent_title, p.patent_date, bm25(fts_patents, 0.0, 1.0, 1.0) AS s '
                    'FROM fts_patents JOIN patents p ON p.rowid = fts_patents.rowid '
                    'WHERE fts_patents MATCH ? AND p.withdrawn = 0 ORDER BY s ASC, p.patent_id ASC LIMIT ?')
@@ -135,8 +143,41 @@ class SimilarView(APIView):
             neighbors = [{"rank": i + 1, "patent_id": r[0], "patent_title": r[1], "patent_date": r[2], "score": round(-float(r[3]), 4)}
                          for i, r in enumerate(rows)]
         body = {"error": False, "data_version": data_version, "as_of": as_of, "method": "fts5_bm25_title_abstract",
-                "n": n, "terms": len(terms), "neighbors": neighbors}
+                "n": n, "terms": keep, "neighbors": neighbors}
         return Response(body)
+
+
+def select_terms(con, terms):
+    """The query terms: the input's distinct tokens ranked by document frequency in the served snapshot
+    (temp.fts_patents_vocab), those in more than SIMILAR_MAX_DF of patents dropped, the SIMILAR_KEEP rarest kept
+    (at least SIMILAR_MIN_KEEP when the input has that many known tokens). Ties by the token itself, so the same
+    input on the same snapshot picks the same terms. On the 20261006.2 corpus the unfiltered OR of a 30-token
+    abstract took 14 to 27 s (the posting lists of 'a', 'and', 'system', 'method'); the rarest 16 take about 1 s."""
+    if not terms:
+        return []
+    try:
+        total = con.execute("SELECT n FROM _lapse_value_stats WHERE tbl = 'patents' AND col = '*'").fetchone()
+        total = int(total[0]) if total else None
+    except Exception:
+        total = None
+    if not total:
+        try:
+            total = con.execute("SELECT count(*) FROM patents").fetchone()[0]
+        except Exception:
+            total = 0
+    df = {}
+    try:
+        for t in terms:
+            row = con.execute("SELECT doc FROM temp.fts_patents_vocab WHERE term = ?", (t,)).fetchone()
+            df[t] = int(row[0]) if row else 0
+    except Exception:  # no vocab table (a snapshot without fts_patents): use the input as given
+        return terms[:SIMILAR_KEEP]
+    known = sorted((t for t in terms if df[t] > 0), key=lambda t: (df[t], t))
+    cap = total * SIMILAR_MAX_DF if total else None
+    keep = [t for t in known if cap is None or df[t] <= cap][:SIMILAR_KEEP]
+    if len(keep) < SIMILAR_MIN_KEEP:
+        keep = known[:max(len(keep), min(SIMILAR_MIN_KEEP, len(known)))]
+    return sorted(keep, key=lambda t: (df[t], t))
 
 
 def _as_of(searcher):

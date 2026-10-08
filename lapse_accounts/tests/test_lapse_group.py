@@ -284,7 +284,7 @@ def test_similar_endpoint(client, user_key, lapse_env):
     assert r.status_code == 200, r.content
     body = r.json()
     assert body["error"] is False and body["method"] == "fts5_bm25_title_abstract" and body["n"] == 3
-    assert body["data_version"] == "20261006.2" and body["as_of"] == "2026-10-06"
+    assert body["data_version"] == "20261006.2" and body["as_of"] == "2026-10-06" and isinstance(body["terms"], list)
     assert body["neighbors"][0]["patent_id"] == "8087108" and body["neighbors"][0]["rank"] == 1
     assert set(body["neighbors"][0]) == {"rank", "patent_id", "patent_title", "patent_date", "score"}
     assert body["neighbors"][0]["score"] > 0
