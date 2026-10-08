@@ -209,7 +209,7 @@ def test_legacy_catalog_shape_is_served_too(client, user_key, lapse_env):
 # ------------------------------------------------------------------ 2.12
 
 def test_status_endpoint_needs_a_key_and_validates_against_the_schema(client, user_key, lapse_env):
-    import jsonschema
+    jsonschema = pytest.importorskip("jsonschema")
 
     _, key, _ = user_key
     r = client.get("/api/v1/lapse/status/8087108/")
