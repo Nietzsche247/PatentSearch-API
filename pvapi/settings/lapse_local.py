@@ -143,6 +143,7 @@ LAPSE_QUERY_COST_LIMIT = int(os.environ.get("LAPSE_QUERY_COST_LIMIT", "100"))   
 LAPSE_QUERY_MAX_DEPTH = int(os.environ.get("LAPSE_QUERY_MAX_DEPTH", "8"))          # nesting of _and/_or/_not
 LAPSE_QUERY_MAX_CRITERIA = int(os.environ.get("LAPSE_QUERY_MAX_CRITERIA", "64"))   # leaf criteria in one q (a set of ids counts once; any other list value once per element)
 LAPSE_REQUEST_BUDGET = int(os.environ.get("LAPSE_REQUEST_BUDGET", "30"))           # seconds of SQLite time one request may use (page plus count)
+LAPSE_TEXT_SCAN_MAX_ROWS = int(os.environ.get("LAPSE_TEXT_SCAN_MAX_ROWS", "20000")) # rows of a long-text table a _contains, range or empty _begins may read without a patent_id in its _and; above it 400 ERR_Q (API/search_sqlite.py scan_guard)
 # Sign-up limits (lapse_accounts/views.py): new accounts (first key) per email domain per UTC day, and known disposable domains refused
 LAPSE_SIGNUP_DOMAIN_DAILY = int(os.environ.get("LAPSE_SIGNUP_DOMAIN_DAILY", "20"))
 LAPSE_DISPOSABLE_DOMAINS_FILE = os.environ.get("LAPSE_DISPOSABLE_DOMAINS_FILE", "")  # optional: one domain per line, added to the built-in list

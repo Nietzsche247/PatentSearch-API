@@ -43,7 +43,9 @@ FALLBACK_FOOTER = ["Patent data from PatentsView and the USPTO, used under CC BY
 ERROR_CODES = {
     "ERR_Q": "400 Bad Request. The q, f, s or o parameter is invalid: malformed JSON, more than one top-level key in q, an unknown field, a field "
              "outside the endpoint, a sort on a text field, 'offset' in o, a query over the cost cap (100 units, 64 criteria, depth 8), q over 16 KB "
-             "or a body over 64 KB. The X-Status-Reason header carries the upstream text.",
+             "or a body over 64 KB. The cost cap also refuses _contains, a range or an empty _begins on a long-text field (claim_text, summary_text, "
+             "description_text, draw_desc_text) without patent_id in the same _and: no index serves them, so they would read the whole table; use "
+             "_text_any, _text_all or _text_phrase there. The X-Status-Reason header carries the upstream text.",
     "ERR_KEY": "403 Forbidden. No X-Api-Key header, or the key is unknown or revoked. Get a Free key at /api/v1/meta/signup/. "
                "A data endpoint answers the upstream body {\"detail\": \"You do not have permission to perform this action.\"} with no "
                "X-Status-Reason-Code header; the code appears as that header only on the account endpoints, and in the problem details body.",

@@ -347,3 +347,207 @@ def test_after_cursor_over_a_nullable_second_key_walks_the_same_rows(text_env):
     sql = json.loads(open(log).read().splitlines()[-1])["sql"]
     assert 'm."patent_id" >= ? AND (((+m."patent_id" > ? OR +m."patent_id" IS NULL)) OR (+m."patent_id" = ? AND' in sql, sql
     os.remove(log)
+
+
+# ------------------------------------------------------------------ the shapes that timed out on the full corpus (gate 2.3, section C)
+
+class _SqlLog:
+    """Collects the statements the searcher runs (API.search_sqlite.SQL_LOG) while the block runs."""
+
+    def __init__(self, name):
+        self.path = str(_TMP / name)
+
+    def __enter__(self):
+        import API.search_sqlite as S
+
+        self.S, self.old = S, S.SQL_LOG
+        if os.path.exists(self.path):
+            os.remove(self.path)
+        S.SQL_LOG = self.path
+        return self
+
+    def __exit__(self, *exc):
+        self.S.SQL_LOG = self.old
+
+    def statements(self):
+        if not os.path.exists(self.path):
+            return []
+        return [json.loads(line)["sql"] for line in open(self.path, encoding="utf-8").read().splitlines()]
+
+
+def _rows(path, sql, params=()):
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return con.execute(sql, params).fetchall()
+    finally:
+        con.close()
+
+
+@pytest.fixture
+def roomy(monkeypatch):
+    """These tests send more requests than the 5 a month conftest gives a Free key."""
+    monkeypatch.setattr(settings, "LAPSE_FREE_MONTHLY_LIMIT", 100000)
+    monkeypatch.setattr(settings, "LAPSE_FREE_MINUTE_LIMIT", 100000)
+    yield monkeypatch
+
+
+def test_contains_with_a_space_or_punctuation_matches_no_token(client, user_key, text_env, roomy):
+    """_contains is a wildcard matched against single tokens (upstream: single indexed terms of Elasticsearch), and
+    no token holds a space or punctuation. Upstream answered the R package's {"_contains": {"summary_text":
+    "particular depth"}} with total_hits 0 (vignette api-changes); here it read and decompressed every summary and
+    answered 500 at the 20 s limit on the full corpus. Now no row is read: the SQL is WHERE 0, and the answer is
+    the one the per-row test gives (checked against every text of the fixture)."""
+    _, key, _ = user_key
+    with _SqlLog("sql_space.jsonl") as log:
+        r = get(client, key, "/api/v1/g_brf_sum_text/", {"_contains": {"summary_text": "solid electrolyte"}}, s=[{"patent_id": "asc"}])
+        assert r.status_code == 200, r.content
+        assert r.json()["total_hits"] == 0 and r.json()["g_brf_sum_texts"] == []
+        # a substring of a claim, yet no single token holds it
+        r = get(client, key, "/api/v1/g_claim/", {"_contains": {"claim_text": "rotating brush"}})
+        assert r.status_code == 200 and r.json()["total_hits"] == 0
+        r = get(client, key, "/api/v1/g_claim/", {"_contains": {"claim_text": "claim 1,"}})
+        assert r.status_code == 200 and r.json()["total_hits"] == 0
+        r = get(client, key, "/api/v1/g_detail_desc_text/", {"_contains": {"description_text": "dry-room"}})
+        assert r.status_code == 200 and r.json()["total_hits"] == 0
+    stmts = log.statements()
+    assert stmts and all("lapse_tok_wild" not in s and "instr(" not in s for s in stmts), stmts
+    assert all(" WHERE 0 " in s or s.endswith(" WHERE 0") for s in stmts), stmts
+    # the phrase form finds the summary; a needle one token holds still matches (a small table: under the scan limit)
+    r = get(client, key, "/api/v1/g_brf_sum_text/", {"_text_phrase": {"summary_text": "solid electrolyte"}})
+    assert [x["patent_id"] for x in r.json()["g_brf_sum_texts"]] == ["12050000"]
+    r = get(client, key, "/api/v1/g_claim/", {"_contains": {"claim_text": "OTAT"}})
+    assert [x["patent_id"] for x in r.json()["g_claims"]] == ["12050006"]
+    # the per-row test (lapse_tok_wild) agrees: no text of the fixture has a token holding these needles
+    from API.search_sqlite import _tok_wild
+
+    texts = [plain(v) for (v,) in _rows(text_env, "SELECT claim_text FROM g_claims UNION ALL SELECT summary_text FROM g_brf_sum_texts "
+                                                  "UNION ALL SELECT description_text FROM g_detail_desc_texts UNION ALL SELECT draw_desc_text FROM g_draw_desc_texts")]
+    for needle in ("solid electrolyte", "rotating brush", "claim 1,", "dry-room", "fig. 1", "a.b", "x y"):
+        assert not any(_tok_wild(t, f"*{needle}*") for t in texts if t is not None), needle
+
+
+def test_scan_of_a_large_long_text_table_is_refused_unless_patent_id_narrows_it(client, user_key, text_env, roomy):
+    """The cost cap for a test that reads every row of a long-text table (_contains with a needle one token can hold,
+    a range, an empty _begins): no index serves it, so on a table above LAPSE_TEXT_SCAN_MAX_ROWS rows (20,000; the
+    full corpus holds 5.7 to 136 million) it is refused with the documented 400 before any SQL runs, unless an
+    equality on patent_id (a value, a list, or an _or of values) sits in the same _and. The fixture's tables hold
+    3 to 8 rows, so the limit is lowered to 2 here."""
+    _, key, _ = user_key
+    roomy.setattr(settings, "LAPSE_TEXT_SCAN_MAX_ROWS", 2)
+    with _SqlLog("sql_refused.jsonl") as log:
+        r = get(client, key, "/api/v1/g_claim/", {"_contains": {"claim_text": "rotat"}})
+    assert r.status_code == 400, r.content
+    assert r.json() == {"error": True}
+    assert r["X-Status-Reason-Code"] == "ERR_Q"
+    reason = r["X-Status-Reason"]
+    assert reason.startswith("Query too expensive: _contains on claim_text reads and decompresses every row of g_claims (8 rows;"), reason
+    assert "_text_any, _text_all or _text_phrase on claim_text" in reason and "put patent_id" in reason
+    assert chr(0x2014) not in reason
+    assert log.statements() == []  # refused before any SQL ran
+    for q in ({"_gte": {"claim_text": "a"}},
+              {"_begins": {"summary_text": ""}},
+              {"_or": [{"patent_id": "12050006"}, {"_contains": {"claim_text": "rotat"}}]},
+              {"_not": {"_contains": {"claim_text": "rotat"}}},
+              {"_and": [{"_gte": {"patent_id": "12050000"}}, {"_contains": {"claim_text": "rotat"}}]}):
+        ep = "/api/v1/g_brf_sum_text/" if "_begins" in q else "/api/v1/g_claim/"
+        r = get(client, key, ep, q)
+        assert r.status_code == 400 and r["X-Status-Reason-Code"] == "ERR_Q", (q, r.content)
+        assert r["X-Status-Reason"].startswith("Query too expensive: "), q
+    # narrowed by patent_id: answered, the same rows as without the limit
+    r = get(client, key, "/api/v1/g_claim/", {"_and": [{"patent_id": "12050006"}, {"_contains": {"claim_text": "rotat"}}]})
+    assert r.status_code == 200, r.content
+    assert [(x["patent_id"], x["claim_sequence"]) for x in r.json()["g_claims"]] == [("12050006", 0)]
+    r = get(client, key, "/api/v1/g_claim/", {"_and": [{"patent_id": ["12050000", "12050006"]}, {"_contains": {"claim_text": "brush"}}]})
+    assert r.status_code == 200 and [x["claim_sequence"] for x in r.json()["g_claims"]] == [0, 2]
+    r = get(client, key, "/api/v1/g_claim/", {"_and": [{"_or": [{"patent_id": "12050000"}, {"patent_id": "12050006"}]},
+                                                        {"_contains": {"claim_text": "brush"}}]})
+    assert r.status_code == 200 and r.json()["total_hits"] == 2
+    r = get(client, key, "/api/v1/g_claim/", {"_and": [{"patent_id": "12050006"}, {"_not": {"_contains": {"claim_text": "brush"}}}]})
+    assert r.status_code == 200 and [x["claim_sequence"] for x in r.json()["g_claims"]] == [1]
+    # a needle no token holds is answered (no rows), never refused; the full-text operators are untouched
+    r = get(client, key, "/api/v1/g_claim/", {"_contains": {"claim_text": "rotating brush"}})
+    assert r.status_code == 200 and r.json()["total_hits"] == 0
+    r = get(client, key, "/api/v1/g_claim/", {"_text_any": {"claim_text": "brush"}})
+    assert r.status_code == 200 and r.json()["total_hits"] == 2
+    # the main snapshot is not a long-text file: the limit does not apply there
+    r = get(client, key, "/api/v1/patent/", {"_contains": {"patent_title": "pix"}}, f=["patent_id"])
+    assert r.status_code == 200, r.content
+
+
+def test_neq_over_every_row_counts_from_row_counts_and_walks_the_sort_index(client, user_key, text_env, roomy):
+    """{"_neq": {"patent_id": ""}} (the R package's api-changes vignette, size 1, sorted asc then desc to find the
+    first and last patent) matches every row. On the full corpus the page scanned and sorted the whole table and the
+    count read every row: 500 at the 20 s limit. Now total_hits is _lapse_build.row_counts minus the rows the negated
+    clause matches (one index lookup), and the page walks the sort key's index (on g_claims the (patent_id,
+    claim_sequence) index). Every total is checked against a count over the file."""
+    _, key, _ = user_key
+    path = text_env
+    with _SqlLog("sql_neq.jsonl") as log:
+        r = get(client, key, "/api/v1/g_brf_sum_text/", {"_neq": {"patent_id": ""}}, s=[{"patent_id": "asc"}], o={"size": 1})
+        assert r.status_code == 200, r.content
+        js = r.json()
+        assert js["total_hits"] == _rows(path, "SELECT count(*) FROM g_brf_sum_texts")[0][0] == 4
+        assert [x["patent_id"] for x in js["g_brf_sum_texts"]] == ["12050000"]
+        r = get(client, key, "/api/v1/g_brf_sum_text/", {"_neq": {"patent_id": ""}}, s=[{"patent_id": "desc"}], o={"size": 1})
+        assert [x["patent_id"] for x in r.json()["g_brf_sum_texts"]] == ["12050007"] and r.json()["total_hits"] == 4
+    stmts = log.statements()
+    counts = [s for s in stmts if s.startswith("SELECT count(*)")]
+    pages = [s for s in stmts if not s.startswith("SELECT count(*)")]
+    assert counts and all("NOT COALESCE" not in s and 'm."patent_id" = ?' in s for s in counts), counts
+    assert pages and all('INDEXED BY "ix_g_brf_sum_texts_patent_id"' in s for s in pages), pages
+    # claims: the default sort (patent_id, claim_sequence), the _not form, two negations in an _and
+    cases = [
+        ({"_neq": {"patent_id": "12050006"}}, "patent_id != '12050006'"),
+        ({"_not": {"patent_id": "12050006"}}, "patent_id != '12050006'"),
+        ({"_and": [{"_neq": {"patent_id": "12050006"}}, {"_neq": {"patent_id": "11000000"}}]}, "patent_id NOT IN ('12050006', '11000000')"),
+        ({"_neq": {"claim_sequence": 0}}, "claim_sequence IS NULL OR claim_sequence != 0"),
+        ({"_neq": {"patent_id": ["12050000", "12050007"]}}, "patent_id NOT IN ('12050000', '12050007')"),
+    ]
+    with _SqlLog("sql_neq_claims.jsonl") as log:
+        for q, where in cases:
+            r = get(client, key, "/api/v1/g_claim/", q, o={"size": 100})
+            assert r.status_code == 200, (q, r.content)
+            want = _rows(path, f"SELECT patent_id, claim_sequence FROM g_claims WHERE {where} "
+                               "ORDER BY patent_id, claim_sequence IS NULL, claim_sequence, rowid")
+            got = [(x["patent_id"], x["claim_sequence"]) for x in r.json()["g_claims"]]
+            assert got == [tuple(w) for w in want], (q, got, want)
+            assert r.json()["total_hits"] == len(want), q
+    stmts = log.statements()
+    assert all("NOT COALESCE" not in s for s in stmts if s.startswith("SELECT count(*)")), stmts
+    assert any('INDEXED BY "ix_g_claims_patent_id_claim_sequence"' in s for s in stmts), stmts
+    # a page after a cursor and a positive query are untouched: no hint, the counts as before
+    r = get(client, key, "/api/v1/g_claim/", {"_neq": {"patent_id": ""}}, s=[{"patent_id": "asc"}, {"claim_sequence": "asc"}],
+            o={"size": 2, "after": ["12050006", 0]})
+    assert [(x["patent_id"], x["claim_sequence"]) for x in r.json()["g_claims"]] == [("12050006", 1), ("12050006", 2)]
+    assert r.json()["total_hits"] == 8
+    r = get(client, key, "/api/v1/g_claim/", {"patent_id": "12050006"})
+    assert r.json()["total_hits"] == 3
+
+
+def test_complement_count_needs_an_exact_row_count(text_env):
+    """Without row_counts (a text file from before build_text recorded them) the count is the plain one, same answer."""
+    import shutil
+
+    copy = str(_TMP / "text_no_counts.db")
+    shutil.copyfile(text_env, copy)
+    con = sqlite3.connect(copy)
+    con.execute("DELETE FROM _lapse_build WHERE k='row_counts'")
+    con.commit()
+    con.close()
+    old = settings.LAPSE_TEXT_PATH
+    settings.LAPSE_TEXT_PATH = copy
+    LapseSQLiteSearch._local.__dict__.clear()
+    LapseSQLiteSearch._meta_cache.clear()
+    try:
+        s = LapseSQLiteSearch.from_django_settings()
+        meta = s.meta("g_claims")
+        assert meta.wide and meta.exact_rows is None
+        q = {"query": {"bool": {"must_not": [{"match": {"patent_id": "12050006"}}]}}}
+        with _SqlLog("sql_nocounts.jsonl") as log:
+            assert s.count("g_claims", q)["count"] == 5
+        assert any("NOT COALESCE" in st for st in log.statements())
+    finally:
+        settings.LAPSE_TEXT_PATH = old
+        LapseSQLiteSearch._local.__dict__.clear()
+        LapseSQLiteSearch._meta_cache.clear()
+        os.remove(copy)

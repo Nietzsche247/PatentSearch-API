@@ -94,6 +94,10 @@ that the handler's final branch passes to DRF, and `LapseErrorHeadersMiddleware`
   (`strict_date_optional_time||epoch_millis`).
 * The null check behind "missing values sort last" is cached per column, so the database is treated
   as read-only while the server runs.
+* `_contains`, a range or an empty `_begins` on a long-text field (`claim_text`, `summary_text`,
+  `description_text`, `draw_desc_text`) with no `patent_id` in the same `_and` answers 400 ERR_Q (the cost cap) on
+  a table above 20,000 rows, where Elasticsearch answered from its term dictionary; a needle holding a space or
+  punctuation answers no rows, as Elasticsearch did (2026-10-09 section below).
 
 ## Sample database (built 2026-09-26, not committed)
 
@@ -562,3 +566,53 @@ Branch `wave2-pending-approval`, not deployed; it goes live only with the owner'
   `pin-drift` (`ops/check_pins.py`) compares it and `version` with `ops/deploy.pins` every hour (gate 5.2).
 - `lapse_accounts/public.py` (`ERROR_CODES`): the ERR_KEY page says a data endpoint's 403 carries no code header; the
   ERR_NOT_IMPLEMENTED page names the NBER routes and the long text served since 2026-10-08 (2.11 doc defects 7 and 3).
+
+## 2026-10-09 pending approval: the long-text shapes that timed out (PatentRef 2.3 finding)
+
+Branch `wave2-pending-approval`, not deployed. After the 20261006.4 swap the R package's api-changes vignette hit
+three 500s on the long-text endpoints (patentref audit `ops/audits/2026-10-08_gate-2.3_swap-20261006.4-live_patentref-us1.txt`,
+section C): `{"_neq": {"patent_id": ""}}` sorted asc and desc on `/api/v1/g_brf_sum_text/` (the vignette's way to find
+the first and last patent with a summary), the same on `/api/v1/g_claim/`, and
+`{"_contains": {"summary_text": "particular depth"}}`; each ran into the 20 s statement limit (500 ERR_ES). Upstream
+answered all three: the first two with the first and last patent, the third with total_hits 0 (the published
+vignette). The behavior now follows upstream where an index can serve the query, and the cost cap where none can:
+
+- `_contains` with a needle no token can hold (a space or punctuation): a wildcard is matched against single tokens
+  (Elasticsearch: single indexed terms), so such a needle matches nothing. `Translator._pattern` answers `0` without
+  reading a row; before, every summary was read and decompressed to reach the same empty answer. This holds for
+  every text field and returns the rows the per-row test returned (checked against every text of the test fixture).
+- A query made only of negations (`_neq`, `_not`, or an `_and` of them) on a long-text table: total_hits is
+  `_lapse_build.row_counts` minus the rows the negated clauses match (`LapseSQLiteSearch._complement_count`; a
+  negation keeps a row unless its clause is true, so the kept rows are exactly the others; build_text.py and every
+  later writer keep row_counts exact, and without it the count is the plain one). The page walks the sort key's
+  index (`INDEXED BY`; on `g_claims` and `g_draw_desc_texts` the index that starts with `patent_id`), steered by a
+  density estimated from sqlite_stat1 (`IndexMeta.wide`, `eq_share`, `lead_index`), since these tables carry no
+  `_lapse_value_stats`. The main snapshot is untouched: `wide` is false there.
+- `_contains` with a needle one token can hold, a range (`_gt`, `_gte`, `_lt`, `_lte`) or an empty `_begins` on
+  `claim_text`, `summary_text`, `description_text` or `draw_desc_text` has no index to use (the long text has
+  full-text indexes and no substring index; Elasticsearch answered from its term dictionary). On a table above
+  `LAPSE_TEXT_SCAN_MAX_ROWS` rows (20,000: about 8 s of decompression on the descriptions, measured at 2,400 rows a
+  second there, 15,000 on summaries and 146,000 on claims) it is refused before any SQL runs with the documented
+  400 of the cost cap: `{"error": true}`, `X-Status-Reason-Code: ERR_Q`, and `X-Status-Reason: Query too expensive:
+  _contains on claim_text reads and decompresses every row of g_claims (136,021,794 rows; the long text has full-text
+  indexes, no substring index), past the statement time limit. Use _text_any, _text_all or _text_phrase on
+  claim_text, or put patent_id (one value or a list of up to 1,000) in the same _and.` An equality on `patent_id`,
+  `patent_zero_prefix` or the table's key in the same `_and` (a value, a list of up to 1,000, or an `_or` of
+  values) bounds the scan, and such a query runs as before (`Translator.scan_guard`, `q_bool`, `_key_bound`).
+- Measured on patentref-us1 with a scratch instance of this branch on 127.0.0.1:8799 (own Django DB, key and count
+  cache under /tmp; read-only on the live files: snapshot 20261006.5, text 20261006.4; logs
+  `/data/lapse/logs/w2v/lt_branch_20261009T024435Z/`, `lt_branch2_20261009T024809Z/`, `lt_sql_20261009T024935Z/`):
+  the five requests of the finding answer 200 in 0.003 to 0.138 s (`_neq` total_hits 8,582,880 summaries and
+  136,021,794 claims, first 10000000, last RE50723; the needle with a space 0 rows); `_neq` 100-row pages on all
+  four endpoints in both directions 0.004 to 0.013 s, page 2 after a cursor 0.010 s; `_contains` "laser" with 1,000
+  patent_ids 0.28 s on summaries, 0.39 s on claims and 0.78 s on descriptions, with the live instance's totals (47,
+  44, 139); the refusals 0.003 to 0.012 s. Contract 31/31 (29 served, 2 deferred 501), extra checks 19/19, p95
+  65.6 ms; pagination 10/10; quirks 9/9. The SQL of the 30 contract examples that carry a parser query is identical
+  to the base's (9f49e54), 53 statements with their parameters.
+- Settings: `LAPSE_TEXT_SCAN_MAX_ROWS`. `lapse_accounts/public.py` (`ERROR_CODES`): the ERR_Q page names the
+  long-text refusal. `API/lapse_cost.py`: the docstring points to the translator's part of the cap.
+- Tests in `lapse_accounts/tests/test_long_text.py`: `test_contains_with_a_space_or_punctuation_matches_no_token`,
+  `test_scan_of_a_large_long_text_table_is_refused_unless_patent_id_narrows_it`,
+  `test_neq_over_every_row_counts_from_row_counts_and_walks_the_sort_index`,
+  `test_complement_count_needs_an_exact_row_count`: totals against a count over the file, rows against the per-row
+  test, and the SQL each statement ran.

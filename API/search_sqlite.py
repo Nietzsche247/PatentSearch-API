@@ -27,6 +27,7 @@ root_cause types ES returns, so API.exceptions maps them to the same status code
 """
 import datetime as dt
 import fnmatch
+import json
 import logging
 import os
 import re
@@ -43,6 +44,27 @@ KEYWORD_IGNORE_ABOVE = 256
 # PatentRef 4.7: the flag on inventor, assignee and attorney rows (lapse/grants.py in the patentref repo adds it)
 FLAG_FIELD = "disambiguated"
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# a character no token holds (tokens are runs of \w); in a wildcard pattern * and ? are the operators, not text
+_NON_TOKEN_RE = re.compile(r"[^\w*?]", re.UNICODE)
+TEXT_SCAN_MAX_ROWS = 20000  # the default of settings.LAPSE_TEXT_SCAN_MAX_ROWS (Translator.scan_guard)
+
+
+def text_scan_max_rows():
+    """Rows of a long-text table a per-row text test may read: settings.LAPSE_TEXT_SCAN_MAX_ROWS or the
+    environment, else 20,000 (about 8 s of decompression on the detailed descriptions, measured 2026-10-09:
+    2,400 rows a second there, 15,000 on summaries, 146,000 on claims)."""
+    try:
+        from django.conf import settings
+
+        v = getattr(settings, "LAPSE_TEXT_SCAN_MAX_ROWS", None)
+    except Exception:  # noqa: BLE001  (no Django settings: tests, tools)
+        v = None
+    if v is None:
+        v = os.environ.get("LAPSE_TEXT_SCAN_MAX_ROWS", TEXT_SCAN_MAX_ROWS)
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return TEXT_SCAN_MAX_ROWS
 
 
 def es_error(err_type, reason, status=400):
@@ -330,12 +352,49 @@ class IndexMeta:
                     self.stats.setdefault((tbl, col), {})[val] = n
         # single-column indexes of the main table, for steering an ORDER BY onto the index of its first key
         self.single_index = {}  # column -> index name
+        leading = {}  # column -> (width, name) of the narrowest multi-column index that starts with it
+        first_col = {}  # index name -> its first column
         for _, name, _, origin, _ in con.execute(f'PRAGMA {sch}.index_list("{self.table}")'):
             if origin != "c":
                 continue
             cols = [r[2] for r in con.execute(f'PRAGMA {sch}.index_info("{name}")')]
+            if cols:
+                first_col[name] = cols[0]
             if len(cols) == 1 and cols[0] not in self.single_index:
                 self.single_index[cols[0]] = name
+            elif len(cols) > 1 and (cols[0] not in leading or (len(cols), name) < leading[cols[0]]):
+                leading[cols[0]] = (len(cols), name)
+        # The long-text tables (PatentRef 1.6) are `wide`: a row holds kilobytes of compressed text, so a plan that
+        # scans the table reads the 300 GB file. They carry no _lapse_value_stats; what they have is their exact
+        # row count (_lapse_build.row_counts, kept by build_text.py and by every later writer) and SQLite's sampled
+        # sqlite_stat1. From those: total_hits of a query made only of negations is the row count minus the rows
+        # the negated clauses match (LapseSQLiteSearch._complement_count), an equality's share of the rows is
+        # estimated for the density that steers an ORDER BY onto the sort key's index, and that index may be one
+        # whose first column is the sort key (g_claims has (patent_id, claim_sequence), no patent_id index alone).
+        self.wide = sch == "txt"
+        self.exact_rows = None  # rows of the main table, when known exactly
+        self.eq_share = {}  # column -> estimated fraction of rows one value holds (sqlite_stat1), wide tables only
+        self.lead_index = dict(self.single_index)
+        if self.wide:
+            for col, (_, name) in leading.items():
+                self.lead_index.setdefault(col, name)
+            if "_lapse_build" in tables:
+                row = con.execute(f"SELECT v FROM {sch}._lapse_build WHERE k='row_counts'").fetchone()
+                try:
+                    n = json.loads(row[0]).get(self.table) if row and row[0] else None
+                    self.exact_rows = int(n) if n is not None else None
+                except (ValueError, TypeError, AttributeError):
+                    self.exact_rows = None
+            if "sqlite_stat1" in tables:
+                for name, stat in con.execute(f"SELECT idx, stat FROM {sch}.sqlite_stat1 WHERE tbl=?", (self.table,)):
+                    parts = str(stat or "").split()
+                    col = first_col.get(name)
+                    try:
+                        nrow, per = int(parts[0]), int(parts[1])
+                    except (IndexError, ValueError):
+                        continue
+                    if col and nrow > 0 and col not in self.eq_share:
+                        self.eq_share[col] = min(1.0, per / nrow)
 
     def freq(self, table, column, value):
         """Fraction of `table` rows holding `value` in `column` (None when the column has no stats)."""
@@ -392,6 +451,8 @@ class Translator:
 
     DENSE_NESTED = 0.02     # nested match rows / parent rows at or above this: EXISTS probes beat the IN set
     RARE_COMPLEMENT = 0.10  # must_not whose complement is this rare or rarer: index range union
+    KEY_FIELDS = ("patent_id", "patent_zero_prefix", "document_number")  # an equality on one bounds a text scan
+    MAX_BOUND_VALUES = 1000  # values of such an equality that still bound it (1,000 patents of claims: 0.1 s)
 
     def __init__(self, meta, mode="search"):
         self.meta = meta
@@ -399,6 +460,7 @@ class Translator:
         self.params = []
         self.density = None
         self._p = None  # estimated selectivity of the leaf just translated (None = unknown)
+        self._bounded = False  # inside an AND that holds an equality on a key field (scan_guard)
 
     # ---- field resolution
     def resolve(self, field, ctx):
@@ -446,6 +508,64 @@ class Translator:
         return "1"
 
     def q_bool(self, body, ctx):
+        """An AND (filter/must) that holds an equality on patent_id, patent_zero_prefix, document_number or the
+        table's key narrows every clause of this bool to a few rows, so a per-row text test inside it reads only
+        those (scan_guard lets it through)."""
+        before = self._bounded
+        if not before and isinstance(body, dict):
+            ands = []
+            for clause in ("filter", "must"):
+                subs = body.get(clause, [])
+                ands += subs if isinstance(subs, list) else [subs]
+            self._bounded = any(self._key_bound(s, ctx) for s in ands)
+        try:
+            return self._q_bool(body, ctx)
+        finally:
+            self._bounded = before
+
+    def _key_bound(self, q, ctx):
+        """True when q is an equality (a value, a list, or an OR of equalities on one field) on a key field of
+        the table, with at most MAX_BOUND_VALUES values."""
+        if isinstance(q, dict) and len(q) == 1 and "bool" in q and isinstance(q["bool"], dict) \
+                and set(q["bool"]) == {"should"} and isinstance(q["bool"]["should"], list):
+            leaves = [self._equality_leaf(s) for s in q["bool"]["should"]]
+            if not leaves or any(leaf is None for leaf in leaves) or len({(lf[0], lf[1]) for lf in leaves}) != 1:
+                return False
+            leaf = (leaves[0][0], leaves[0][1], [v for lf in leaves for v in lf[2]])
+        else:
+            leaf = self._equality_leaf(q)
+        if leaf is None or leaf[0] is not None or ctx[1] is not None:
+            return False
+        field = leaf[1][:-8] if leaf[1].endswith(".keyword") else leaf[1]
+        if field not in self.KEY_FIELDS and field != self.meta.key:
+            return False
+        return field in self.meta.columns and 0 < len(leaf[2]) <= self.MAX_BOUND_VALUES
+
+    def scan_guard(self, f, what):
+        """The cost cap (PatentRef gate 5.6) for a test that reads every row of a long-text table: _contains,
+        a range or an empty _begins on summary_text, claim_text, description_text or draw_desc_text has no index
+        to use (the long text has full-text indexes, no substring index), so SQLite reads and decompresses each
+        row. On a table above text_scan_max_rows() rows, outside an AND with a key equality (q_bool), the query
+        is refused before any SQL runs with the documented 400 (`{"error": true}`, X-Status-Reason,
+        X-Status-Reason-Code: ERR_Q), instead of running into the statement limit and answering 500 ERR_ES."""
+        m = self.meta
+        if not m.wide or self._bounded or f.table != m.table or f.es_type != "text" or f.keyword:
+            return
+        if f.column in m.trigram.get(f.table, set()):
+            return
+        rows = m.exact_rows
+        limit = text_scan_max_rows()
+        if rows is None or rows <= limit:
+            return
+        from API.lapse_errors import LapseBadRequest
+
+        raise LapseBadRequest(
+            f"Query too expensive: {what} on {f.column} reads and decompresses every row of {m.table} ({rows:,} rows; "
+            f"the long text has full-text indexes, no substring index), past the statement time limit. Use _text_any, "
+            f"_text_all or _text_phrase on {f.column}, or put patent_id (one value or a list of up to "
+            f"{self.MAX_BOUND_VALUES:,}) in the same _and.")
+
+    def _q_bool(self, body, ctx):
         parts, ps = [], []
         for clause in ("filter", "must"):
             subs = body.get(clause, [])
@@ -548,6 +668,9 @@ class Translator:
             if all(p is not None for p in ps):
                 self._p = min(1.0, sum(ps))
                 term = f"likelihood({term}, {min(max(self._p, 1e-7), 0.9999):.7f})"
+        if self._p is None and self.meta.wide and f.table == self.meta.table and not f.keyword \
+                and f.column in self.meta.eq_share:
+            self._p = min(1.0, len(vals) * self.meta.eq_share[f.column])  # density only, as in eq()
         return f"({term}{self.kw_guard(f)})"
 
     def complement(self, q, ctx):
@@ -663,6 +786,10 @@ class Translator:
             # the planner's own estimate is rows / distinct values; the stats know the skew (nine
             # patents in ten are utility), and likelihood() carries that without touching the result
             term = f"likelihood({term}, {min(max(p, 1e-7), 0.9999):.7f})"
+        elif self.meta.wide and f.table == self.meta.table and not f.keyword:
+            # density only (a _neq over every row steers its page onto the sort index); no likelihood() hint,
+            # the planner reads the same sqlite_stat1
+            self._p = self.meta.eq_share.get(f.column)
         return f"({term}{self.kw_guard(f)})"
 
     def fts(self, f, expr):
@@ -768,6 +895,7 @@ class Translator:
                     lo, inc_lo = coerce_keyword(v), int(k == "gte")
                 else:
                     hi, inc_hi = coerce_keyword(v), int(k == "lte")
+            self.scan_guard(f, "a range (_gt, _gte, _lt, _lte)")
             return (f"COALESCE(lapse_tok_range({f.sql}, {self.p(lo)}, {self.p(hi)}, "
                     f"{self.p(inc_lo)}, {self.p(inc_hi)}), 0)")
         lo_b = hi_b = None  # the bounds as stored, for the selectivity estimate
@@ -832,10 +960,20 @@ class Translator:
             toks = tokens(low)
             if qname == "prefix":
                 if low == "":
+                    self.scan_guard(f, "_begins with an empty value")
                     return f"({f.sql} IS NOT NULL AND length({f.sql}) > 0)"
                 if len(toks) == 1 and toks[0] == low:
                     return self.fts(f, fts_quote(low) + "*")
                 return "0"  # no token contains a space or punctuation, so nothing starts with the value
+            if _NON_TOKEN_RE.search(low):
+                # A wildcard is matched against single tokens (Elasticsearch: single indexed terms), and no token
+                # holds a space or punctuation, so a needle with one matches nothing: the rows the per-row test
+                # below would find, without reading a row. Upstream's answer to the R package's
+                # {"_contains": {"summary_text": "particular depth"}} is total_hits 0 (vignette api-changes);
+                # here it read and decompressed every summary and answered 500 at the 20 s limit (gate 2.3).
+                self._p = 0.0
+                return "0"
+            self.scan_guard(f, "_contains")
             inner = low[1:-1] if len(low) > 2 and low[0] == low[-1] == "*" else None
             if inner is not None and not any(ch in inner for ch in "*?"):
                 # the _contains operator: a cheap substring test on the whole value first, then the token test
@@ -1099,14 +1237,57 @@ class LapseSQLiteSearch:
 
     def count(self, index, query):
         meta = self.meta(index)
-        where, params, _ = self._where(meta, query, "count")
+        n = self._complement_count(index, meta, query)
+        if n is None:
+            where, params, _ = self._where(meta, query, "count")
+            n = self._count_where(index, meta, where, params)
+        return {"count": n, "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0}}
+
+    def _count_where(self, index, meta, where, params):
         sql = f'SELECT count(*) FROM "{meta.table}" m WHERE {where}'
         n = self._memo_get(index, sql, params)
         if n is None:
             t0 = time.perf_counter()
             n = self._run(sql, params)[0][0]
             self._memo_put(index, sql, params, n, (time.perf_counter() - t0) * 1000)
-        return {"count": n, "_shards": {"total": 1, "successful": 1, "skipped": 0, "failed": 0}}
+        return n
+
+    @classmethod
+    def _negations(cls, body):
+        """The negated clauses of a query made only of negations: {"bool": {"must_not": [...]}} (what _neq and
+        _not emit), or an AND (filter/must) of such bools; None for any other shape."""
+        if not isinstance(body, dict) or set(body) != {"bool"} or not isinstance(body["bool"], dict):
+            return None
+        b = body["bool"]
+        if not b or set(b) - {"filter", "must", "must_not"}:
+            return None
+        out = []
+        for clause in ("filter", "must"):
+            subs = b.get(clause, [])
+            for s in subs if isinstance(subs, list) else [subs]:
+                inner = cls._negations(s)
+                if not inner:
+                    return None
+                out += inner
+        nots = b.get("must_not", [])
+        out += nots if isinstance(nots, list) else [nots]
+        return out or None
+
+    def _complement_count(self, index, meta, query):
+        """total_hits of a query made only of negations, on a table whose exact row count is known (the long-text
+        file, IndexMeta.exact_rows): the rows minus the rows any negated clause matches. A negation is written
+        NOT COALESCE(x, 0), which keeps a row unless x is true, so the rows it keeps are exactly the others, NULLs
+        included. {"_neq": {"patent_id": ""}} over 136,021,794 claims is then one index lookup instead of a count
+        over every row (500 at the 20 s limit before; the R package's api-changes vignette sends it, gate 2.3).
+        None when the shape or the row count does not allow it."""
+        if meta.exact_rows is None:
+            return None
+        nots = self._negations(self._query_body(query))
+        if not nots:
+            return None
+        positive = nots[0] if len(nots) == 1 else {"bool": {"should": nots}}
+        where, params, _ = self._where(meta, positive, "count")
+        return max(meta.exact_rows - self._count_where(index, meta, where, params), 0)
 
     # ---- total_hits memo (the analogue of the Elasticsearch shard request cache)
     # A count is a pure function of (data file, query), and the file never changes under a data_version,
@@ -1374,7 +1555,9 @@ class LapseSQLiteSearch:
         hint = ""
         if density is not None and density >= self.STEER_DENSITY and sort_spec and not after \
                 and sort_spec[0][0].column != key and not nullable[sort_spec[0][0].column]:
-            ix = meta.single_index.get(sort_spec[0][0].column)
+            # on a wide (long-text) table an index that starts with the sort key will do: the planner's other
+            # choice there is a scan and sort of the whole table (a _neq over every row: 500 at 20 s, gate 2.3)
+            ix = (meta.lead_index if meta.wide else meta.single_index).get(sort_spec[0][0].column)
             if ix:
                 hint = f' INDEXED BY "{ix}"'
         sql = (f'SELECT {", ".join(chr(34) + c + chr(34) for c in select_cols)} FROM "{meta.table}" m{hint} '

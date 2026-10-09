@@ -7,7 +7,9 @@ the weights below; it is not a prediction of milliseconds. A query above `LAPSE_
 refused with the upstream 400 shape (`{"error": true}`, `X-Status-Reason` naming the cost, the limit and
 the reason, `X-Status-Reason-Code: ERR_Q`), raised as `InvalidQueryStringError` so the unchanged
 exception handler produces it. The per-statement timeout and the per-request budget in the searcher
-remain the backstop for whatever the estimate misses.
+remain the backstop for whatever the estimate misses. The one part of the cap that needs the schema lives in
+the translator: a _contains, range or empty _begins that would read every row of a long-text table is
+refused there with the same 400 (`API/search_sqlite.py`, `Translator.scan_guard`).
 
 Weights (units):
   leaf criterion (equality, range, list element)        1 each; a list value counts one per element
