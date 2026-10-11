@@ -688,3 +688,30 @@ machinery in public answers and a status sentence that overstated its source.
 - Tests: `test_public.py` (meta body without internal words, the computed `deferred`, the 501 reasons, the error index
   against the guide), `test_lapse_group.py` (every template, the G2 rule), `test_long_text.py` (X-Text-Data-Version on
   the four routes, absent elsewhere and without a long-text file), `test_status.py` (the page without gate or desk).
+
+## 2026-10-11 pending approval: the wording review of the plain sentences, the term from the earliest parent, the 35 USC 156 list
+
+The independent review of the sentence templates (the patentref repo's `ops/reviews/2026-10-11_lapse-sentence-templates_review.md`,
+on its branch `wave2-pending-approval-3-rec`) asked for its wording verbatim and for the term rule under it to be right.
+
+- `API/lapse_wording.py`: the five `TEMPLATES`, `TERM_TEXT`, `basis_text` and `reinstated_text` as the review's section 2.3
+  writes them. A patent on the USPTO list of patent terms extended under 35 USC 156 gets `PTE_TEMPLATES` (the list's term
+  end instead of the 156 clause) and the record page's `pte_156` gloss: builder wording added after the review, which
+  needs its own review before it ships.
+- `API/lapse_group.py`: the engine gets the earliest continuation, division or continuation-in-part parent date (rows of
+  `patents__us_related_documents` of kind parent-doc or parent-pct-document; never a provisional or a parent grant
+  document; years before 1900 dropped as malformed) and the international filing date of a 371 national stage
+  (`patents__pct_data` pct_application rows with a 371 date). The 20-year term counts from the earliest of them
+  (35 USC 154(a)(2), 363); the 156 list comes from the patentref checkout (`data/pte156/`). A patentref checkout that
+  predates `parent_filing_date` still works (no parent date passed). `verdict_with_engine` gives the record page the
+  engine record for its Basis row; `verdict` keeps its answer.
+- Record page: the 37 CFR 1.378 reinstatement line only for `expired_fee_nonpayment`.
+- `lapse_tools/schemas/check_patent_status.schema.json`: `basis` allows `pte_156:<days>`.
+- Needs the patentref branch of the same name deployed with it (expiry.expiry_record takes `parent_filing_date`; the
+  list file and lapse/pte156.py).
+- On data version 20261006.5: 1,758,476 term ends move by a parent and 86,278 patents change from active to
+  expired_term; 72,743 move by a 371 date; 1,112 by the 156 list (27 active to expired_term, 61 expired_term to active,
+  53 reissues from unknown); 19,415 withdrawn patents lose their term end; 30 whose term end is the as_of date read
+  active (the patentref repo's `ops/audits/2026-10-11_lapse-wording-review-fix_patentref-us1.txt`).
+- Tests (`lapse_accounts/tests/test_lapse_group.py`): every sentence of the review's section 3 byte for byte, a
+  continuation fixture (parent-doc counted, parent grant document and provisional not), the 156 wording.
