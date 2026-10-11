@@ -9,7 +9,7 @@
   "properties": {
     "patent_id": {"type": "string", "pattern": "^(RE|PP|D|H|T|AI|X)?[0-9]{1,8}$"},
     "status": {"type": "string", "enum": ["active", "expired_term", "expired_fee_nonpayment", "withdrawn", "unknown"]},
-    "basis": {"type": "array", "items": {"type": "string", "pattern": "^(term_20y|term_17y|term_14y|term_15y|terminal_disclaimer|pta_days:[0-9]+|fee_lapse:[0-9]{4}-[0-9]{2}-[0-9]{2}|reinstated:[0-9]{4}-[0-9]{2}-[0-9]{2})$"}},
+    "basis": {"type": "array", "items": {"type": "string", "pattern": "^(term_20y|term_17y|term_14y|term_15y|terminal_disclaimer|pta_days:[0-9]+|fee_lapse:[0-9]{4}-[0-9]{2}-[0-9]{2}|reinstated:[0-9]{4}-[0-9]{2}-[0-9]{2}|pte_156:[0-9]+)$"}},
     "reinstatement_possible": {"enum": [true, false, "unknown"]},
     "reinstatement_basis": {"type": "string", "minLength": 1},
     "expiry_date_estimated": {"type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},

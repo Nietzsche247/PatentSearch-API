@@ -112,6 +112,30 @@ def fetch_rows(con, cat, ids):
                 out.setdefault(pid, {"id": "US" + pid}).update({"term_extension": ext, "term_disclaimer_raw": td, "disclaimer_date_raw": dd})
         except sqlite3.Error:
             pass
+        # the earliest continuation, division or continuation-in-part parent the record lists: the 20-year term counts
+        # from its filing date (35 USC 154(a)(2)); never a parent's grant date (parent-grant-document rows) or a
+        # provisional (us-provisional-application rows, 35 USC 154(a)(3)). Wording review 2026-10-11, section 2.2.
+        try:
+            for pid, pf in con.execute(
+                    'SELECT "_pid", MIN(related_doc_published_date) FROM patents__us_related_documents '
+                    "WHERE related_doc_kind IN ('parent-doc', 'parent-pct-document') "
+                    "AND related_doc_type IN ('continuation', 'division', 'continuation-in-part') "
+                    "AND COALESCE(related_doc_published_date, '') >= '1900-01-01' "  # a few rows carry a year like 0213
+                    f'AND "_pid" IN ({_ids_sql(len(part))}) GROUP BY "_pid"', part):
+                out.setdefault(pid, {"id": "US" + pid})["parent_filing_date"] = pf
+        except sqlite3.Error:
+            pass
+        # a 371 national stage files on its international filing date (35 USC 363); older PatentsView rows give the 371
+        # date as the application's filing date (US 6250119: 1999-07-07, international filing 1997-01-08)
+        try:
+            for pid, pct in con.execute(
+                    'SELECT "_pid", MIN(published_filed_date) FROM patents__pct_data '
+                    "WHERE pct_doc_type = 'pct_application' AND COALESCE(pct_371_date, '') != '' "
+                    "AND COALESCE(published_filed_date, '') >= '1900-01-01' "
+                    f'AND "_pid" IN ({_ids_sql(len(part))}) GROUP BY "_pid"', part):
+                out.setdefault(pid, {"id": "US" + pid})["pct_filing_date"] = pct
+        except sqlite3.Error:
+            pass
         try:
             for pid, pdate, withdrawn, fdate in con.execute(
                     f'SELECT p.patent_id, p.patent_date, p.withdrawn, (SELECT filing_date FROM patents__application a '
@@ -133,11 +157,15 @@ def record_for(expiry, cat, pid, d):
     flags = expiry.term_flags(d.get("term_extension"), d.get("term_disclaimer_raw"), d.get("disclaimer_date_raw"))
     if d.get("pta_days") is not None and "pta_days" in cat["columns"]:
         flags["pta_days"] = int(d.get("pta_days") or 0) or flags["pta_days"]
-    return expiry.expiry_record(d.get("filing_date"), d.get("grant_date"), d.get("fee_status"), d.get("lapse_date"),
-                                reinstated_date=d.get("reinstated_date"), pta_days=flags["pta_days"],
-                                terminal_disclaimer=flags["terminal_disclaimer"], disclaimer_date=flags["disclaimer_date"],
-                                withdrawn=bool(d.get("withdrawn")), patent_id="US" + str(pid),
-                                as_of=cat.get("as_of") or date.today().isoformat())
+    kw = dict(reinstated_date=d.get("reinstated_date"), pta_days=flags["pta_days"],
+              terminal_disclaimer=flags["terminal_disclaimer"], disclaimer_date=flags["disclaimer_date"],
+              withdrawn=bool(d.get("withdrawn")), patent_id="US" + str(pid), as_of=cat.get("as_of") or date.today().isoformat())
+    if "parent_filing_date" in getattr(expiry.expiry_record, "__code__", None).co_varnames:
+        kw["parent_filing_date"] = d.get("parent_filing_date")  # a patentref checkout before 2026-10-11 lacks it
+    filing = d.get("filing_date")
+    if d.get("pct_filing_date") and (not filing or d["pct_filing_date"] < filing):
+        filing = d["pct_filing_date"]  # the international filing date of a 371 national stage (35 USC 363)
+    return expiry.expiry_record(filing, d.get("grant_date"), d.get("fee_status"), d.get("lapse_date"), **kw)
 
 
 def group_object(expiry, cat, pid, d):
@@ -166,6 +194,14 @@ def groups_for(con, cat, ids):
 def verdict(con, cat, pid, data_version, base_url):
     """The check_patent_status record (scaffold 5.2) for one API patent id, or None when the patent is in
     neither the catalog nor the snapshot."""
+    got = verdict_with_engine(con, cat, pid, data_version, base_url)
+    return got[0] if got else None
+
+
+def verdict_with_engine(con, cat, pid, data_version, base_url):
+    """(the check_patent_status record, the engine record) or None. The engine record carries the wording-only keys
+    (term_from_parent, disclaimer_applied, pte_156) that the record page's Basis row needs and the JSON answer does not
+    carry (wording review 2026-10-11, section 2.3)."""
     from API import lapse_wording
 
     expiry = expiry_module()
@@ -198,4 +234,4 @@ def verdict(con, cat, pid, data_version, base_url):
              "audience": "agent"},
         ],
     }
-    return out
+    return out, rec

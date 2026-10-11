@@ -73,7 +73,7 @@
         <dt>Data version</dt><dd>{{ rec.data_version }}{% if rec.catalog_data_version and rec.catalog_data_version != rec.data_version %} (fee data {{ rec.catalog_data_version }}){% endif %}</dd>
       </dl>
     </div>
-    <p>A petition under 37 CFR 1.378 has no fixed time limit; the record does not show whether one would be granted.</p>
+    {% if rec.status == "expired_fee_nonpayment" %}<p>A petition under 37 CFR 1.378 has no fixed time limit; the record does not show whether one would be granted.</p>{% endif %}
     <h2>Links</h2>
     <ul>
       <li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (key required)</li>

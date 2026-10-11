@@ -214,11 +214,12 @@ class RecordPage(APIView):
         if sup is False:
             return HttpResponse("unknown data version\n", status=404, content_type="text/plain; charset=utf-8")
         try:
-            rec = lapse_group.verdict(con, cat, pid, data_version, base_url(request))
+            got = lapse_group.verdict_with_engine(con, cat, pid, data_version, base_url(request))
         except RuntimeError as e:
             return HttpResponse(f"status engine unavailable: {e}\n", status=503, content_type="text/plain; charset=utf-8")
-        if rec is None:
+        if got is None:
             return HttpResponse("not found\n", status=404, content_type="text/plain; charset=utf-8")
+        rec, engine_rec = got
         title = None
         try:
             row = con.execute("SELECT patent_title FROM patents WHERE patent_id = ?", (pid,)).fetchone()
@@ -228,7 +229,7 @@ class RecordPage(APIView):
         html = render_to_string("lapse_accounts/record.html", {
             "rec": rec, "pid": pid, "title": title, "superseded": sup, "data_version": data_version,
             "as_of": rec.get("as_of"), "footer_lines": footer_lines(),
-            "basis_text": lapse_wording.basis_text(rec.get("basis")),
+            "basis_text": lapse_wording.basis_text(rec.get("basis"), engine_rec),
             "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1),
         })
         bad = lapse_wording.check_banned(html.split('data-user-content="true"')[0])

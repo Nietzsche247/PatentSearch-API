@@ -42,6 +42,20 @@ PATENTS = [
     ("6671888", "Method of drying a coated web", "2004-01-06", "utility", 0, "2002-04-01", "129", "", ""),
     ("8087108", "Pool cleaning head with a brush", "2012-01-03", "utility", 0, "2007-05-25", "918", "", ""),
     ("4890344", "Fastening device for a lamp", "1990-01-02", "utility", 0, "1989-01-31", "0", "", "2006-05-16"),
+    # a continuation (the wording review of 2026-10-11, finding 1): its own filing 2020-07-21, the earliest parent 2005-12-23
+    ("11086507", "Vehicle data processing", "2021-08-10", "utility", 0, "2020-07-21", "", "This patent is subject to a terminal disclaimer.", ""),
+]
+# patents__us_related_documents rows, as PatentsView and the weekly-grant parser write them: the term counts from the earliest
+# continuation, division or continuation-in-part parent-doc; a parent's grant date, a child and a provisional never count
+RELATED = [
+    # _pid, _ord, related_doc_type, related_doc_kind, related_doc_number, related_doc_published_date
+    ("11086507", 0, "continuation", "parent-doc", "16132213", "2018-09-14"),
+    ("11086507", 1, "continuation", "parent-grant-document", "10078439", "2003-01-01"),
+    ("11086507", 2, "continuation", "child-doc", "16132213", None),
+    ("11086507", 3, "continuation", "parent-doc", "11322549", "2005-12-23"),
+    ("11086507", 4, "us-provisional-application", None, "60123456", "2004-06-01"),
+    ("11086507", 5, "continuation", "parent-doc", "12477075", "2009-06-02"),
+    ("10000364", 0, "related-publication", None, "20160266243", "2016-09-15"),
 ]
 CATALOG = [
     # id, filing, grant, fee_status, lapse_date, reinstated_date, prior, prior_pct, fwd_early, fwd_late, fwd_cites, fwd_recent
@@ -49,6 +63,7 @@ CATALOG = [
     ("US6671888", "2002-04-01", "2004-01-06", None, None, "2017-08-30", 1.5, 88.2, 2, 0, 2, 0),
     ("US8087108", "2007-05-25", "2012-01-03", "lapsed", "2016-01-03", None, None, None, 1, 0, 1, 0),
     ("US4890344", "1989-01-31", "1990-01-02", None, None, None, None, None, 0, 0, 0, 0),
+    ("US11086507", "2020-07-21", "2021-08-10", None, None, None, None, None, 0, 0, 0, 0),
 ]
 
 
@@ -69,6 +84,11 @@ def build_search_db(path):
     con.execute("CREATE TABLE patents(patent_id TEXT PRIMARY KEY, patent_zero_prefix TEXT, patent_title TEXT, patent_date TEXT, patent_type TEXT, withdrawn INT, patent_abstract TEXT, gov_interest_statement TEXT)")
     con.execute('CREATE TABLE patents__application(_pid TEXT NOT NULL, _ord INTEGER, application_id TEXT, filing_date TEXT)')
     con.execute('CREATE TABLE patents__us_term_of_grant(_pid TEXT NOT NULL, _ord INTEGER, term_grant TEXT, term_extension TEXT, term_disclaimer TEXT, disclaimer_date TEXT)')
+    con.execute('CREATE TABLE patents__us_related_documents(_pid TEXT NOT NULL, _ord INTEGER, related_doc_type TEXT, related_doc_kind TEXT, '
+                'related_doc_number TEXT, published_country TEXT, related_doc_published_date TEXT, related_doc_status TEXT, '
+                'related_doc_sequence INTEGER, wipo_kind TEXT)')
+    con.executemany("INSERT INTO patents__us_related_documents VALUES (?,?,?,?,?,'US',?,NULL,?,NULL)",
+                    [(pid, o, t, k, n, d, o) for pid, o, t, k, n, d in RELATED])
     for pid, title, pdate, ptype, wd, fdate, ext, td, dd in PATENTS:
         con.execute("INSERT INTO patents VALUES (?,?,?,?,?,?,?,?)", (pid, pid, title, pdate, ptype, wd, title + " abstract text", None))
         con.execute("INSERT INTO patents__application VALUES (?,?,?,?)", (pid, 0, "a" + pid, fdate))
@@ -239,8 +259,7 @@ def test_status_endpoint_needs_a_key_and_validates_against_the_schema(client, us
         assert body["reinstatement_possible"] == "unknown" and body["reinstatement_basis"].startswith("37 CFR 1.378")
         assert body["as_of"] == "2026-10-06" and body["data_version"] == "20261006.2"
         assert body["permalink"].endswith("/p/8087108?v=20261006.2")
-        assert body["plain"] == ("As of 2026-10-06, the USPTO maintenance-fee record for US 8087108 shows an expiry for nonpayment of a "
-                                 "maintenance fee dated 2016-01-03, and no later reinstatement (data version 20261006.2).")
+        assert body["plain"] == review_sentence("8087108")
         assert [n["audience"] for n in body["next_steps"]].count("human") == 1
         assert lapse_wording.check_banned(json.dumps(body)) == []
         assert r["X-Data-Version"] == "20261006.2"
@@ -248,10 +267,11 @@ def test_status_endpoint_needs_a_key_and_validates_against_the_schema(client, us
     body = r.json()
     jsonschema.validate(body, SCHEMA)
     assert body["status"] == "expired_term" and body["basis"][-1] == "reinstated:2017-08-30" and body["reinstatement_possible"] is False
-    # the term end is computed from the record's dates, not printed by it (2026-10-11 audit 2, finding G2)
-    assert body["plain"].startswith("As of 2026-10-06, the term end computed from the dates in the USPTO record for US 6671888 is 2022-08-08 (")
-    assert "reinstated 2017-08-30" in body["plain"] and body["plain"].endswith("a date that has passed (data version 20261006.2).")
-    assert "shows its term ended" not in body["plain"]
+    # the term end is computed from the record's dates, not printed by it (2026-10-11 audit 2, finding G2); the
+    # reinstatement stays out of the term parenthesis (wording review 2026-10-11, finding 5)
+    assert body["plain"] == review_sentence("6671888")
+    assert "shows its term ended" not in body["plain"] and "reinstate" not in body["plain"]
+
     r = client.get("/api/v1/lapse/status/10000364/", HTTP_X_API_KEY=key)
     body = r.json()
     jsonschema.validate(body, SCHEMA)
@@ -289,7 +309,20 @@ def test_record_page_without_a_key(client, lapse_env):
     r = client.get("/p/8087108")
     assert r.status_code == 200 and r["Content-Type"].startswith("text/html")
     html = r.content.decode()
-    assert "the USPTO maintenance-fee record for US 8087108 shows an expiry for nonpayment of a maintenance fee dated 2016-01-03" in html
+    assert review_sentence("8087108") in html
+    assert "37 CFR 1.378" in html  # the petition line shows for a fee lapse only (wording review 2026-10-11, section 4)
+    # a continuation: the term counts from the earliest parent-doc (2005-12-23), not the parent's grant date (2003-01-01),
+    # the provisional (2004-06-01) or its own filing (2020-07-21); wording review 2026-10-11, finding 1 (the record page
+    # needs no key, so the Free key's monthly cap of the test settings is not spent)
+    import html as html_mod
+
+    page = html_mod.unescape(client.get("/p/11086507").content.decode())
+    assert review_sentence("11086507") in page
+    assert '"status": "expired_term"' in page and '"expiry_date_estimated": "2025-12-23"' in page
+    assert '"basis": [\n  "term_20y",\n  "terminal_disclaimer"\n ]' in page
+    assert "term_from_parent" not in page and "disclaimer_applied" not in page and "pte_156\"" not in page  # wording-only keys stay out
+    assert "37 CFR 1.378" not in page  # the petition line shows for a fee lapse only (wording review 2026-10-11, section 4)
+    assert "20 years from the filing of a parent application on 2005-12-23" in page  # the Basis row names the same origin
     assert 'data-user-content="true"' in html and "Pool cleaning head" in html
     assert lapse_wording.check_banned(html.split('data-user-content="true"')[0]) == []
     assert client.get("/p/99999999").status_code == 404
@@ -317,30 +350,106 @@ def test_similar_endpoint(client, user_key, lapse_env):
     assert r.status_code == 400
 
 
+# The sentences of the fresh-agent wording review of 2026-10-11 (patentref ops/reviews/2026-10-11_lapse-sentence-templates_review.md
+# section 3), verbatim, as_of 2026-10-06 and data version 20261006.5. A changed word here reopens that review (rule 5).
+REVIEW_SENTENCES = {
+    "10000000": "As of 2026-10-06, the USPTO record for US 10000000 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record is 2036-05-13 (20 years from filing, plus 430 days of patent term adjustment), a date still ahead (data version 20261006.5).",
+    "5000000": "As of 2026-10-06, the term end computed from the dates in the USPTO record for US 5000000 is 2009-05-15 (20 years from filing), a date that has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version 20261006.5).",
+    "6671888": "As of 2026-10-06, the term end computed from the dates in the USPTO record for US 6671888 is 2022-08-08 (20 years from filing, plus 129 days of patent term adjustment), a date that has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version 20261006.5).",
+    "8087108": "As of 2026-10-06, the USPTO maintenance-fee record for US 8087108 has an entry dated 2016-01-03 recording that the patent expired for nonpayment of a maintenance fee, and no reinstatement after it (data version 20261006.5).",
+    "10000953": "As of 2026-10-06, the USPTO record shows US 10000953 as withdrawn from issue (data version 20261006.5).",
+    "RE31177": "As of 2026-10-06, the USPTO record for US RE31177 does not settle its status: no term end can be computed from the dates it holds (data version 20261006.5).",
+    "11086507": "As of 2026-10-06, the term end computed from the dates in the USPTO record for US 11086507 is 2025-12-23 (20 years from the filing of a parent application on 2005-12-23), a date that has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version 20261006.5).",
+    "6936612": "As of 2026-10-06, the term end computed from the dates in the USPTO record for US 6936612 is 2023-01-22 (20 years from filing, plus 6 days of patent term adjustment), a date that has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version 20261006.5).",
+    "X1": "As of 2026-10-06, the USPTO record for US X1 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record is 2029-03-22 (20 years from the filing of a parent application on 2009-02-10, plus 40 days of patent term adjustment, not counting a terminal disclaimer on record, which can end the term earlier), a date still ahead (data version 20261006.5).",
+    "X2": "As of 2026-10-06, the USPTO record for US X2 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record is 2028-01-15 (20 years from filing, plus 100 days of patent term adjustment, cut to this date by a terminal disclaimer), a date still ahead (data version 20261006.5).",
+    "X3": "As of 2026-10-06, the USPTO record for US X3 shows no unresolved maintenance-fee lapse (a reinstatement dated 2019-10-01 ended an earlier lapse), and the term end computed from the dates in that record is 2032-05-13 (20 years from filing, plus 12 days of patent term adjustment), a date still ahead (data version 20261006.5).",
+}
+# the engine's inputs for each (the live snapshot's values the review used; X1 to X3 are the review's made-up dates)
+REVIEW_INPUTS = {
+    "10000000": dict(filing_date="2015-03-10", grant_date="2018-06-19", pta_days=430),
+    "5000000": dict(filing_date="1989-05-15", grant_date="1991-03-19"),
+    "6671888": dict(filing_date="2002-04-01", grant_date="2004-01-06", reinstated_date="2017-08-30", pta_days=129),
+    "8087108": dict(filing_date="2007-05-25", grant_date="2012-01-03", fee_status="lapsed", lapse_date="2016-01-03", pta_days=918),
+    "10000953": dict(filing_date="2016-01-15", grant_date="2018-06-19", withdrawn=True),
+    "RE31177": dict(filing_date="1982-04-12", grant_date="1983-03-08"),
+    "11086507": dict(filing_date="2020-07-21", grant_date="2021-08-10", terminal_disclaimer=True, parent_filing_date="2005-12-23"),
+    "6936612": dict(filing_date="2003-01-16", grant_date="2005-08-30", pta_days=6),
+    "X1": dict(filing_date="2012-03-01", grant_date="2015-06-02", pta_days=40, terminal_disclaimer=True, parent_filing_date="2009-02-10"),
+    "X2": dict(filing_date="2010-05-01", grant_date="2014-02-04", pta_days=100, terminal_disclaimer=True, disclaimer_date="2028-01-15"),
+    "X3": dict(filing_date="2012-05-01", grant_date="2014-09-16", reinstated_date="2019-10-01", pta_days=12),
+}
+
+
+def review_sentence(pid, data_version="20261006.2"):
+    """The review's sentence for a fixture patent, in the fixture's data version."""
+    return REVIEW_SENTENCES[pid].replace("(data version 20261006.5)", f"(data version {data_version})")
+
+
+def _engine():
+    from API import lapse_group
+
+    expiry = lapse_group.expiry_module()
+    assert expiry is not None, "the status engine lapse.expiry is not importable (set LAPSE_REPO_DIR)"
+    return expiry
+
+
+def test_review_sentences_render_byte_for_byte(lapse_env):
+    """Each sentence of the 2026-10-11 wording review, from the engine and the templates, character for character."""
+    expiry = _engine()
+    for pid, kw in REVIEW_INPUTS.items():
+        rec = expiry.expiry_record(patent_id="US" + pid, as_of="2026-10-06", **kw)
+        got = lapse_wording.plain(rec, "US" + pid, "20261006.5")
+        assert got == REVIEW_SENTENCES[pid], (pid, got)
+        assert lapse_wording.check_banned(got) == []
+    # the record page's Basis row glosses every code, the fee events and an undated disclaimer included
+    rec = expiry.expiry_record(patent_id="US6671888", as_of="2026-10-06", **REVIEW_INPUTS["6671888"])
+    assert lapse_wording.basis_text(rec["basis"], rec) == "20 years from filing, plus 129 days of patent term adjustment, reinstatement dated 2017-08-30"
+    rec = expiry.expiry_record(patent_id="US11086507", as_of="2026-10-06", **REVIEW_INPUTS["11086507"])
+    assert lapse_wording.basis_text(rec["basis"], rec) == ("20 years from the filing of a parent application on 2005-12-23, not counting a "
+                                                           "terminal disclaimer on record, which can end the term earlier")
+    rec = expiry.expiry_record(patent_id="US8087108", as_of="2026-10-06", **REVIEW_INPUTS["8087108"])
+    assert lapse_wording.basis_text(rec["basis"], rec).startswith("fee-lapse entry dated 2016-01-03, 20 years from filing")
+    # withdrawn from issue: no term at all (review section 4)
+    rec = expiry.expiry_record(patent_id="US10000953", as_of="2026-10-06", **REVIEW_INPUTS["10000953"])
+    assert rec["expiry_date_estimated"] is None and rec["basis"] == []
+
+
+def test_pte_156_list_wording(lapse_env):
+    """A patent on the USPTO 35 USC 156 list takes the list's dates and its own sentence (builder wording of 2026-10-11,
+    outside the review: PTE_TEMPLATES); a patent not on it keeps the review's 156 clause."""
+    expiry = _engine()
+    row = {"id": "USRE47739", "original_expiry": "2023-01-16", "extension_days": 1509, "extended_expiry": "2027-03-05"}
+    rec = expiry.expiry_record("2003-01-16", "2019-09-24", patent_id="USRE47739", as_of="2026-10-06", pte=row)
+    assert rec["status"] == "active" and rec["expiry_date_estimated"] == "2027-03-05" and rec["basis"] == ["pte_156:1509"]
+    assert lapse_wording.plain(rec, "USRE47739", "20261006.5") == (
+        "As of 2026-10-06, the USPTO record for US RE47739 shows no unresolved maintenance-fee lapse, and the USPTO list of patent terms "
+        "extended under 35 USC 156 gives its term end as 2027-03-05 (the original expiration date 2023-01-16 plus 1509 days of extension), "
+        "a date still ahead (data version 20261006.5).")
+    rec = expiry.expiry_record("2003-01-16", "2019-09-24", patent_id="USRE47739", as_of="2028-01-03", pte=row)
+    assert lapse_wording.plain(rec, "USRE47739", "20280101.1") == (
+        "As of 2028-01-03, the USPTO list of patent terms extended under 35 USC 156 gives the term end of US RE47739 as 2027-03-05 "
+        "(the original expiration date 2023-01-16 plus 1509 days of extension), a date that has passed (data version 20280101.1).")
+    assert "35 USC 156), which this record does not hold" in lapse_wording.plain(
+        expiry.expiry_record(patent_id="US5000000", as_of="2026-10-06", pte=None, **REVIEW_INPUTS["5000000"]), "US5000000", "v")
+    assert lapse_wording.basis_text(rec["basis"], rec) == "extended by 1509 days under 35 USC 156 (USPTO list of extended patent terms)"
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(rec["basis"], SCHEMA["properties"]["basis"])
+
+
 def test_wording_templates_and_banned_check():
-    rec = {"status": "active", "as_of": "2026-10-06", "basis": ["term_20y", "pta_days:12"], "expiry_date_estimated": "2036-03-14"}
-    assert lapse_wording.plain(rec, "US10000364", "20261006.2") == \
-        ("As of 2026-10-06, the USPTO record for US 10000364 shows no unresolved maintenance-fee lapse, and the term end computed from the "
-         "dates in that record is 2036-03-14 (20 years from filing, plus 12 days of term adjustment), a date still ahead (data version 20261006.2).")
-    rec = {"status": "expired_term", "as_of": "2026-10-06", "basis": ["term_20y"], "expiry_date_estimated": "2009-05-15"}
-    assert lapse_wording.plain(rec, "US5000000", "20261006.5") == \
-        ("As of 2026-10-06, the term end computed from the dates in the USPTO record for US 5000000 is 2009-05-15 (20 years from filing), "
-         "a date that has passed (data version 20261006.5).")
-    rec = {"status": "withdrawn", "as_of": "2026-10-06", "basis": []}
-    assert lapse_wording.plain(rec, "US6000001", "20261006.5") == "As of 2026-10-06, the USPTO record shows US 6000001 as withdrawn (data version 20261006.5)."
-    unknown = ("As of 2026-10-06, the USPTO record for US RE31177 does not settle its status: no term end can be computed from the dates it "
-               "holds (data version 20261006.5).")
-    assert lapse_wording.plain({"status": "unknown", "as_of": "2026-10-06", "basis": []}, "USRE31177", "20261006.5") == unknown
-    # a status that states a computed term end falls back to "does not settle" when the date is missing
-    assert lapse_wording.plain({"status": "active", "as_of": "2026-10-06", "basis": []}, "USRE31177", "20261006.5") == unknown
     assert lapse_wording.check_banned("This patent is free to use") == ["free to use"]
     assert lapse_wording.check_banned("record facts " + chr(0x2014) + " and more") == [chr(0x2014)]
     assert lapse_wording.check_banned('{"confidence": 0.9}') == ["confidence"]
     assert lapse_wording.check_banned("") == []
-    for t in lapse_wording.TEMPLATES.values():
+    unknown = REVIEW_SENTENCES["RE31177"]
+    # a status that states a computed term end falls back to "does not settle" when the date is missing
+    assert lapse_wording.plain({"status": "active", "as_of": "2026-10-06", "basis": []}, "USRE31177", "20261006.5") == unknown
+    for t in list(lapse_wording.TEMPLATES.values()) + list(lapse_wording.PTE_TEMPLATES.values()):
         assert lapse_wording.check_banned(t) == [] and "{as_of}" in t and "{v}" in t
         # finding G2: a term end is computed from the record's dates; no sentence may say the record shows it
         assert "term ended" not in t and "shows its term" not in t
+    for t in lapse_wording.TEMPLATES.values():
         if "{expiry_date}" in t:
             assert "the term end computed from the dates in" in t
 
