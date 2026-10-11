@@ -711,7 +711,7 @@ on its branch `wave2-pending-approval-3-rec`) asked for its wording verbatim and
   list file and lapse/pte156.py).
 - On data version 20261006.5: 1,758,476 term ends move by a parent and 86,278 patents change from active to
   expired_term; 72,743 move by a 371 date; 1,112 by the 156 list (27 active to expired_term, 61 expired_term to active,
-  53 reissues from unknown); 19,415 withdrawn patents lose their term end; 30 whose term end is the as_of date read
-  active (the patentref repo's `ops/audits/2026-10-11_lapse-wording-review-fix_patentref-us1.txt`).
+  53 reissues from unknown); 19,415 withdrawn patents lose their term end; 143 whose term end is the as_of date itself
+  read active (the patentref repo's `ops/audits/2026-10-11_lapse-wording-review-fix_patentref-us1.txt`).
 - Tests (`lapse_accounts/tests/test_lapse_group.py`): every sentence of the review's section 3 byte for byte, a
   continuation fixture (parent-doc counted, parent grant document and provisional not), the 156 wording.
