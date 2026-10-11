@@ -8,9 +8,11 @@ maintenance-fee events, the withdrawn flag), not a term end: the term end is com
 (35 USC 154, `lapse.expiry`), so the sentences say "the term end computed from the dates in the USPTO
 record", never that the record shows a term ended (2026-10-11 audit 2, finding G2). A fee lapse is an
 event the maintenance-fee record does print, so that sentence names the record and the date of its entry.
-TEMPLATES, TERM_TEXT, basis_text and plain are the replacement text of the fresh-agent wording review of 2026-10-11
-(patentref ops/reviews/2026-10-11_lapse-sentence-templates_review.md section 2.3), verbatim; PTE_TEMPLATES and the
-pte_156 gloss are builder wording added after it for patents on the USPTO 35 USC 156 list, awaiting their own review.
+Everything from TEMPLATES to plain is the reference block of the second fresh-agent wording review of 2026-10-11
+(patentref ops/reviews/2026-10-11_lapse-sentence-templates_review-2.md), verbatim: the first review's templates with "a
+date not yet passed", the expired_term clause on the USPTO 35 USC 156 list, and the reviewed strings for a patent on
+that list (PTE_TEMPLATES, PTE_CONFLICT), for one whose reissue is on it (EXPIRED_TERM_REISSUED) and for a server with
+no list file (EXPIRED_TERM_NO_LIST). A changed word reopens the review (verdict-wording rule 5).
 `check_banned()` is the wording test's core: the verdict tool's responses are run through it before
 they leave the process.
 """
@@ -21,34 +23,39 @@ BANNED = ("free to use", "freedom to operate", "will survive", "you need a", "yo
 _EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF]")
 
 TEMPLATES = {
-    "active": "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}, and the term end computed from the dates in that record is {expiry_date} ({basis_text}), a date still ahead (data version {v}).",
-    "expired_term": "As of {as_of}, the term end computed from the dates in the USPTO record for US {id} is {expiry_date} ({basis_text}), a date that has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version {v}).",
+    "active": "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}, and the term end computed from the dates in that record is {expiry_date} ({basis_text}), a date not yet passed (data version {v}).",
+    "expired_term": "As of {as_of}, the term end computed from the dates in the USPTO record for US {id} is {expiry_date} ({basis_text}), a date that has passed, and the USPTO list of patent terms extended under 35 USC 156, updated through {pte_list_through}, does not name this patent (data version {v}).",
     "expired_fee_nonpayment": "As of {as_of}, the USPTO maintenance-fee record for US {id} has an entry dated {lapse_date} recording that the patent expired for nonpayment of a maintenance fee, and no reinstatement after it (data version {v}).",
     "withdrawn": "As of {as_of}, the USPTO record shows US {id} as withdrawn from issue (data version {v}).",
     "unknown": "As of {as_of}, the USPTO record for US {id} does not settle its status: no term end can be computed from the dates it holds (data version {v}).",
 }
+# expired_term when no copy of the 35 USC 156 list is loaded (PTE_156_FILE=none or no file)
+EXPIRED_TERM_NO_LIST = "As of {as_of}, the term end computed from the dates in the USPTO record for US {id} is {expiry_date} ({basis_text}), a date that has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version {v})."
 # the two templates that state a computed term end need the date; without it the record does not settle the status
 NEEDS_EXPIRY_DATE = ("active", "expired_term")
 
-# A patent on the USPTO list of patent terms extended under 35 USC 156 (lapse/pte156.py in the patentref repo): the
-# term end is the list's, so these two replace active and expired_term, and expired_term's 156 clause, which says the
-# extension is not counted, is not used. Builder wording of 2026-10-11, outside the review of that day: it needs its
-# own fresh-agent review (verdict-wording rule 5) before it ships.
+# A patent on the USPTO list of patent terms extended under 35 USC 156: the list prints the original expiration date and
+# the period of extension, not the extended date, so the sentence gives both and the date they add up to.
 PTE_TEMPLATES = {
-    "active": "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}, and the USPTO list of patent terms extended under 35 USC 156 gives its term end as {expiry_date} (the original expiration date {pte_original} plus {pte_days} days of extension), a date still ahead (data version {v}).",
-    "expired_term": "As of {as_of}, the USPTO list of patent terms extended under 35 USC 156 gives the term end of US {id} as {expiry_date} (the original expiration date {pte_original} plus {pte_days} days of extension), a date that has passed (data version {v}).",
+    "active": "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}, and the USPTO list of patent terms extended under 35 USC 156 gives it an original expiration date of {pte_original} and an extension of {pte_period}, which puts its term end at {expiry_date}, a date not yet passed{record_later} (data version {v}).",
+    "expired_term": "As of {as_of}, the USPTO list of patent terms extended under 35 USC 156 gives US {id} an original expiration date of {pte_original} and an extension of {pte_period}, which puts its term end at {expiry_date}, a date that has passed{record_later} (data version {v}).",
 }
+# expired_term for a patent whose reissue (not the patent itself) is on the 35 USC 156 list (35 USC 251, 252)
+EXPIRED_TERM_REISSUED = "As of {as_of}, the term end computed from the dates in the USPTO record for US {id} is {expiry_date} ({basis_text}), a date that has passed, but the USPTO record shows it reissued as US {pte_reissue}, a patent the USPTO list of patent terms extended under 35 USC 156, updated through {pte_list_through}, names (data version {v})."
+# the list's date is earlier than the record's own term and only one of the two has passed: status unknown
+PTE_CONFLICT = "As of {as_of}, the USPTO sources for US {id} do not settle its status: the USPTO list of patent terms extended under 35 USC 156 gives it an original expiration date of {pte_original} and an extension of {pte_period}, which puts its term end at {pte_end}, {pte_end_state}, while the term end computed from the dates in the USPTO record, before any extension, is {record_end}, {record_end_state} (data version {v})."
 
 TERM_TEXT = {"term_17y": "17 years from grant", "term_14y": "14 years from grant", "term_15y": "15 years from grant"}
 
 
 def basis_text(basis, record=None, sentence=False):
-    """The basis as a short clause. `record` (expiry.expiry_record output) supplies term_from_parent, disclaimer_applied
-    and status. sentence=True gives the term part only, for the plain sentence ('20 years from the filing of a parent
-    application on 2005-12-23, plus 129 days of patent term adjustment'); sentence=False glosses every code, for the
-    record page's Basis row."""
+    """The basis as a short clause. `record` (expiry.expiry_record output) supplies term_from_parent, disclaimer_applied,
+    pte_156 and status. sentence=True gives the term part only, for the plain sentence ('20 years from the filing of a
+    parent application on 2005-12-23, plus 129 days of patent term adjustment'); sentence=False glosses every code, for
+    the record page's Basis row."""
     record = record or {}
     basis = basis or []
+    listed = any(b.startswith("pte_156:") for b in basis)
     parts = []
     for b in basis:
         if b == "term_20y":
@@ -62,9 +69,12 @@ def basis_text(basis, record=None, sentence=False):
             parts.append(f"fee-lapse entry dated {b[10:]}")
         elif b.startswith("reinstated:") and not sentence:
             parts.append(f"reinstatement dated {b[11:]}")
-        elif b.startswith("pte_156:") and not sentence:  # builder wording, outside the 2026-10-11 review (PTE_TEMPLATES)
-            parts.append(f"extended by {b[8:]} days under 35 USC 156 (USPTO list of extended patent terms)")
-    if "terminal_disclaimer" in basis:
+        elif b.startswith("pte_156:") and not sentence:
+            row = record.get("pte_156") or {}
+            parts.append(f"on the USPTO list of patent terms extended under 35 USC 156: original expiration date "
+                         f"{row['original_expiry']} plus {row['period']}" if row.get("period")
+                         else f"on the USPTO list of patent terms extended under 35 USC 156: {b[8:]} days of extension")
+    if "terminal_disclaimer" in basis and not listed:
         if record.get("disclaimer_applied"):
             parts.append("cut to this date by a terminal disclaimer")
         elif not sentence or record.get("status") == "active":
@@ -72,20 +82,40 @@ def basis_text(basis, record=None, sentence=False):
     return ", ".join(parts) if parts else "term rule"
 
 
+def _state(d, as_of):
+    return "a date that has passed" if d < as_of else "a date not yet passed"
+
+
 def plain(record, patent_id, data_version):
     """One sentence from the template for the record's status (`record` is `expiry.expiry_record` output)."""
     status = record.get("status") or "unknown"
     if status in NEEDS_EXPIRY_DATE and not record.get("expiry_date_estimated"):
         status = "unknown"
-    pte = record.get("pte_156") if status in PTE_TEMPLATES else None
-    tpl = PTE_TEMPLATES[status] if pte else TEMPLATES.get(status, TEMPLATES["unknown"])
+    row = record.get("pte_156") or {}
+    as_of, rend = record.get("as_of"), record.get("record_term_end")
+    if status == "unknown" and row and rend:
+        tpl = PTE_CONFLICT
+    elif row and status in PTE_TEMPLATES:
+        tpl = PTE_TEMPLATES[status]
+    elif status == "expired_term" and record.get("pte_reissue") and record.get("pte_list_through"):
+        tpl = EXPIRED_TERM_REISSUED
+    elif status == "expired_term" and not record.get("pte_list_through"):
+        tpl = EXPIRED_TERM_NO_LIST
+    else:
+        tpl = TEMPLATES.get(status, TEMPLATES["unknown"])
     pid = patent_id[2:] if patent_id.upper().startswith("US") else patent_id
     rd = record.get("reinstated_date")
-    return tpl.format(as_of=record.get("as_of"), id=pid, v=data_version, expiry_date=record.get("expiry_date_estimated"),
+    return tpl.format(as_of=as_of, id=pid, v=data_version, expiry_date=record.get("expiry_date_estimated"),
                       basis_text=basis_text(record.get("basis"), dict(record, status=status), sentence=True),
                       lapse_date=record.get("lapse_date"),
                       reinstated_text=f" (a reinstatement dated {rd} ended an earlier lapse)" if rd else "",
-                      pte_original=(pte or {}).get("original_expiry"), pte_days=(pte or {}).get("extension_days"))
+                      pte_original=row.get("original_expiry"), pte_period=row.get("period"),
+                      pte_end=row.get("extended_expiry"), pte_end_state=_state(row.get("extended_expiry") or "", as_of or ""),
+                      record_end=rend, record_end_state=_state(rend or "", as_of or ""),
+                      record_later=(f"; the term end computed from the dates in the USPTO record, before any extension, is later, {rend}"
+                                    if rend and row else ""),
+                      pte_list_through=record.get("pte_list_through"),
+                      pte_reissue=(record.get("pte_reissue") or "")[2:] if (record.get("pte_reissue") or "").startswith("US") else record.get("pte_reissue"))
 
 
 def check_banned(text):

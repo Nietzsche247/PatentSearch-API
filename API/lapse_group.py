@@ -87,6 +87,45 @@ def _ids_sql(n):
     return ",".join("?" * n)
 
 
+_reissues = {"key": None, "map": {}}
+
+
+def listed_reissues(con, cat):
+    """{patent id: 'US' + reissue id} for every reissue on the USPTO 35 USC 156 list, mapped back to the patent it reissued
+    (the reissue's own patents__us_related_documents row of type reissue and kind parent-grant-document: RE47739 to
+    7208489). Built once per process for a list file and search file, by indexed lookups of the reissues' own rows.
+    Review 2 of 2026-10-11: the expired_term sentence of such a patent names the reissue the list carries."""
+    try:
+        from lapse import pte156
+    except ImportError:
+        return {}
+    try:
+        main = next((r[2] for r in con.execute("PRAGMA database_list") if r[1] == "main"), None)
+    except sqlite3.Error:
+        main = None
+    key = (str(pte156.source_path()), main, (cat or {}).get("data_version"))
+    if _reissues["key"] == key:
+        return _reissues["map"]
+    ids = pte156.listed_ids() if hasattr(pte156, "listed_ids") else sorted(pte156._load())
+    out = {}
+    for cid in ids:
+        if not cid.startswith("USRE"):
+            continue
+        try:
+            rows = con.execute('SELECT related_doc_number FROM patents__us_related_documents WHERE "_pid" = ? '
+                               "AND related_doc_type = 'reissue' AND related_doc_kind = 'parent-grant-document'", (cid[2:],)).fetchall()
+        except sqlite3.Error:
+            return {}
+        for (num,) in rows:
+            n = str(num or "").strip().upper()
+            n = n[2:] if n.startswith("US") else n
+            n = n.lstrip("0") if n.isdigit() else n  # the rows write 05767115 and 7208489 alike
+            if n:
+                out[n] = cid
+    _reissues.update(key=key, map=out)
+    return out
+
+
 def fetch_rows(con, cat, ids):
     """Catalog and term-of-grant rows for a list of API patent ids. Returns {patent_id: merged dict}."""
     out = {}
@@ -149,6 +188,10 @@ def fetch_rows(con, cat, ids):
                     d["filing_date"] = fdate
         except sqlite3.Error:
             pass
+    reissued = listed_reissues(con, cat) if out else {}
+    for pid, re_id in reissued.items():
+        if pid in out:
+            out[pid]["pte_reissue"] = re_id
     return out
 
 
@@ -165,7 +208,10 @@ def record_for(expiry, cat, pid, d):
     filing = d.get("filing_date")
     if d.get("pct_filing_date") and (not filing or d["pct_filing_date"] < filing):
         filing = d["pct_filing_date"]  # the international filing date of a 371 national stage (35 USC 363)
-    return expiry.expiry_record(filing, d.get("grant_date"), d.get("fee_status"), d.get("lapse_date"), **kw)
+    rec = expiry.expiry_record(filing, d.get("grant_date"), d.get("fee_status"), d.get("lapse_date"), **kw)
+    if d.get("pte_reissue"):
+        rec["pte_reissue"] = d["pte_reissue"]  # wording only (review 2): the listed reissue of this patent, never in an answer
+    return rec
 
 
 def group_object(expiry, cat, pid, d):
@@ -200,8 +246,8 @@ def verdict(con, cat, pid, data_version, base_url):
 
 def verdict_with_engine(con, cat, pid, data_version, base_url):
     """(the check_patent_status record, the engine record) or None. The engine record carries the wording-only keys
-    (term_from_parent, disclaimer_applied, pte_156) that the record page's Basis row needs and the JSON answer does not
-    carry (wording review 2026-10-11, section 2.3)."""
+    (term_from_parent, disclaimer_applied, pte_156, record_term_end, pte_list_through, pte_reissue) that the sentence and
+    the record page's Basis row need and the JSON answer does not carry (wording reviews of 2026-10-11)."""
     from API import lapse_wording
 
     expiry = expiry_module()
