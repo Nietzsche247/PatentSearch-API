@@ -710,8 +710,32 @@ on its branch `wave2-pending-approval-3-rec`) asked for its wording verbatim and
 - Needs the patentref branch of the same name deployed with it (expiry.expiry_record takes `parent_filing_date`; the
   list file and lapse/pte156.py).
 - On data version 20261006.5: 1,758,476 term ends move by a parent and 86,278 patents change from active to
-  expired_term; 72,743 move by a 371 date; 1,112 by the 156 list (27 active to expired_term, 61 expired_term to active,
-  53 reissues from unknown); 19,415 withdrawn patents lose their term end; 143 whose term end is the as_of date itself
+  expired_term; 72,743 move by a 371 date; 1,112 by the 156 list (19 active to expired_term, 8 active to unknown after review 2,
+  61 expired_term to active, 53 reissues from unknown); 19,415 withdrawn patents lose their term end; 143 whose term end is the as_of date itself
   read active (the patentref repo's `ops/audits/2026-10-11_lapse-wording-review-fix_patentref-us1.txt`).
 - Tests (`lapse_accounts/tests/test_lapse_group.py`): every sentence of the review's section 3 byte for byte, a
   continuation fixture (parent-doc counted, parent grant document and provisional not), the 156 wording.
+
+## 2026-10-11 pending approval: review 2 of the plain sentences, the 35 USC 156 wording
+
+The second fresh-agent review (the patentref repo's `ops/reviews/2026-10-11_lapse-sentence-templates_review-2.md`, strings
+in deploy step 0 of `handoffs/2026-10-11_0200_api-compat_public-text-kinds-and-versions_DONE.md`, branch
+`wave2-pending-approval-3-rec`) read the builder's 156 wording and asked for changes, applied word for word.
+
+- `API/lapse_wording.py`: everything from TEMPLATES to plain is the review's reference block. active says "a date not yet
+  passed" (it was "still ahead", false on the term-end day itself). expired_term names the USPTO list of patent terms
+  extended under 35 USC 156 and its update date ("does not name this patent"); EXPIRED_TERM_NO_LIST keeps the first
+  review's clause for a server with no list file. A listed patent's sentence gives the list's original expiration date
+  and its own period text ("1509 days", "5 years") and the date they add up to, plus the record's later term end when
+  there is one; the list never prints that date, so no sentence says the list gives it. PTE_CONFLICT when the list and
+  the record disagree on whether the term has passed (status unknown, both dates). EXPIRED_TERM_REISSUED names the listed
+  reissue of a patent (7208489, reissued as RE47739). The Basis gloss of pte_156 gives the list's original date and
+  period and drops the undated-disclaimer clause.
+- `API/lapse_group.py`: `listed_reissues()`, a map from each listed reissue to the patent it reissued, built once per list
+  file and search file from the reissues' own parent-grant-document rows (indexed lookups by _pid; 54 listed reissues);
+  `record_for` adds `pte_reissue` to the engine record. The engine's new wording-only keys `record_term_end` and
+  `pte_list_through` (patentref `lapse/expiry.py`) and `pte_reissue` are never in an answer.
+- Needs the patentref branch of the same name (the engine change and `pte156.listed_ids()`).
+- On data version 20261006.5 the 8 listed patents where the list's date has passed and the record's own term has not
+  (US 7854943, 7862817, 7971333, 8008449, 8158616, 8178563, 8288539, 9572856) read unknown instead of expired_term.
+- Tests: the review-2 sentences byte for byte, the reissue map and the record page of 7208489.
