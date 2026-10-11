@@ -1,6 +1,6 @@
 """Agent plumbing at the site root and the build facts endpoint (PatentRef gate 2.11).
 
-  GET /llms.txt, /llms-full.txt, /openapi.json, /LICENSES.md
+  GET /llms.txt, /llms-full.txt, /openapi.json, /changes.txt, /LICENSES.md
       Static files served from the patentref repo clone on the box (LAPSE_PUBLIC_DIR, default
       /srv/lapse/public, and LAPSE_LICENSES_PATH, default /srv/lapse/LICENSES.md). The source of
       truth is that repo (public/ and tools/gen_openapi.py); this app only serves the files, so no
@@ -35,17 +35,20 @@ PUBLIC_FILES = {
     "llms.txt": "text/plain; charset=utf-8",
     "llms-full.txt": "text/plain; charset=utf-8",
     "openapi.json": "application/json",
+    "changes.txt": "text/plain; charset=utf-8",  # the public change list with the openapi.json info.version of each change
 }
 LICENSES_NAME = "LICENSES.md"
 CACHE = "public, max-age=300"
 FALLBACK_FOOTER = ["Patent data from PatentsView and the USPTO, used under CC BY 4.0. PatentRef is an independent service and is not affiliated with the USPTO."]
 
 ERROR_CODES = {
-    "ERR_Q": "400 Bad Request. The q, f, s or o parameter is invalid: malformed JSON, more than one top-level key in q, an unknown field, a field "
-             "outside the endpoint, a sort on a text field, 'offset' in o, a query over the cost cap (100 units, 64 criteria, depth 8), q over 16 KB "
-             "or a body over 64 KB. The cost cap also refuses _contains, a range or an empty _begins on a long-text field (claim_text, summary_text, "
-             "description_text, draw_desc_text) without patent_id in the same _and: no index serves them, so they would read the whole table; use "
-             "_text_any, _text_all or _text_phrase there. The X-Status-Reason header carries the upstream text.",
+    "ERR_Q": "400 Bad Request. The q, f, s or o parameter is invalid: malformed JSON in q, f, s or o; no q on a list endpoint other than the "
+             "lookup endpoints (the cpc, uspc, ipc and wipo lists); more than one top-level key in q; an unknown field; a field outside the endpoint; "
+             "a sort on a text field without a keyword form; q or s on the lapse group (it is returned with f only); 'offset' in o; a query over "
+             "the cost cap (100 units, 64 criteria, depth 8); q over 16 KB or a body over 64 KB. The cost cap also refuses _contains, a range or an "
+             "empty _begins on a long-text field (claim_text, summary_text, description_text, draw_desc_text) without patent_id in the same _and: "
+             "no index serves them, so they would read the whole table; use _text_any, _text_all or _text_phrase there. The X-Status-Reason "
+             "header carries the upstream text.",
     "ERR_KEY": "403 Forbidden. No X-Api-Key header, or the key is unknown or revoked. Get a Free key at /api/v1/meta/signup/. "
                "A data endpoint answers the upstream body {\"detail\": \"You do not have permission to perform this action.\"} with no "
                "X-Status-Reason-Code header; the code appears as that header only on the account endpoints, and in the problem details body.",
@@ -54,8 +57,9 @@ ERROR_CODES = {
     "ERR_NOT_IMPLEMENTED": "501 Not Implemented. The endpoint's data set is not in this snapshot: pre-grant publications are deferred "
                            "to a later build, the NBER routes are dead upstream, the long-text endpoints answer it only when no "
                            "long-text file is in service (GET /api/v1/meta/health/ shows text_data_version), and any other endpoint answers it "
-                           "while the build in service does not carry its data set. The X-Status-Reason header names the data set. "
-                           "A 501 does not count toward the monthly allowance.",
+                           "while the build in service does not carry its data set. GET /api/v1/meta/ lists the data sets the build lacks under "
+                           "deferred. The X-Status-Reason header names the data set and, where there is one, where the same facts are served "
+                           "(the classifications come with each patent on /api/v1/patent/). A 501 does not count toward the monthly allowance.",
     "ERR_AUTH": "401 Unauthorized. The account endpoints need Authorization: Bearer <Supabase access token>; the token is missing, expired or not from the PatentRef project.",
     "ERR_SIGNUP_LIMIT": "429 Too Many Requests. More than the daily number of new accounts from one email domain; try after the Retry-After seconds.",
     "THROTTLED": "429 Too Many Requests. Over the per-minute allowance (45 for a Free key, a fixed UTC clock minute) or the monthly allowance (1,000). "
@@ -64,8 +68,15 @@ ERROR_CODES = {
                  "the /api/v1/meta/ endpoints never count.",
     "NOT_FOUND": "404 Not Found. A detail route with a key that has no record ({\"detail\": \"Not found.\"}), or a path that is not routed. "
                  "On /api/v1/lapse/status/<patent_id>/ an unknown patent answers the same {\"detail\": \"Not found.\"}, and a v that never "
-                 "existed answers {\"error\": true} with X-Status-Reason-Code NOT_FOUND.",
+                 "existed answers {\"error\": true} with X-Status-Reason-Code NOT_FOUND. That v answer is the only one that carries NOT_FOUND "
+                 "as a header; on the others it is the problem details code.",
 }
+# Which codes the X-Status-Reason-Code header carries, and which appear only as the problem details code. Kept in step with
+# openapi.json components.headers.X-Status-Reason-Code and llms-full.txt section 5 (patentref tools/gen_openapi.py).
+ERROR_INDEX_NOTE = ("The X-Status-Reason-Code header carries ERR_Q, ERR_ES and ERR_NOT_IMPLEMENTED on the data endpoints; NOT_FOUND on "
+                    "/api/v1/lapse/status/ for a v that never existed; ERR_KEY, ERR_AUTH and ERR_SIGNUP_LIMIT on the account endpoints under "
+                    "/api/v1/meta/. A data endpoint's 403 and 429 and a detail route's 404 carry no code header, as upstream; the problem "
+                    "details body names them ERR_KEY, THROTTLED and NOT_FOUND.")
 
 
 def public_dir():
@@ -105,6 +116,7 @@ def error_docs(request, code=""):
     if not code:
         body = "PatentRef API error codes (X-Status-Reason-Code; the RFC 9457 problem type is https://patentref.io/docs/errors/<CODE>)\n\n"
         body += "\n".join(f"{k}\n  {v}\n" for k, v in ERROR_CODES.items())
+        body += "\n" + ERROR_INDEX_NOTE + "\n"
         body += "\nSend Accept: application/problem+json on any request to receive errors as problem details objects; the upstream body "
         body += "{\"error\": true} and the headers X-Status-Reason and X-Status-Reason-Code are the default. Full guide: https://patentref.io/llms-full.txt\n"
         resp = HttpResponse(body, content_type="text/plain; charset=utf-8")
@@ -236,6 +248,45 @@ def superseded_versions(builds, version, served=()):
     return sorted(out)
 
 
+# The data sets a build can lack, in the order /api/v1/meta/ lists them under "deferred", each with the routes that answer
+# 501 ERR_NOT_IMPLEMENTED without it. Public text: no internal references (2026-10-11 audits, finding G1). The list is
+# what the served files lack (their _lapse_indices), so a build that adds a data set drops it here by itself.
+DEFERRABLE_SETS = (
+    ("publications", "publications: pre-grant publications (/api/v1/publication/, /api/v1/publication/rel_app_text/ and the "
+                     "pg_claim, pg_brf_sum_text, pg_detail_desc_text and pg_draw_desc_text endpoints), deferred to a later build"),
+    ("cpc_classes", "cpc_classes: /api/v1/cpc_class/ (each patent's CPC classes come in its cpc_current and cpc_at_issue groups)"),
+    ("cpc_subclasses", "cpc_subclasses: /api/v1/cpc_subclass/ (each patent's CPC subclasses come in its cpc_current and cpc_at_issue groups)"),
+    ("uspc_mainclasses", "uspc_mainclasses: /api/v1/uspc_mainclass/ (each patent's USPC main classes come in its uspc_at_issue group)"),
+    ("wipo", "wipo: /api/v1/wipo/ (each patent's WIPO fields come in its wipo group)"),
+)
+DELTA_NOTE = ("rows per table of the build in service (next) against the build it replaced (current), as the build step counted "
+              "them; empty for a build that recorded no counts")
+
+
+def served_indices():
+    """The data sets the served search file and the attached long-text file carry (their _lapse_indices), or None when
+    the files cannot be read."""
+    try:
+        from API.search_sqlite import LapseSQLiteSearch, _has_schema
+
+        con = LapseSQLiteSearch.from_django_settings().connection()
+        out = {r[0] for r in con.execute("SELECT idx FROM main._lapse_indices")}
+        if _has_schema(con, "txt"):
+            try:
+                out |= {r[0] for r in con.execute("SELECT idx FROM txt._lapse_indices")}
+            except Exception:
+                pass
+        return out
+    except Exception:
+        return None
+
+
+def deferred_sets(present=None):
+    """The "deferred" list of /api/v1/meta/: each data set of DEFERRABLE_SETS the served files lack; all of them when the
+    files cannot be read."""
+    return [text for idx, text in DEFERRABLE_SETS if present is None or idx not in present]
+
+
 def meta_facts():
     p = getattr(settings, "LAPSE_STATUS_PATHS", {})
     api_dir = p.get("api_dir", "/data/api")
@@ -274,10 +325,10 @@ def meta_facts():
         "refreshed_at": side.get("swapped_at"), "built_at": side.get("built_at"),
         "snapshot_sha256": sha, "index_set": rows.get("index_set"),
         "previous_version": prev_version, "superseded_versions": sorted(superseded),
-        "delta": delta, "delta_note": "rows per table, the build in service against the one it replaced (the runner's count_deltas gate); empty for a file built before the runner",
+        "delta": delta, "delta_note": DELTA_NOTE,
         "fee": side.get("fee") or None,
         "weekly_grants": weekly,
-        "deferred": ["publications (pre-grant set, checklist 1.5)"],
+        "deferred": deferred_sets(served_indices()),
         "attribution": footer_lines()[0],
         "licenses_url": "https://patentref.io/LICENSES.md",
         "guide": "https://patentref.io/llms-full.txt", "openapi": "https://patentref.io/openapi.json",

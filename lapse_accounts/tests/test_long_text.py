@@ -213,6 +213,13 @@ def test_g_claim_default_shape_and_plain_text(client, user_key, text_env):
     assert [x["claim_sequence"] for x in rows] == [0, 1, 2]
     assert rows[0]["claim_text"] == "A pool cleaning head with a rotating brush."
     assert r["X-Data-Version"] == "20261006.2"
+    # the rows come from the long-text file: its version rides beside X-Data-Version (2.11 doc defect 4, section H of
+    # the 2026-10-11 record), equal to health's text_data_version; other endpoints do not carry it
+    assert r["X-Text-Data-Version"] == "text_next" == client.get("/api/v1/meta/health/").json()["text_data_version"]
+    for path in ("/api/v1/g_brf_sum_text/", "/api/v1/g_detail_desc_text/", "/api/v1/g_draw_desc_text/"):
+        assert get(client, key, path, {"patent_id": "12050006"})["X-Text-Data-Version"] == "text_next"
+    assert client.get("/api/v1/g_claim/")["X-Text-Data-Version"] == "text_next"  # a 403 without a key too
+    assert not get(client, key, "/api/v1/patent/", {"patent_id": "10000364"}).has_header("X-Text-Data-Version")
 
 
 def test_g_claim_contract_example_after_cursor(client, user_key, text_env):
@@ -307,6 +314,7 @@ def test_health_names_the_text_version_and_501_without_the_file(client, user_key
     assert r.json() == {"error": True}
     assert r["X-Status-Reason-Code"] == "ERR_NOT_IMPLEMENTED"
     assert r["X-Status-Reason"].startswith("Endpoint not implemented: the 'g_claims' data set is not in this snapshot")
+    assert not r.has_header("X-Text-Data-Version")  # no long-text file in service: no text version to name
     r = client.get("/api/v1/meta/health/")
     assert r.json()["text_data_version"] is None
     # the patents index is untouched by the text file either way

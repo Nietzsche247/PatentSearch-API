@@ -29,6 +29,7 @@ def public_dir(tmp_path, monkeypatch):
     (tmp_path / "llms.txt").write_text("# PatentRef\n\n> test guide\n", encoding="utf-8")
     (tmp_path / "llms-full.txt").write_text("# PatentRef full\n", encoding="utf-8")
     (tmp_path / "openapi.json").write_text(json.dumps({"openapi": "3.1.0", "paths": {}}), encoding="utf-8")
+    (tmp_path / "changes.txt").write_text("# PatentRef API changes\n", encoding="utf-8")
     lic = tmp_path / "LICENSES.md"
     lic.write_text(LICENSES, encoding="utf-8")
     monkeypatch.setattr(settings, "LAPSE_PUBLIC_DIR", str(tmp_path), raising=False)
@@ -47,6 +48,9 @@ def test_root_files_served(client, public_dir):
     r = client.get("/LICENSES.md")
     assert r.status_code == 200 and r["Content-Type"].startswith("text/markdown") and b"Attribution lines" in r.content
     assert r["Access-Control-Allow-Origin"] == "*"
+    # the public change list llms.txt links (2.11 off-box rerun 2026-10-11, finding C: a version signal)
+    r = client.get("/changes.txt")
+    assert r.status_code == 200 and r["Content-Type"].startswith("text/plain") and r.content.startswith(b"# PatentRef API changes")
 
 
 def test_root_file_missing_is_404(client, public_dir):
@@ -76,6 +80,17 @@ def test_error_docs_carry_no_internal_references(client):
         assert chr(0x2014) not in text
     assert "does not count toward the monthly allowance" in public.ERROR_CODES["ERR_NOT_IMPLEMENTED"]
     assert "a v that never existed" in public.ERROR_CODES["NOT_FOUND"]
+
+
+def test_error_docs_agree_with_the_guide(client):
+    """2.11 off-box rerun 2026-10-11, findings B and D: the index says which codes the header carries (NOT_FOUND among
+    them), and ERR_Q's sort rule reads as llms-full.txt section 2 does (text+keyword fields are sortable)."""
+    index = client.get("/docs/errors/").content.decode("utf-8")
+    assert public.ERROR_INDEX_NOTE in index
+    assert "NOT_FOUND on /api/v1/lapse/status/ for a v that never existed" in public.ERROR_INDEX_NOTE
+    assert "a sort on a text field without a keyword form" in public.ERROR_CODES["ERR_Q"]
+    assert "q or s on the lapse group" in public.ERROR_CODES["ERR_Q"]
+    assert "GET /api/v1/meta/ lists the data sets the build lacks" in public.ERROR_CODES["ERR_NOT_IMPLEMENTED"]
 
 
 def test_footer_from_licenses(public_dir):
@@ -151,6 +166,21 @@ def test_meta_index(client, public_dir):
     assert body["attribution"].startswith("Patent data from PatentsView")
     assert isinstance(body["delta"], list) and isinstance(body["superseded_versions"], list)
     assert r["Cache-Control"] == "public, max-age=60"
+    # 2026-10-11 audit 2, finding G1: no internal machinery in the public body; the test file serves only `patents`, so
+    # every data set a build can lack is listed, the four classification sets included
+    text = json.dumps(body).lower()
+    for word in ("checklist", "gate", "scaffold", "ops/", "handoff", "desk", "count_deltas", "runner", "deploy.pins"):
+        assert word not in text, word
+    assert body["delta_note"] == public.DELTA_NOTE
+    assert [d.split(":")[0] for d in body["deferred"]] == ["publications", "cpc_classes", "cpc_subclasses", "uspc_mainclasses", "wipo"]
+
+
+def test_deferred_follows_the_served_indices():
+    assert public.deferred_sets(None) == [t for _, t in public.DEFERRABLE_SETS]
+    have = {"patents", "cpc_classes", "wipo", "publications"}
+    assert [d.split(":")[0] for d in public.deferred_sets(have)] == ["cpc_subclasses", "uspc_mainclasses"]
+    assert public.deferred_sets({i for i, _ in public.DEFERRABLE_SETS}) == []
+    assert "patents" in public.served_indices()
 
 
 def test_meta_index_reads_sidecars(client, public_dir, tmp_path, monkeypatch):
@@ -262,3 +292,13 @@ def test_problem_details_501(client, user_key):
     assert r["X-Status-Reason-Code"] == "ERR_NOT_IMPLEMENTED"
     r = _get(client, "/api/v1/publication/", key, q='{"document_number":"1"}')
     assert r.status_code == 501 and r.content == b'{"error":true}'
+    # finding G1: the reason names the data set and, for a classification set, where each patent carries it; no internal reference
+    assert r["X-Status-Reason"] == "Endpoint not implemented: the 'publications' data set is not in this snapshot; pre-grant publications are deferred to a later build"
+    r = _get(client, "/api/v1/cpc_class/", key)
+    assert r.status_code == 501 and r.content == b'{"error":true}' and r["X-Status-Reason-Code"] == "ERR_NOT_IMPLEMENTED"
+    assert r["X-Status-Reason"].startswith("Endpoint not implemented: the 'cpc_classes' data set is not in this snapshot; ")
+    assert "cpc_current" in r["X-Status-Reason"]
+    from API.lapse_errors import DEFERRED_INDICES
+    for note in DEFERRED_INDICES.values():
+        for word in ("checklist", "gate", "scaffold", "ops/", "patentref "):
+            assert word not in note.lower(), (word, note)

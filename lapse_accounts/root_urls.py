@@ -15,7 +15,7 @@ urlpatterns = [
     # the human page behind the versioned permalink; no key
     re_path(r"^p/(?P<pk>[A-Za-z0-9]+)/?$", lapse_views.RecordPage.as_view(), name="record-page"),
     # agent plumbing at the root (gate 2.11): served by Django so the shared Caddy needs no change
-    re_path(r"^(?P<name>llms\.txt|llms-full\.txt|openapi\.json|LICENSES\.md)$", public.public_file, name="public-file"),
+    re_path(r"^(?P<name>llms\.txt|llms-full\.txt|openapi\.json|changes\.txt|LICENSES\.md)$", public.public_file, name="public-file"),
     re_path(r"^docs/errors/?$", public.error_docs, name="error-docs"),
     re_path(r"^docs/errors/(?P<code>[A-Za-z_]+)/?$", public.error_docs, name="error-doc"),
 ] + list(upstream_urlpatterns)

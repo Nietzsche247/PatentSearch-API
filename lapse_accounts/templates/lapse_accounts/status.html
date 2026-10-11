@@ -88,7 +88,7 @@
 
     {% with u=d.uptime r=d.requests_24h %}
     <div class="tiles">
-      <div class="tile"><div class="n">{% if u.uptime_percent != None %}{{ u.uptime_percent|floatformat:3 }}%{% else %}n/a{% endif %}</div><div class="l">uptime since {{ u.clock_start|slice:":10" }} (gate 5.8 clock)</div></div>
+      <div class="tile"><div class="n">{% if u.uptime_percent != None %}{{ u.uptime_percent|floatformat:3 }}%{% else %}n/a{% endif %}</div><div class="l">uptime since {{ u.clock_start|slice:":10" }}</div></div>
       <div class="tile"><div class="n">{{ u.down_minutes|floatformat:0 }}</div><div class="l">minutes down of {{ u.elapsed_minutes|intcomma }} elapsed</div></div>
       <div class="tile"><div class="n">{% if r.p95_ms != None %}{{ r.p95_ms|floatformat:0 }} ms{% else %}n/a{% endif %}</div><div class="l">p95 latency, last 24 h</div></div>
       <div class="tile"><div class="n">{{ r.requests|intcomma }}</div><div class="l">API requests, last 24 h</div></div>
@@ -148,7 +148,7 @@
         <dt>Serving</dt><dd>{% if f.current %}data version {{ f.current.data_version }}, built {{ f.current.built_at }}{% if f.current.verdict %}, verdict {{ f.current.verdict }}{% endif %}{% if f.current.swapped %}, live since {{ f.current.swapped_at }}{% endif %}{% else %}{{ d.service.data_version }} (no sidecar){% endif %}</dd>
         <dt>Last catalog check</dt><dd>{% if f.last_check %}{{ f.last_check.t }}: {{ f.last_check.verdict }}{% else %}none recorded{% endif %}</dd>
         <dt>Next build</dt><dd>{% if f.next %}data version {{ f.next.data_version }}, verdict {{ f.next.verdict }}, built {{ f.next.built_at }} (not yet live; the swap is a separate, verified step){% else %}none waiting{% endif %}</dd>
-        {% if f.current.gates %}<dt>Gates of the live build</dt><dd>{% for g, s in f.current.gates.items %}<code>{{ g }}</code> {{ s }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+        {% if f.current.gates %}<dt>Checks of the live build</dt><dd>{% for g, s in f.current.gates.items %}<code>{{ g }}</code> {{ s }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
       </dl>
       <p class="muted">The weekly check polls the USPTO catalog on Wednesdays at 06:10 UTC and starts a build only when a wanted file changed. A build never replaces the live file by itself.</p>
       {% endwith %}
@@ -177,7 +177,7 @@
         {% for a in d.alerts.open %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.time }}</td><td>{{ a.state }}</td></tr>{% endfor %}
       </table></div>
       {% else %}<p class="muted">No open alerts. {% if d.alerts.recent %}Most recent line: {{ d.alerts.recent.0.time }} <code>{{ d.alerts.recent.0.check }}</code> {{ d.alerts.recent.0.state }}.{% endif %}</p>{% endif %}
-      <p class="muted">The on-box watchdog runs every 2 minutes: API and public health, disk and memory headroom, the refresh and backup timers. A breach files an item on the operator desk (once per 24 hours per check) and a line here.</p>
+      <p class="muted">The on-box watchdog runs every 2 minutes: API and public health, disk and memory headroom, the refresh and backup timers. A breach alerts the operator (once per 24 hours per check) and adds a line here.</p>
     </section>
   </main>
   <footer class="pr-footer">

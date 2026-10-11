@@ -4,7 +4,8 @@ Upstream `API/exceptions.py` is untouched. Its final branch hands any exception 
 Django REST framework's default handler, which turns an `APIException` into a response with the
 exception's `status_code` and `detail` but cannot attach custom headers. The two pieces here close
 that gap for the one case the SQLite backend adds: an endpoint whose data set is not in the snapshot
-(checklist 1.5 defers pre-grant publications; other views arrive with their Phase 1 loads).
+(pre-grant publications are deferred; other views arrive with their data loads). The note DEFERRED_INDICES
+adds to the reason is public text: it names no internal document (2026-10-11 audits, finding G1).
 
 Documented 501 contract (CHANGES_LAPSE.md, "Deferred endpoints"):
   status 501, body {"error": true},
@@ -18,7 +19,23 @@ from http import HTTPStatus
 from rest_framework.exceptions import APIException
 
 DEFERRED_CODE = "ERR_NOT_IMPLEMENTED"
-DEFERRED_INDICES = {"publications": "pre-grant publications are deferred (PatentRef checklist 1.5)"}
+# The note after the reason, public text: what the data set is and where the same facts are served. No internal
+# references here (the 2026-10-11 audits found "PatentRef checklist 1.5" in this header).
+_PUBLICATIONS = "pre-grant publications are deferred to a later build"
+DEFERRED_INDICES = {
+    "publications": _PUBLICATIONS,
+    "rel_app_text_publications": _PUBLICATIONS,
+    "pg_claims": _PUBLICATIONS,
+    "pg_brf_sum_texts": _PUBLICATIONS,
+    "pg_detail_desc_texts": _PUBLICATIONS,
+    "pg_draw_desc_texts": _PUBLICATIONS,
+    "cpc_classes": "the CPC classes of each patent come in its cpc_current and cpc_at_issue groups on /api/v1/patent/",
+    "cpc_subclasses": "the CPC subclasses of each patent come in its cpc_current and cpc_at_issue groups on /api/v1/patent/",
+    "uspc_mainclasses": "the USPC main classes of each patent come in its uspc_at_issue group on /api/v1/patent/",
+    "wipo": "the WIPO fields of each patent come in its wipo group on /api/v1/patent/",
+    "nber_categories": "a dead route upstream, with no data set behind it",
+    "nber_subcategories": "a dead route upstream, with no data set behind it",
+}
 
 _pending = threading.local()
 
@@ -105,6 +122,14 @@ class LapseErrorHeadersMiddleware:
 
 
 DATA_VERSION_HEADER = "X-Data-Version"
+TEXT_DATA_VERSION_HEADER = "X-Text-Data-Version"
+# the four long-text endpoints (PatentRef 1.6): their rows come from the long-text file, which can be of an earlier build
+TEXT_PATH_PREFIXES = ("/api/v1/g_claim/", "/api/v1/g_brf_sum_text/", "/api/v1/g_detail_desc_text/", "/api/v1/g_draw_desc_text/")
+
+
+def is_text_path(path):
+    p = path if path.endswith("/") else path + "/"
+    return p.startswith(TEXT_PATH_PREFIXES)
 
 
 class DataVersionMiddleware:
@@ -114,7 +139,12 @@ class DataVersionMiddleware:
     the view ran: the same connection produced the body, so header and body never name different
     files. A response whose view never opened the search database (403 without a key, the account
     endpoints) gets the version of the file the configured path resolves to right now, read through
-    the same thread cache. The header is additive: upstream bodies and other headers are unchanged."""
+    the same thread cache. The header is additive: upstream bodies and other headers are unchanged.
+
+    On the four long-text endpoints the rows come from the long-text file, so those responses also carry
+    `X-Text-Data-Version`, that file's data_version (the text_data_version of GET /api/v1/meta/health/),
+    read from the same thread connection. X-Data-Version keeps one meaning everywhere (the search file);
+    the second header is additive and absent when no long-text file is in service."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -125,7 +155,27 @@ class DataVersionMiddleware:
             version = self._version()
             if version:
                 response[DATA_VERSION_HEADER] = version
+        if is_text_path(request.path) and not response.has_header(TEXT_DATA_VERSION_HEADER):
+            text_version = self._text_version()
+            if text_version:
+                response[TEXT_DATA_VERSION_HEADER] = text_version
         return response
+
+    @staticmethod
+    def _text_version():
+        try:
+            from django.conf import settings
+
+            if getattr(settings, "LAPSE_BACKEND", "elasticsearch") != "sqlite":
+                return None
+            from API.search_sqlite import LapseSQLiteSearch, current_text_data_version
+
+            version = current_text_data_version()
+            if version is None:
+                version = LapseSQLiteSearch.from_django_settings().text_data_version()
+            return version
+        except Exception:  # the header never breaks a response
+            return None
 
     @staticmethod
     def _version():

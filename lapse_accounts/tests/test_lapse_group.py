@@ -239,8 +239,8 @@ def test_status_endpoint_needs_a_key_and_validates_against_the_schema(client, us
         assert body["reinstatement_possible"] == "unknown" and body["reinstatement_basis"].startswith("37 CFR 1.378")
         assert body["as_of"] == "2026-10-06" and body["data_version"] == "20261006.2"
         assert body["permalink"].endswith("/p/8087108?v=20261006.2")
-        assert body["plain"] == ("As of 2026-10-06, the USPTO record for US 8087108 shows it expired on 2016-01-03 for nonpayment of a "
-                                 "maintenance fee; the record shows no reinstatement (data version 20261006.2).")
+        assert body["plain"] == ("As of 2026-10-06, the USPTO maintenance-fee record for US 8087108 shows an expiry for nonpayment of a "
+                                 "maintenance fee dated 2016-01-03, and no later reinstatement (data version 20261006.2).")
         assert [n["audience"] for n in body["next_steps"]].count("human") == 1
         assert lapse_wording.check_banned(json.dumps(body)) == []
         assert r["X-Data-Version"] == "20261006.2"
@@ -248,7 +248,10 @@ def test_status_endpoint_needs_a_key_and_validates_against_the_schema(client, us
     body = r.json()
     jsonschema.validate(body, SCHEMA)
     assert body["status"] == "expired_term" and body["basis"][-1] == "reinstated:2017-08-30" and body["reinstatement_possible"] is False
-    assert "term ended on 2022-08-08" in body["plain"] and "reinstated 2017-08-30" in body["plain"]
+    # the term end is computed from the record's dates, not printed by it (2026-10-11 audit 2, finding G2)
+    assert body["plain"].startswith("As of 2026-10-06, the term end computed from the dates in the USPTO record for US 6671888 is 2022-08-08 (")
+    assert "reinstated 2017-08-30" in body["plain"] and body["plain"].endswith("a date that has passed (data version 20261006.2).")
+    assert "shows its term ended" not in body["plain"]
     r = client.get("/api/v1/lapse/status/10000364/", HTTP_X_API_KEY=key)
     body = r.json()
     jsonschema.validate(body, SCHEMA)
@@ -286,7 +289,7 @@ def test_record_page_without_a_key(client, lapse_env):
     r = client.get("/p/8087108")
     assert r.status_code == 200 and r["Content-Type"].startswith("text/html")
     html = r.content.decode()
-    assert "the USPTO record for US 8087108 shows it expired on 2016-01-03" in html
+    assert "the USPTO maintenance-fee record for US 8087108 shows an expiry for nonpayment of a maintenance fee dated 2016-01-03" in html
     assert 'data-user-content="true"' in html and "Pool cleaning head" in html
     assert lapse_wording.check_banned(html.split('data-user-content="true"')[0]) == []
     assert client.get("/p/99999999").status_code == 404
@@ -315,15 +318,31 @@ def test_similar_endpoint(client, user_key, lapse_env):
 
 
 def test_wording_templates_and_banned_check():
-    rec = {"status": "active", "as_of": "2026-10-06", "basis": ["term_20y"]}
+    rec = {"status": "active", "as_of": "2026-10-06", "basis": ["term_20y", "pta_days:12"], "expiry_date_estimated": "2036-03-14"}
     assert lapse_wording.plain(rec, "US10000364", "20261006.2") == \
-        "As of 2026-10-06, the USPTO record for US 10000364 shows no term end and no unresolved maintenance-fee lapse (data version 20261006.2)."
+        ("As of 2026-10-06, the USPTO record for US 10000364 shows no unresolved maintenance-fee lapse, and the term end computed from the "
+         "dates in that record is 2036-03-14 (20 years from filing, plus 12 days of term adjustment), a date still ahead (data version 20261006.2).")
+    rec = {"status": "expired_term", "as_of": "2026-10-06", "basis": ["term_20y"], "expiry_date_estimated": "2009-05-15"}
+    assert lapse_wording.plain(rec, "US5000000", "20261006.5") == \
+        ("As of 2026-10-06, the term end computed from the dates in the USPTO record for US 5000000 is 2009-05-15 (20 years from filing), "
+         "a date that has passed (data version 20261006.5).")
+    rec = {"status": "withdrawn", "as_of": "2026-10-06", "basis": []}
+    assert lapse_wording.plain(rec, "US6000001", "20261006.5") == "As of 2026-10-06, the USPTO record shows US 6000001 as withdrawn (data version 20261006.5)."
+    unknown = ("As of 2026-10-06, the USPTO record for US RE31177 does not settle its status: no term end can be computed from the dates it "
+               "holds (data version 20261006.5).")
+    assert lapse_wording.plain({"status": "unknown", "as_of": "2026-10-06", "basis": []}, "USRE31177", "20261006.5") == unknown
+    # a status that states a computed term end falls back to "does not settle" when the date is missing
+    assert lapse_wording.plain({"status": "active", "as_of": "2026-10-06", "basis": []}, "USRE31177", "20261006.5") == unknown
     assert lapse_wording.check_banned("This patent is free to use") == ["free to use"]
     assert lapse_wording.check_banned("record facts " + chr(0x2014) + " and more") == [chr(0x2014)]
     assert lapse_wording.check_banned('{"confidence": 0.9}') == ["confidence"]
     assert lapse_wording.check_banned("") == []
     for t in lapse_wording.TEMPLATES.values():
         assert lapse_wording.check_banned(t) == [] and "{as_of}" in t and "{v}" in t
+        # finding G2: a term end is computed from the record's dates; no sentence may say the record shows it
+        assert "term ended" not in t and "shows its term" not in t
+        if "{expiry_date}" in t:
+            assert "the term end computed from the dates in" in t
 
 
 def test_similar_term_selection_uses_document_frequencies(lapse_env):

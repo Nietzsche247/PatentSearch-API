@@ -1126,6 +1126,15 @@ def current_data_version():
     return getattr(LapseSQLiteSearch._local, "data_version", None)
 
 
+def current_text_data_version():
+    """The data_version of the long-text file attached to the connection this thread is holding, or None when
+    the thread has opened no connection yet or none is attached. Read by DataVersionMiddleware for the
+    X-Text-Data-Version header of the long-text endpoints, so that header names the file that produced the rows."""
+    if getattr(LapseSQLiteSearch._local, "con", None) is None:
+        return None
+    return getattr(LapseSQLiteSearch._local, "text_version", None)
+
+
 class LapseSQLiteSearch:
     """One instance per request (API.search.get_searcher builds one in the view). The configured path is
     normally a symlink (`snapshot_current.db`); it is resolved ONCE, here, so every query of a request

@@ -74,7 +74,8 @@ X-Status-Reason-Code: ERR_NOT_IMPLEMENTED
 {"error":true}
 ```
 
-The note for `publications` is `pre-grant publications are deferred (PatentRef checklist 1.5)`. Views whose
+The note for `publications` (and the other pre-grant views) is `pre-grant publications are deferred to a later build`;
+the four classification lookups the build lacks name where each patent carries the same facts (2026-10-11 below). Views whose
 tables arrive with later data loads answer the same 501 without a note until their tables exist (the four
 granted text endpoints do so whenever no long-text file is attached, see 2026-10-08 below); the upstream prototype answered a 500 `ERR_ES` here. The body is the upstream
 error body so clients that branch on `error: true` keep working; the status and the code header are the only
@@ -651,3 +652,39 @@ section G).
   with `data_version` only; since 1.6 the memo key asks the index's schema whether the long-text version belongs in
   it, so the stand-in now answers `meta()` too, and the test checks that a long-text index is keyed by the text
   version and a main-file index is not.
+
+## 2026-10-11 pending approval: public text without internal references, the plain sentence, the long-text version header (PatentRef 2.11 G1, G2, H)
+
+The second independent audit of 2026-10-11 (the patentref repo's `ops/audits/2026-10-11_independent-audit-2_patentref-us1.txt`,
+findings G1 and G2, and section H of `ops/audits/2026-10-11_openapi-and-caddy-fallback_patentref-us1.txt`) found internal
+machinery in public answers and a status sentence that overstated its source.
+
+- `lapse_accounts/public.py`: `/api/v1/meta/` `delta_note` reads "rows per table of the build in service (next) against the
+  build it replaced (current), as the build step counted them; empty for a build that recorded no counts" (it named the
+  runner's count_deltas gate). `deferred` is computed: each data set of `DEFERRABLE_SETS` (publications, cpc_classes,
+  cpc_subclasses, uspc_mainclasses, wipo) that the served search file and long-text file lack (their `_lapse_indices`),
+  each with the routes that answer 501 and where each patent carries the same facts; a build that adds one drops it by
+  itself (it was the fixed `["publications (pre-grant set, checklist 1.5)"]`, without the four classification sets).
+  The error pages: ERR_Q lists the rules as llms-full.txt section 2 does ("a sort on a text field without a keyword
+  form", no q on a list endpoint, q or s on the lapse group); ERR_NOT_IMPLEMENTED points at the `deferred` list; the
+  index says which codes the X-Status-Reason-Code header carries (NOT_FOUND only for a `v` that never existed on
+  /api/v1/lapse/status/), as openapi.json and llms-full.txt section 5 now do.
+- `API/lapse_errors.py`: the X-Status-Reason note of a 501 is public text: `pre-grant publications are deferred to a
+  later build` for every pre-grant view (it said "(PatentRef checklist 1.5)"), and for the four classification lookups
+  where each patent carries the same classes (`cpc_current`, `cpc_at_issue`, `uspc_at_issue`, `wipo` on /api/v1/patent/).
+  The status, the body `{"error":true}` and the code header are unchanged; the reason still starts "Endpoint not
+  implemented", which the contract runner checks.
+- `API/lapse_errors.py` (`DataVersionMiddleware`), `API/search_sqlite.py` (`current_text_data_version`): the four
+  long-text endpoints also send `X-Text-Data-Version`, the data_version of the long-text file the rows came from (the
+  health route's `text_data_version`); absent when no long-text file is in service. X-Data-Version keeps one meaning
+  everywhere (the search file). Additive header; bodies unchanged.
+- `API/lapse_wording.py`: the `plain` templates no longer say the USPTO record shows a term ended. The record prints
+  dates and events, and the term end is computed from them (35 USC 154), so the active and expired_term sentences say
+  "the term end computed from the dates in the USPTO record ... is <date> (<basis>), a date that has passed" (or "still
+  ahead"); the fee-lapse sentence names the maintenance-fee record and the date of its expiry event; unknown says no
+  term end can be computed. A status that states a term end without a date falls back to the unknown sentence. The
+  record page labels the date "Term end, computed from the record's dates".
+- `lapse_accounts/templates/lapse_accounts/status.html`: the uptime tile and the watchdog note name no gate or desk.
+- Tests: `test_public.py` (meta body without internal words, the computed `deferred`, the 501 reasons, the error index
+  against the guide), `test_lapse_group.py` (every template, the G2 rule), `test_long_text.py` (X-Text-Data-Version on
+  the four routes, absent elsewhere and without a long-text file), `test_status.py` (the page without gate or desk).

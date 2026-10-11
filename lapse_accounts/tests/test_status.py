@@ -168,3 +168,7 @@ def test_public_status_shows_no_paths_desk_ids_or_sizes(client, monkeypatch, tmp
     for banned in (str(tmp_path), "/data", "0d1609c2c8", "GB", "MemAvailable", "CPUs", "Load average"):
         assert banned not in html, banned
     assert "Disk, system" in html and "disk_data" in html
+    # 2026-10-11 audits, finding G1: no internal machinery on the public page (it read "(gate 5.8 clock)" and "operator desk")
+    low = html.lower()
+    for banned in ("gate 5", "desk", "checklist", "scaffold", "ops/"):
+        assert banned not in low, banned

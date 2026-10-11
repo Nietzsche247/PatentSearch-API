@@ -65,7 +65,7 @@
       <dl>
         <dt>Status</dt><dd><code>{{ rec.status }}</code></dd>
         <dt>Basis</dt><dd>{% for b in rec.basis %}<code>{{ b }}</code> {% empty %}none{% endfor %}{% if basis_text %} ({{ basis_text }}){% endif %}</dd>
-        <dt>Term end estimate</dt><dd>{{ rec.expiry_date_estimated|default:"not derivable from this record" }}</dd>
+        <dt>Term end, computed from the record's dates</dt><dd>{{ rec.expiry_date_estimated|default:"not derivable from this record" }}</dd>
         <dt>Fee lapse</dt><dd>{{ rec.lapse_date|default:"none on record" }}</dd>
         <dt>Reinstatement on record</dt><dd>{{ rec.reinstated_date|default:"none" }}</dd>
         <dt>Reinstatement possible</dt><dd><code>{{ rec.reinstatement_possible }}</code>: {{ rec.reinstatement_basis }}</dd>
@@ -86,7 +86,7 @@
   </main>
   <footer class="pr-footer">
     {% for line in footer_lines %}<p>{{ line }}</p>{% endfor %}<p><a href="/LICENSES.md">License register</a> <a href="/llms.txt">llms.txt</a> <a href="/openapi.json">OpenAPI</a> <a href="/api/v1/meta/">Build facts</a></p>
-    <p>This page states what the USPTO record shows as of the date above. It is not advice.</p>
+    <p>This page states what the USPTO record shows as of the date above, and the term end computed from the dates in it. It is not advice.</p>
   </footer>
 </body>
 </html>
