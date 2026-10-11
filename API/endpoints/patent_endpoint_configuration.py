@@ -28,7 +28,8 @@ class AssigneeNestedSerializer(PVAPIDocumentSerializer):
     assignee_country = generate_serializer(serializers.CharField, max_length=32)
     assignee_sequence = generate_serializer(serializers.IntegerField)
     # PatentRef addition (checklist 4.7): false on names taken as printed from the USPTO weekly grant XML (no
-    # assignee_id yet); present on a PatentsView row only when named in f (API/search_sqlite.py)
+    # assignee_id yet), true on PatentsView rows; present only when f names it, then on every row of the group
+    # (API/search_sqlite.py _wanted), so a whole group keeps upstream's keys
     disambiguated = generate_serializer(serializers.BooleanField)
 
 

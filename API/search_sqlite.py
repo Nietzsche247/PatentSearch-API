@@ -1461,18 +1461,23 @@ class LapseSQLiteSearch:
     # ---- _source filtering
     @staticmethod
     def _wanted(meta, fields):
-        """Map ES _source includes to (top-level columns, {nested path: [sub columns]})."""
+        """Map ES _source includes to (top-level columns, {nested path: [sub columns]}).
+
+        PatentRef 4.7 and 2.7: a whole group (f names `inventors`, or `inventors.*`) carries the upstream columns
+        only; the `disambiguated` flag column is added only when f names it as a subfield. Which keys a row of a
+        group carries then depends on the request alone, never on the row, so every row of a group has the same
+        keys (the R package binds the rows of a group into one table and stops on a second key set)."""
         top, nested = [], {}
         pats = list(fields) if fields else ["*"]
         for c in meta.columns:
             if any(p == c or fnmatch.fnmatchcase(c, p) for p in pats):
                 top.append(c)
         for path, cols in meta.child_columns.items():
+            subs = [c for c in cols if any(p.startswith(path + ".") and p != path + ".*"
+                                           and fnmatch.fnmatchcase(path + "." + c, p) for p in pats)]
             if any(p == path or fnmatch.fnmatchcase(path, p) or p == path + ".*" for p in pats):
-                nested[path] = list(cols)
+                nested[path] = [c for c in cols if c != FLAG_FIELD or c in subs]
                 continue
-            subs = [c for c in cols if any(p.startswith(path + ".") and fnmatch.fnmatchcase(path + "." + c, p)
-                                           for p in pats)]
             if subs:
                 nested[path] = subs
         return top, nested
@@ -1583,20 +1588,14 @@ class LapseSQLiteSearch:
                     continue
                 child = meta.nested[path]
                 # PatentRef 4.7: `disambiguated` (0 on names taken as printed from the weekly grant XML, 1 by the
-                # column default on every PatentsView row) is always shown when false; when true only if f names it,
-                # so a whole-group request on PatentsView rows answers exactly what it answered before the column
-                flag_named = FLAG_FIELD in cols and any(p == f"{path}.{FLAG_FIELD}" for p in (fields or []))
+                # column default on every PatentsView row) is in `cols` only when f names it (_wanted), and then
+                # on every row, true or false; a whole-group request answers upstream's keys on every row
                 q = (f'SELECT "_pid", {", ".join(chr(34) + c + chr(34) for c in cols)} FROM "{child}" '
                      f'WHERE "_pid" IN ({marks}) ORDER BY "_pid", "_ord"')
                 for rec in con.execute(q, ids):
                     obj = {c: self._convert(meta, path, c, v) for c, v in zip(cols, rec[1:])}
-                    if FLAG_FIELD in obj:
-                        if obj[FLAG_FIELD] in (0, False):
-                            obj[FLAG_FIELD] = False
-                        elif flag_named:
-                            obj[FLAG_FIELD] = True
-                        else:
-                            del obj[FLAG_FIELD]
+                    if obj.get(FLAG_FIELD) is not None:
+                        obj[FLAG_FIELD] = bool(obj[FLAG_FIELD])  # a boolean even where _lapse_fields lacks the type
                     by_id[rec[0]].setdefault(path, []).append(obj)
             for path, cols in nested.items():
                 if path not in meta.virtual:

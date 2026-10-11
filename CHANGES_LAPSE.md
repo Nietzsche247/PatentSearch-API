@@ -537,7 +537,9 @@ column to `patents__inventors`, `patents__assignees` and `patents__attorneys` wi
   it is false, and whenever `f` names `<group>.disambiguated` (true or false); a request for other subfields gets
   those alone, and a whole-group request on PatentsView rows answers what it did before the column existed. `q`
   filters on it like any boolean (`{"inventors.disambiguated": false}`). Checked on the 2026 overlay (286,939 grants)
-  with this serializer: contract 31/31 and extra checks 19/19.
+  with this serializer: contract 31/31 and extra checks 19/19. Changed 2026-10-11 (section "group key sets" below):
+  the flag comes only when `f` names it, then on every row, because a whole group with the flag on some rows only
+  had two key sets.
 - `lapse_accounts/public.py`: `/api/v1/meta/` has `weekly_grants` (PatentsView through, weekly grants through, weeks,
   patents, the note on names) when the served file carries the overlay; null otherwise.
 - `lapse_accounts/tests/test_weekly_grants.py` (4 tests): the whole-group shape on both kinds of rows, the named flag,
@@ -616,3 +618,36 @@ vignette). The behavior now follows upstream where an index can serve the query,
   `test_neq_over_every_row_counts_from_row_counts_and_walks_the_sort_index`,
   `test_complement_count_needs_an_exact_row_count`: totals against a count over the file, rows against the per-row
   test, and the SQL each statement ran.
+## 2026-10-11 pending approval: one key set per group, the flag only when named (PatentRef 2.7 and 4.7)
+
+Found by the rOpenSci R package (`patentsview` 1.0.0) after the 2026 weekly grants went live (2026-10-09): the
+vignettes examples and top-assignees stopped in `rbind()` ("numbers of columns of arguments do not match"). The
+package asks for a whole group (it sends `inventors` when every field of the group is wanted) and binds the rows of
+the group into one table. The 4.7 rule put `disambiguated: false` on the weekly rows of a whole group and no flag on
+PatentsView rows, so one group had two key sets: 1,288 of 7,523 Microsoft patents since 2022-07-26 had 11 inventor
+columns and the rest 10 (the patentref repo's `ops/audits/2026-10-11_wave2-fixes-deploy_patentref-us1.txt`
+section G).
+
+- `API/search_sqlite.py` (`_wanted`, the nested fill): which keys a row of a group carries now depends on the
+  request only, never on the row. A whole group (`f` names `inventors`, or `inventors.*`) carries the upstream
+  columns, without `disambiguated`, on PatentsView and weekly rows alike, so a request that does not name the flag
+  answers upstream's keys byte for byte on PatentsView rows and the same keys (ids null) on weekly rows. When `f`
+  names `<group>.disambiguated` (alone, with other subfields or with the whole group) every row of that group carries
+  it, true on PatentsView rows and false on weekly rows. `q` on the flag is unchanged
+  (`{"inventors.disambiguated": false}` finds the weekly grants).
+- `lapse_accounts/tests/test_weekly_grants.py` (6 tests): `test_every_row_of_every_group_has_one_key_set` asks for
+  five groups (the three flagged ones, `application`, `cpc_current`) over one PatentsView and one weekly patent in
+  five shapes of `f` (whole groups, `group.*`, whole groups with the flag, subfields with the flag in some groups,
+  subfields without it) and requires one key set per group; it fails on the 4.7 code (two key sets in
+  `assignees`). `test_whole_group_answers_upstream_keys_on_both_kinds_of_rows` and
+  `test_named_flag_on_every_row_with_the_whole_group` replace `test_whole_group_shows_the_flag_only_on_raw_rows`.
+- Two stale tests fixed (the code was right in both):
+  `lapse_accounts/tests/test_lapse_group.py` looked for the patentref checkout (the status engine `lapse.expiry`)
+  only at a sibling directory named `lapse`, which no layout in use has (the box has `/srv/api/PatentSearch-API`
+  and `/srv/lapse`), so six tests got the 503 the API rightly gives without its status engine. It now takes
+  `LAPSE_REPO_DIR`, else a sibling `lapse`, `patentref` or `pr`, else `/srv/lapse`, and fails with that message when
+  none holds `lapse/expiry.py`.
+  `lapse_tools/tests/test_sql_shapes.py::test_count_memo_is_shared_and_version_keyed` built a stand-in searcher
+  with `data_version` only; since 1.6 the memo key asks the index's schema whether the long-text version belongs in
+  it, so the stand-in now answers `meta()` too, and the test checks that a long-text index is keyed by the text
+  version and a main-file index is not.

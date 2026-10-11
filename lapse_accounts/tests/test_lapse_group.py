@@ -2,7 +2,8 @@
 
 A four-row search database (patents, patents__application, patents__us_term_of_grant, fts_patents) and a
 four-row Lapse catalog in the loader layout, attached read-only through LAPSE_CATALOG_PATH. The status engine
-is `lapse.expiry` from the patentref clone (LAPSE_REPO_DIR; defaults to the sibling checkout for the tests).
+is `lapse.expiry` from a patentref checkout: LAPSE_REPO_DIR when set, else the first of a sibling checkout named
+lapse, patentref or pr, or /srv/lapse (the box), that holds lapse/expiry.py; with none the tests fail and say so.
 Reuses conftest.py (temporary Django DB, operator key via the account endpoints).
 
   python -m pytest lapse_accounts/tests/test_lapse_group.py -q -p no:cacheprovider
@@ -21,7 +22,19 @@ from lapse_accounts.tests.conftest import _TMP
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = json.loads((ROOT / "lapse_tools" / "schemas" / "check_patent_status.schema.json").read_text(encoding="utf-8"))
-os.environ.setdefault("LAPSE_REPO_DIR", str(ROOT.parent / "lapse"))
+
+
+def find_repo_dir():
+    """The patentref checkout whose lapse/expiry.py the status engine imports (API/lapse_group.py)."""
+    if os.environ.get("LAPSE_REPO_DIR"):
+        return os.environ["LAPSE_REPO_DIR"]
+    for cand in (ROOT.parent / "lapse", ROOT.parent / "patentref", ROOT.parent / "pr", Path("/srv/lapse")):
+        if (cand / "lapse" / "expiry.py").is_file():
+            return str(cand)
+    return None
+
+
+REPO_DIR = find_repo_dir()
 
 PATENTS = [
     # id, title, date, type, withdrawn, filing_date, term_extension, term_disclaimer, disclaimer_date
@@ -101,7 +114,10 @@ def lapse_env():
     old_cat = getattr(settings, "LAPSE_CATALOG_PATH", None)
     settings.LAPSE_SQLITE["path"] = search
     settings.LAPSE_CATALOG_PATH = catalog
-    settings.LAPSE_REPO_DIR = os.environ["LAPSE_REPO_DIR"]
+    if not REPO_DIR or not (Path(REPO_DIR) / "lapse" / "expiry.py").is_file():
+        pytest.fail("the status engine lapse.expiry lives in the patentref repo: set LAPSE_REPO_DIR to a patentref "
+                    f"checkout (found none beside {ROOT} or at /srv/lapse)", pytrace=False)
+    settings.LAPSE_REPO_DIR = REPO_DIR
     LapseSQLiteSearch._local.__dict__.clear()
     LapseSQLiteSearch._meta_cache.clear()
     try:

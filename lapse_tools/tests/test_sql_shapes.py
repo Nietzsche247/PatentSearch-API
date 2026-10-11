@@ -369,9 +369,21 @@ def test_count_memo_is_shared_and_version_keyed(dbs):
     other = S.LapseSQLiteSearch(new.path, count_cache=str(TMP / "memo.sqlite3"), count_cache_min_ms=0.0)
     assert other._memo_get("patents", sql, params) == n1
     assert other.count("patents", q)["count"] == n1
-    # the key carries the data version: a different version never sees it
-    fake = type("V", (), {"data_version": lambda self: "other"})()
+    # the key carries the data version: a different version never sees it (the stand-in searcher answers meta()
+    # like the real one: since 1.6 the key asks the index's schema whether the long-text version belongs in it)
+    fake = type("V", (), {"data_version": lambda self: "other", "meta": lambda self, index: other.meta(index)})()
     assert other._memo_key("patents", sql, params) != S.LapseSQLiteSearch._memo_key(fake, "patents", sql, params)
+    # an index of the attached long-text file (schema txt) is keyed by the text file's version as well
+    txt = type("M", (), {"schema": "txt"})()
+    k1, k2 = (S.LapseSQLiteSearch._memo_key(type("T", (), {"data_version": lambda self: "v1", "meta": lambda self, i: txt,
+                                                           "text_data_version": lambda self, t=t: t})(), "g_claims", sql, params)
+              for t in ("t1", "t2"))
+    assert k1 != k2
+    main_meta = other.meta("patents")
+    k3, k4 = (S.LapseSQLiteSearch._memo_key(type("T", (), {"data_version": lambda self: "v1", "meta": lambda self, i: main_meta,
+                                                           "text_data_version": lambda self, t=t: t})(), "patents", sql, params)
+              for t in ("t1", "t2"))
+    assert k3 == k4  # a main-file index does not change key when only the long text changes
 
 
 def test_steering_hint_only_for_broad_filters(dbs):
