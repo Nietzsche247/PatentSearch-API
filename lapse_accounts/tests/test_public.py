@@ -65,6 +65,19 @@ def test_error_docs(client):
     assert client.get("/docs/errors/NOPE").status_code == 404
 
 
+def test_error_docs_carry_no_internal_references(client):
+    """2.11 off-box run 2026-10-11, doc defect 6: the public error pages named "PatentRef checklist 1.5"."""
+    pages = [client.get("/docs/errors/").content.decode("utf-8")]
+    pages += [client.get(f"/docs/errors/{code}").content.decode("utf-8") for code in public.ERROR_CODES]
+    for text in pages:
+        low = text.lower()
+        for word in ("checklist", "gate ", "scaffold", "ops/", "handoff", "desk"):
+            assert word not in low, (word, text[:80])
+        assert chr(0x2014) not in text
+    assert "does not count toward the monthly allowance" in public.ERROR_CODES["ERR_NOT_IMPLEMENTED"]
+    assert "a v that never existed" in public.ERROR_CODES["NOT_FOUND"]
+
+
 def test_footer_from_licenses(public_dir):
     lines = public.footer_lines()
     assert lines == ["Patent data from PatentsView and the USPTO, used under CC BY 4.0. Test line one.", "Second test line."]

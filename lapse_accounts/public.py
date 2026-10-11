@@ -52,13 +52,19 @@ ERROR_CODES = {
     "ERR_ES": "500 Internal Server Error. The search backend raised an error or a timeout (20 s a statement, 30 s a request), "
               "or an operator was used on a field type that rejects it (prefix or wildcard on numeric, date and boolean fields).",
     "ERR_NOT_IMPLEMENTED": "501 Not Implemented. The endpoint's data set is not in this snapshot: pre-grant publications are deferred "
-                           "(PatentRef checklist 1.5), the NBER routes are dead upstream, and the long-text endpoints answer it only when no "
-                           "long-text file is in service (GET /api/v1/meta/health/ shows text_data_version). The X-Status-Reason header names the data set.",
+                           "to a later build, the NBER routes are dead upstream, the long-text endpoints answer it only when no "
+                           "long-text file is in service (GET /api/v1/meta/health/ shows text_data_version), and any other endpoint answers it "
+                           "while the build in service does not carry its data set. The X-Status-Reason header names the data set. "
+                           "A 501 does not count toward the monthly allowance.",
     "ERR_AUTH": "401 Unauthorized. The account endpoints need Authorization: Bearer <Supabase access token>; the token is missing, expired or not from the PatentRef project.",
     "ERR_SIGNUP_LIMIT": "429 Too Many Requests. More than the daily number of new accounts from one email domain; try after the Retry-After seconds.",
     "THROTTLED": "429 Too Many Requests. Over the per-minute allowance (45 for a Free key, a fixed UTC clock minute) or the monthly allowance (1,000). "
-                 "Retry-After says when the window resets; the body is DRF's 'Request was throttled. Expected available in N seconds.'",
-    "NOT_FOUND": "404 Not Found. A detail route with a key that has no record ({\"detail\": \"Not found.\"}), or a path that is not routed.",
+                 "Retry-After says when the window resets; the body is DRF's 'Request was throttled. Expected available in N seconds.' "
+                 "What counts toward the month: keyed requests to data paths answered below 500 other than 403 and 429 (400 and 404 count); "
+                 "the /api/v1/meta/ endpoints never count.",
+    "NOT_FOUND": "404 Not Found. A detail route with a key that has no record ({\"detail\": \"Not found.\"}), or a path that is not routed. "
+                 "On /api/v1/lapse/status/<patent_id>/ an unknown patent answers the same {\"detail\": \"Not found.\"}, and a v that never "
+                 "existed answers {\"error\": true} with X-Status-Reason-Code NOT_FOUND.",
 }
 
 
