@@ -805,19 +805,20 @@ term_dates step and the weekly grants parser use it too.
   - us_before_1950 names the 1950 floor as PatentRef's, and the new reason pct_no_year covers a number that names no
     possible filing year;
   - the engine (patentref `lapse/parents.py`): a contradicted row's own date joins the span when it is a possible filing
-    date, and a PCT number written with a two-digit year from 04 to 77 names no year, so its span opens from 1978-06-01.
+    date, and a PCT number written with a two-digit year after 2003 names no year, so its span opens from 1978-06-01.
     US 9257499, 9092803, 9448172 and 10758485 read unknown.
+- The coordinator's decision of 2026-10-12 on that rule (patentref d7bd88d): a two-digit year after 2003 names 20YY when
+  the row's date falls in that year (PCT/EP04/001145 dated 2004-02-08 is the short spelling of PCT/EP2004/001145), and no
+  year otherwise. As first applied the rule also set aside 728 such rows whose date fits, and 414 of those patents read
+  unknown (recount at b900264: 3,337 rows, 1,778 unsettled, 635 unknown, 880 status changes).
 - Recount on data version 20261006.5 (the live engine fac25f5 against the branch, every patent with a contradicted
-  parent row; patentref b900264): 3,337 rows of 3,247 patents. 1,379 patents take another record's date and 90 have
-  the row behind an earlier parent. 1,778 are unsettled: 1,099 keep a status that holds on every possible date with no
-  term end (315 active, 513 expired_term, 271 expired_fee_nonpayment), 635 read unknown, and 44 withdrawn, design,
-  reissued or listed patents keep their status. 2,772 term ends change (1,038 to another date, 1,734 to none). 880
-  statuses change: 69 active to expired_term, 65 expired_term to active, 59 expired_fee_nonpayment to expired_term, 52
-  expired_term to expired_fee_nonpayment, 125 active to unknown, 104 expired_term to unknown, 406 expired_fee_nonpayment
+  parent row; patentref d7bd88d): 2,587 rows of 2,519 patents. 1,392 patents take another record's date and 91 have
+  the row behind an earlier parent. 1,036 are unsettled: 813 keep a status that holds on every possible date with no
+  term end (315 active, 227 expired_term, 271 expired_fee_nonpayment), 209 read unknown, and 14 withdrawn, design,
+  reissued or listed patents keep their status. 2,073 term ends change (1,051 to another date, 1,022 to none). 460
+  statuses change: 69 active to expired_term, 68 expired_term to active, 60 expired_fee_nonpayment to expired_term, 54
+  expired_term to expired_fee_nonpayment, 82 active to unknown, 56 expired_term to unknown, 71 expired_fee_nonpayment
   to unknown.
-  - 728 of the 1,778 have a PCT number written with a two-digit year from 04 to 77 and a row date in the year 20YY that
-    year would name read as a short form; 414 of them move to unknown. Before the review's engine change these rows were
-    used as written (the recount at b1cd8e0: 2,587 rows, 997 unsettled, 139 unknown, 449 status changes).
 - B11, for the record of bundle 4 above: of the 267 patents that move "with the earlier parent", 229 move because of the
   related-publication parent; the fee rule alone moves the other 38 either way (independent audit 4, check 4).
 - Tests: 9527819 (PCT dated by its national stage), 9087778 (US parent dated by the granted patent's record), 6419129
