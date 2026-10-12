@@ -77,6 +77,7 @@ PARENT_WHY = {
     "us_series": "is outside the years in which applications of that serial number's series were filed",
     "us_before_1950": "is before 1950, earlier than PatentRef accepts for a parent application",
     "pct_no_year": "cannot be checked against that application's number, since the number names no possible filing year",
+    "pct_short_year": "cannot be checked against that application's number, since the number is written with a two-digit year, a form in use only up to 2003",
 }
 
 

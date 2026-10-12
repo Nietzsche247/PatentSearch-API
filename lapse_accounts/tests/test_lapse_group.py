@@ -660,9 +660,15 @@ def test_parent_dates_the_record_contradicts(client, lapse_env):
     both = dict(act, parent_unsettled=dict(rec["parent_unsettled"], span="number_and_row"))
     assert "but on that date and on any filing date that application's number allows, the term end" in \
         lapse_wording.plain(both, "US6419129", "v")
-    opn = dict(act, parent_unsettled=dict(rec["parent_unsettled"], span="open", why="pct_no_year", number="PCT/EP11/06449"))
+    opn = dict(act, parent_unsettled=dict(rec["parent_unsettled"], span="open", why="pct_short_year", number="PCT/EP11/06449"))
     assert ("PCT/EP11/06449 the filing date 1914-06-29, which cannot be checked against that application's number, since the "
-            "number names no possible filing year, and PatentRef holds") in lapse_wording.plain(opn, "US6419129", "v")
+            "number is written with a two-digit year, a form in use only up to 2003, and PatentRef holds") in \
+        lapse_wording.plain(opn, "US6419129", "v")
+    # a number that names no possible year keeps pct_no_year (US 6405983: PCT/AU76/00185)
+    nop = dict(act, parent_unsettled=dict(rec["parent_unsettled"], span="open", why="pct_no_year", number="PCT/AU76/00185"))
+    assert "which cannot be checked against that application's number, since the number names no possible filing year, " \
+        "and PatentRef holds" in lapse_wording.plain(nop, "US6419129", "v")
+    assert lapse_wording.check_banned(lapse_wording.PARENT_WHY["pct_short_year"]) == []
     assert "but on any day from 1978-06-01 to this patent's own filing, the term end" in lapse_wording.plain(opn, "US6419129", "v")
     fee = dict(rec, status="expired_fee_nonpayment", lapse_date="2010-07-16")
     assert lapse_wording.plain(fee, "US6419129", "v").startswith(

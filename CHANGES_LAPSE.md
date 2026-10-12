@@ -809,7 +809,9 @@ term_dates step and the weekly grants parser use it too.
     US 9257499, 9092803, 9448172 and 10758485 read unknown.
 - The coordinator's decision of 2026-10-12 on that rule (patentref d7bd88d): a two-digit year after 2003 names 20YY when
   the row's date falls in that year (PCT/EP04/001145 dated 2004-02-08 is the short spelling of PCT/EP2004/001145), and no
-  year otherwise. As first applied the rule also set aside 728 such rows whose date fits, and 414 of those patents read
+  year otherwise. The second wording review gave the second case its own reason, pct_short_year: "cannot be checked
+  against that application's number, since the number is written with a two-digit year, a form in use only up to 2003"
+  (US 9092803, 9257499, 9448172, 10758485); pct_no_year stays for a number that names no possible year (US 6405983). As first applied the rule also set aside 728 such rows whose date fits, and 414 of those patents read
   unknown (recount at b900264: 3,337 rows, 1,778 unsettled, 635 unknown, 880 status changes).
 - Recount on data version 20261006.5 (the live engine fac25f5 against the branch, every patent with a contradicted
   parent row; patentref d7bd88d): 2,587 rows of 2,519 patents. 1,392 patents take another record's date and 91 have
