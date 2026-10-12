@@ -739,3 +739,28 @@ in deploy step 0 of `handoffs/2026-10-11_0200_api-compat_public-text-kinds-and-v
 - On data version 20261006.5 the 8 listed patents where the list's date has passed and the record's own term has not
   (US 7854943, 7862817, 7971333, 8008449, 8158616, 8178563, 8288539, 9572856) read unknown instead of expired_term.
 - Tests: the review-2 sentences byte for byte, the reissue map and the record page of 7208489.
+
+## 2026-10-12 pending approval: bundle 4, the fixes of independent audit 3 (B2, B4; B1 and B9 in the engine)
+
+Independent audit 3 (the patentref repo's `ops/audits/2026-10-12_independent-audit-3_patentref-us1.txt`, section K) listed
+builder fixes B1 to B9. The fork carries two; the engine fixes come with the patentref branch of the same name.
+
+- `API/lapse_group.py` fetch_rows (B2, finding F2): a related-document row of type related-publication and kind
+  parent-pct-document (grants of about 2002 to 2004 file a parent's international application this way) counts as a
+  parent for the 20-year term, as continuation, division and continuation-in-part rows do. patentref
+  `lapse.expiry.counts_as_term_parent` holds the same rule for the catalog. US 6459001: 2017-03-20 from PCT/FR97/00487
+  filed 1997-03-20, before 2021-01-25.
+- `lapse_accounts/status.py`, `status.html` (B4): the HTML status page lists the checks of the live build in plain words
+  ("Checks of the live build": the USPTO files fetched; file formats unchanged; build; database integrity; row counts
+  against the previous build; the upstream examples answer as upstream; the score's backtest within tolerance; the expiry
+  audit of known patents). status.json keeps its keys.
+- Engine (patentref `lapse/expiry.py`, B1 finding F1): a fee lapse whose grace period ran out after the computed term end
+  reads expired_term, with fee_lapse kept in the basis and reinstatement_basis "35 USC 154: term ended (the term ended
+  before the fee lapse)"; where the 35 USC 156 list and the record give two term ends, the later one decides. B9: the
+  list row of US 7511131, printed 12/13/22025, is read as 2025-12-13.
+- Recount on data version 20261006.5 (the live engine 4f691af against the branch, every live fee lapse, every patent with
+  such a related-publication row and every listed patent; 3,062,612 read): 83,587 patents from expired_fee_nonpayment to
+  expired_term (83,320 by the fee rule alone, 267 with the earlier parent); 4,522 term ends move (4,521 by the parent
+  rule, all earlier, and US 7511131 to 2027-01-29); reinstatement_basis changes on 83,589 (83,587 to the new form, and
+  US 7511131 and US 9580461 to the 37 CFR 1.378 form, reinstatement_possible false to "unknown"). No other status moves.
+- Tests: the related-publication parent (6459001), the plain labels. Needs patentref wave2-pending-approval-4.
