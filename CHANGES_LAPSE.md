@@ -786,19 +786,25 @@ term_dates step and the weekly grants parser use it too.
   dates are known. A date that fits its number counts as before. A contradicted date gives way to the date another
   record gives for the same application: another row of the same patent; for a PCT number, the international filing
   date in `patents__pct_data`; for a US application number, the filing date in `patents__application` (the record of
-  the patent granted on it). Both lookups scan once per number and are cached per process. With none, and when that
-  parent could be the earliest (its number's year, or its series' years, begin before the earliest usable parent and
-  the patent's own filing), `record_for` passes `parent_unsettled` and the engine gives no term end: unknown, or
-  expired_fee_nonpayment with reinstatement_possible "unknown" under a live fee lapse.
-- `API/lapse_wording.py`: the unknown sentence `UNKNOWN_PARENT_DATE` and the record page's term-end row
-  `TERM_END_PARENT`, with the four reasons in `PARENT_WHY`; they await the bundle 5 fresh-agent wording review.
+  the patent granted on it). Both lookups scan once per number and are cached per process.
+- With none, and when that parent could be the earliest, `record_for` passes `parent_unsettled` with the span the
+  earliest parent lies in, and the engine gives no term end. It serves the status the record's dates give at both ends of
+  the span when they agree (active, expired_term or expired_fee_nonpayment), else unknown (the coordinator's decision of
+  2026-10-12). The span is the year or series years the number names, or from 1978-06-01 for a PCT number whose serial its
+  office never reached in that year (`pct_limits`: lapse.parents.serial_limits of `patents__pct_data`, one streamed scan
+  per process, 2 to 3 s the first time a contradicted row needs it), up to the patent's own filing.
+- `API/lapse_wording.py`: the unknown sentence `UNKNOWN_PARENT_DATE`, the settled sentences `SETTLED_PARENT` and
+  `SETTLED_PARENT_EXPIRED_NO_LIST`, and the record page's term-end row `TERM_END_PARENT`, with the four reasons in
+  `PARENT_WHY`; they await the bundle 5 fresh-agent wording review.
 - Recount on data version 20261006.5 (the live engine fac25f5 against the branch, every patent with a contradicted
-  parent row): 2,587 rows of 2,519 patents; 1,392 patents take another record's date, 132 have the row behind an
-  earlier parent, 995 are unsettled (990 of them left with no term end; 4 designs and 1 listed patent keep theirs);
-  2,066 term ends change (1,085 to another date, 981 to none); 902 statuses change (69 active to expired_term, 71
-  expired_term to active, 57 expired_fee_nonpayment to expired_term, 160 expired_term to expired_fee_nonpayment, 384
-  active to unknown, 161 expired_term to unknown).
+  parent row; patentref b1cd8e0): 2,587 rows of 2,519 patents. 1,392 patents take another record's date and 130 have
+  the row behind an earlier parent. 997 are unsettled: 844 keep a status that holds on every possible date with no term
+  end (325 active, 237 expired_term, 282 expired_fee_nonpayment), 139 read unknown, and 14 withdrawn, design, reissued or
+  listed patents keep their status. 2,066 term ends change (1,083 to another date, 983 to none). 449 statuses change: 78
+  active to expired_term, 88 expired_term to active, 71 expired_fee_nonpayment to expired_term, 73 expired_term to
+  expired_fee_nonpayment, 68 active to unknown, 17 expired_term to unknown, 54 expired_fee_nonpayment to unknown.
 - B11, for the record of bundle 4 above: of the 267 patents that move "with the earlier parent", 229 move because of the
   related-publication parent; the fee rule alone moves the other 38 either way (independent audit 4, check 4).
 - Tests: 9527819 (PCT dated by its national stage), 9087778 (US parent dated by the granted patent's record), 6419129
-  (unsettled under a fee lapse) in `lapse_accounts/tests/test_lapse_group.py`. Needs patentref wave2-pending-approval-5.
+  (settled expired_term in the fixture) and the four settled and unknown sentences in
+  `lapse_accounts/tests/test_lapse_group.py`. Needs patentref wave2-pending-approval-5.
