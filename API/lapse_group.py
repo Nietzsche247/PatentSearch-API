@@ -204,6 +204,21 @@ def fetch_rows(con, cat, ids):
 
 _pct_dates = {}  # PCT number -> the international filing date its national stage's record gives (or None), per process
 _app_dates = {}  # US application number -> the filing date the record of the patent granted on it gives (or None), per process
+_pct_limits = []  # [lapse.parents.serial_limits of patents__pct_data], filled once per process when first needed
+
+
+def pct_limits(con, P):
+    """The highest plausible serial per office and year of a PCT number (lapse.parents.serial_limits), from one scan of
+    patents__pct_data, kept for the life of the process."""
+    if not _pct_limits:
+        try:
+            rows = con.execute("SELECT pct_doc_number, published_filed_date FROM patents__pct_data "
+                               "WHERE pct_doc_type = 'pct_application'")  # streamed: about 1.3 million rows, 2 to 3 s once
+            limits = P.serial_limits(rows) if hasattr(P, "serial_limits") else {}
+        except sqlite3.Error:
+            limits = {}
+        _pct_limits.append(limits)
+    return _pct_limits[0]
 
 
 def parents_module():
@@ -223,7 +238,9 @@ def _resolve_parents(con, out):
     row whose date fits its number counts as before; a contradicted date is replaced by the date another record gives for
     the same application (another row of the same patent; a PCT number's international filing date in patents__pct_data; a
     US application's filing date in patents__application, the record of the patent granted on it; both scans cached per
-    process), or, when there is none and that parent could be the earliest, the patent gets no term end. A patentref
+    process), or, when there is none and that parent could be the earliest, the patent gets no term end and the status
+    every day that parent could have been filed on gives (unknown when they differ). A PCT number whose serial is above
+    what the national stage records hold for its office and year gets the span from 1978-06-01 (pct_limits). A patentref
     checkout without lapse.parents keeps the old rule."""
     P = parents_module()
     for pid, d in out.items():
@@ -264,7 +281,8 @@ def _resolve_parents(con, out):
             return _app_dates[key]
 
         own = [x for x in (d.get("filing_date"), d.get("pct_filing_date")) if x]
-        got = P.resolve(rows, min(own) if own else None, pct_lookup, us_lookup)
+        kw = {"pct_limits": pct_limits(con, P)} if "pct_limits" in P.resolve.__code__.co_varnames else {}
+        got = P.resolve(rows, min(own) if own else None, pct_lookup, us_lookup, **kw)
         if got["parent_filing_date"]:
             d["parent_filing_date"] = got["parent_filing_date"]
         if got["unsettled"]:
