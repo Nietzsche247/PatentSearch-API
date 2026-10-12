@@ -57,24 +57,33 @@ TERM_END_DISAGREE = "none: the dates on the USPTO 35 USC 156 list add up to {pte
 # Independent audit 4 of 2026-10-12, finding F3 (bundle 5, B10; patentref lapse/parents.py): a parent date the record
 # contradicts and no other record dates, when that parent could be the earliest, leaves the record without a term end.
 # These strings await the bundle 5 fresh-agent wording review (deploy step 0 of its handoff).
-UNKNOWN_PARENT_DATE = "As of {as_of}, the USPTO record for US {id} does not settle its status: it gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date (data version {v})."
-# The coordinator's decision of 2026-10-12: when every filing date the record leaves possible for that parent (the year or
-# series years its number names, or from 1978-06-01 when its serial was never reached in that year, up to the patent's own
-# filing) gives the same status, that status is served with no term end (patentref lapse.expiry,
-# parent_unsettled["settled"]), in these sentences; they await the bundle 5 wording review.
+UNKNOWN_PARENT_DATE = "As of {as_of}, the USPTO record for US {id} does not settle its status: it gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and PatentRef holds no other USPTO record that gives that application's filing date (data version {v})."
+# The coordinator's decision of 2026-10-12: when every filing date the record leaves possible for that parent (the row's
+# own date when it is a possible filing date, and the year or series years its number names, or any day from 1978-06-01
+# when the number names no possible year or a serial never reached in that year; never after the patent's own filing)
+# gives the same status, that status is served with no term end (patentref lapse.expiry, parent_unsettled["settled"]), in
+# these sentences, with PARENT_SPAN saying on which dates it holds (the bundle 5 wording review, step 0 items a and b).
 SETTLED_PARENT = {
-    "active": "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}; it gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but whatever that application's true filing date, the term end computed from the record's dates has not passed (data version {v}).",
-    "expired_term": "As of {as_of}, the USPTO record for US {id} gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but whatever that application's true filing date, the term end computed from the record's dates has passed, and the USPTO list of patent terms extended under 35 USC 156, updated through {pte_list_through}, does not name this patent (data version {v}).",
-    "expired_fee_nonpayment": "As of {as_of}, the USPTO maintenance-fee record for US {id} has an entry dated {lapse_date} recording that the patent expired for nonpayment of a maintenance fee, and no reinstatement after it; the record gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but whatever that application's true filing date, the grace period of the unpaid fee ran out on or before the term end computed from the record's dates (data version {v}).",
+    "active": "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}; it gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and PatentRef holds no other USPTO record that gives that application's filing date, so no single term end can be computed, but {parent_span}, the term end computed from the record's dates has not passed (data version {v}).",
+    "expired_term": "As of {as_of}, the USPTO record for US {id} gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and PatentRef holds no other USPTO record that gives that application's filing date, so no single term end can be computed, but {parent_span}, the term end computed from the record's dates has passed, and the USPTO list of patent terms extended under 35 USC 156, updated through {pte_list_through}, does not name this patent (data version {v}).",
+    "expired_fee_nonpayment": "As of {as_of}, the USPTO maintenance-fee record for US {id} has an entry dated {lapse_date} recording that the patent expired for nonpayment of a maintenance fee, and no reinstatement after it; the record gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and PatentRef holds no other USPTO record that gives that application's filing date, so no single term end can be computed, but {parent_span}, the grace period of the unpaid fee ran out on or before the term end computed from the record's dates (data version {v}).",
 }
 # expired_term, settled that way, when no copy of the 35 USC 156 list is loaded
-SETTLED_PARENT_EXPIRED_NO_LIST = "As of {as_of}, the USPTO record for US {id} gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but whatever that application's true filing date, the term end computed from the record's dates has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version {v})."
+SETTLED_PARENT_EXPIRED_NO_LIST = "As of {as_of}, the USPTO record for US {id} gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and PatentRef holds no other USPTO record that gives that application's filing date, so no single term end can be computed, but {parent_span}, the term end computed from the record's dates has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version {v})."
 TERM_END_PARENT = "none: the USPTO record gives parent application {parent_number} the filing date {parent_date}, which {parent_why}"
 PARENT_WHY = {
     "pct_year": "is not in the year that application's number names",
     "pct_before_1978": "is before 1978-06-01, the first day an international application could be filed",
     "us_series": "is outside the years in which applications of that serial number's series were filed",
-    "us_before_1950": "is before 1950",
+    "us_before_1950": "is before 1950, earlier than PatentRef accepts for a parent application",
+    "pct_no_year": "cannot be checked against that application's number, since the number names no possible filing year",
+}
+
+
+PARENT_SPAN = {
+    "number_and_row": "on that date and on any filing date that application's number allows",
+    "number": "on any filing date that application's number allows",
+    "open": "on any day from 1978-06-01 to this patent's own filing",
 }
 
 
@@ -87,7 +96,8 @@ def parent_number_text(number):
 def _parent_args(record):
     u = (record or {}).get("parent_unsettled") or {}
     return {"parent_number": parent_number_text(u.get("number")), "parent_date": u.get("date"),
-            "parent_why": PARENT_WHY.get(u.get("why"), "does not fit that application's number")}
+            "parent_why": PARENT_WHY.get(u.get("why"), "does not fit that application's number"),
+            "parent_span": PARENT_SPAN.get(u.get("span"), PARENT_SPAN["number"])}
 
 
 def pte_original_text(row):
