@@ -642,8 +642,8 @@ def test_parent_dates_the_record_contradicts(client, lapse_env):
     assert sentence == (
         "As of 2026-10-06, the USPTO record for US 6419129 gives parent application PCT/US94/07514 the filing date 1914-06-29, "
         "which is not in the year that application's number names, and no other USPTO record gives that application's filing "
-        "date, so no single term end can be computed, but on every filing date that application's number allows, the term "
-        "end computed from the record's dates has passed, and the USPTO list of patent terms extended under 35 USC 156, "
+        "date, so no single term end can be computed, but whatever that application's true filing date, the term end "
+        "computed from the record's dates has passed, and the USPTO list of patent terms extended under 35 USC 156, "
         "updated through 2026-09-08, does not name this patent (data version 20261006.2).")
     assert lapse_wording.check_banned(sentence) == []
     assert lapse_wording.term_end_text(rec) == ("none: the USPTO record gives parent application PCT/US94/07514 the filing "
@@ -653,8 +653,8 @@ def test_parent_dates_the_record_contradicts(client, lapse_env):
     # the other two settled statuses, and a status that depends on the day
     act = dict(rec, status="active", reinstatement_possible=False)
     assert lapse_wording.plain(act, "US6419129", "v").endswith(
-        "so no single term end can be computed, but on every filing date that application's number allows, the term end "
-        "computed from the record's dates has not passed (data version v).")
+        "so no single term end can be computed, but whatever that application's true filing date, the term end computed "
+        "from the record's dates has not passed (data version v).")
     fee = dict(rec, status="expired_fee_nonpayment", lapse_date="2010-07-16")
     assert lapse_wording.plain(fee, "US6419129", "v").startswith(
         "As of 2026-10-06, the USPTO maintenance-fee record for US 6419129 has an entry dated 2010-07-16 recording that the "
