@@ -156,16 +156,18 @@ def fetch_rows(con, cat, ids):
         # provisional (us-provisional-application rows, 35 USC 154(a)(3)). Wording review 2026-10-11, section 2.2.
         # Grants of about 2002 to 2004 file a parent's international application as related-publication,
         # parent-pct-document; it counts too (35 USC 120, 365(c), 363; independent audit 3 of 2026-10-12, finding F2;
-        # patentref lapse.expiry.counts_as_term_parent holds the same rule for the catalog).
+        # patentref lapse.expiry.counts_as_term_parent holds the same rule for the catalog). The rows are read whole and
+        # judged by patentref lapse.parents.resolve after the filing dates are known (independent audit 4, finding F3: a
+        # date the record contradicts is never used; see _resolve_parents).
         try:
-            for pid, pf in con.execute(
-                    'SELECT "_pid", MIN(related_doc_published_date) FROM patents__us_related_documents '
+            for pid, rtype, rkind, num, pdate in con.execute(
+                    'SELECT "_pid", related_doc_type, related_doc_kind, related_doc_number, related_doc_published_date '
+                    "FROM patents__us_related_documents "
                     "WHERE ((related_doc_kind IN ('parent-doc', 'parent-pct-document') "
                     "AND related_doc_type IN ('continuation', 'division', 'continuation-in-part')) "
                     "OR (related_doc_type = 'related-publication' AND related_doc_kind = 'parent-pct-document')) "
-                    "AND COALESCE(related_doc_published_date, '') >= '1900-01-01' "  # a few rows carry a year like 0213
-                    f'AND "_pid" IN ({_ids_sql(len(part))}) GROUP BY "_pid"', part):
-                out.setdefault(pid, {"id": "US" + pid})["parent_filing_date"] = pf
+                    f'AND COALESCE(related_doc_published_date, \'\') != \'\' AND "_pid" IN ({_ids_sql(len(part))})', part):
+                out.setdefault(pid, {"id": "US" + pid}).setdefault("_parent_rows", []).append((rtype, rkind, num, pdate))
         except sqlite3.Error:
             pass
         # a 371 national stage files on its international filing date (35 USC 363); older PatentsView rows give the 371
@@ -192,11 +194,87 @@ def fetch_rows(con, cat, ids):
                     d["filing_date"] = fdate
         except sqlite3.Error:
             pass
+    _resolve_parents(con, out)
     reissued = listed_reissues(con, cat) if out else {}
     for pid, re_id in reissued.items():
         if pid in out:
             out[pid]["pte_reissue"] = re_id
     return out
+
+
+_pct_dates = {}  # PCT number -> the international filing date its national stage's record gives (or None), per process
+
+
+def parents_module():
+    """`lapse.parents` from the patentref clone (B10), or None for a checkout before it."""
+    if expiry_module() is None:
+        return None
+    try:
+        from lapse import parents
+    except ImportError:
+        return None
+    return parents
+
+
+def _resolve_parents(con, out):
+    """parent_filing_date (and parent_unsettled) for each merged row from its parent rows (independent audit 4 of
+    2026-10-12, finding F3; patentref lapse/parents.py holds the rule and the catalog's term_dates step uses it too). A
+    row whose date fits its number counts as before; a contradicted date is replaced by the date another record gives for
+    the same application (a PCT number's international filing date in patents__pct_data, a scan cached per process; a US
+    application's filing date in the record of the patent granted on it), or, when there is none and that parent could be
+    the earliest, the patent gets no term end. A patentref checkout without lapse.parents keeps the old rule."""
+    P = parents_module()
+    for pid, d in out.items():
+        rows = d.pop("_parent_rows", None)
+        if not rows:
+            continue
+        if P is None:
+            dates = [r[3] for r in rows if (r[3] or "") >= "1900-01-01"]
+            if dates:
+                d["parent_filing_date"] = min(dates)
+            continue
+        if all(P.check(r[2], r[3], r[1])[0] is None for r in rows):
+            d["parent_filing_date"] = min(r[3] for r in rows)
+            continue
+
+        def pct_lookup(number):
+            key = P.norm_number(number)
+            if key not in _pct_dates:
+                names = P.pct_spellings(number)
+                try:
+                    got = [r[0] for r in con.execute(
+                        "SELECT published_filed_date FROM patents__pct_data WHERE pct_doc_type = 'pct_application' "
+                        f"AND pct_doc_number IN ({_ids_sql(len(names))})", names) if r[0]]
+                except sqlite3.Error:
+                    got = []
+                _pct_dates[key] = min(got) if got else None
+            return _pct_dates[key]
+
+        def us_lookup(number, pid=pid):
+            want = "".join(ch for ch in str(number or "") if ch.isdigit())
+            try:
+                granted = [str(r[0]).strip() for r in con.execute(
+                    'SELECT related_doc_number FROM patents__us_related_documents WHERE "_pid" = ? '
+                    "AND related_doc_kind = 'parent-grant-document'", (pid,)) if r[0]]
+                granted = [g[2:] if g.upper().startswith("US") else g for g in granted]
+                granted = [g.lstrip("0") if g.isdigit() else g for g in granted]
+                if not granted:
+                    return None
+                for app, fd in con.execute(
+                        f'SELECT application_id, filing_date FROM patents__application WHERE "_pid" IN ({_ids_sql(len(granted))})',
+                        granted):
+                    if "".join(ch for ch in str(app or "") if ch.isdigit()) == want and fd:
+                        return fd
+            except sqlite3.Error:
+                return None
+            return None
+
+        own = [x for x in (d.get("filing_date"), d.get("pct_filing_date")) if x]
+        got = P.resolve(rows, min(own) if own else None, pct_lookup, us_lookup)
+        if got["parent_filing_date"]:
+            d["parent_filing_date"] = got["parent_filing_date"]
+        if got["unsettled"]:
+            d["parent_unsettled"] = got["unsettled"]
 
 
 def record_for(expiry, cat, pid, d):
@@ -209,6 +287,8 @@ def record_for(expiry, cat, pid, d):
               withdrawn=bool(d.get("withdrawn")), patent_id="US" + str(pid), as_of=cat.get("as_of") or date.today().isoformat())
     if "parent_filing_date" in getattr(expiry.expiry_record, "__code__", None).co_varnames:
         kw["parent_filing_date"] = d.get("parent_filing_date")  # a patentref checkout before 2026-10-11 lacks it
+    if d.get("parent_unsettled") and "parent_unsettled" in expiry.expiry_record.__code__.co_varnames:
+        kw["parent_unsettled"] = d["parent_unsettled"]  # B10: a contradicted parent date no other record dates
     filing = d.get("filing_date")
     if d.get("pct_filing_date") and (not filing or d["pct_filing_date"] < filing):
         filing = d["pct_filing_date"]  # the international filing date of a 371 national stage (35 USC 363)

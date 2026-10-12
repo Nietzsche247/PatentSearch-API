@@ -48,7 +48,20 @@ PATENTS = [
     ("7208489", "Pyrimidine derivatives", "2007-04-24", "utility", 0, "2005-01-28", "", "This patent is subject to a terminal disclaimer.", ""),
     # a parent's international application filed as related-publication, parent-pct-document (independent audit 3, F2)
     ("6459001", "Process for preparing a sulfonamide", "2002-10-01", "utility", 0, "2001-01-25", "", "", ""),
+    # parent dates the record contradicts (independent audit 4, F3; bundle 5): a PCT parent dated in another year than its
+    # number names, whose national stage gives the right date; a US parent dated 1920 whose granted patent's record gives
+    # the right date; and a PCT parent dated 1914 that no other record dates
+    ("9527819", "Implant delivery system", "2016-12-20", "utility", 0, "2014-12-03", "", "", ""),
+    ("9087778", "Wireless sensor node", "2015-07-21", "utility", 0, "2014-04-11", "", "", ""),
+    ("6419129", "Fiber optic connector", "2002-07-16", "utility", 0, "1997-07-07", "", "", ""),
 ]
+# patents__pct_data pct_application rows of other patents (the parents' national stages)
+PCT_DATA = [
+    # _pid, _ord, published_filed_date, pct_102_date, pct_371_date, application_kind, pct_doc_number, pct_doc_type
+    ("8367672", 0, "2005-11-02", None, "2008-07-22", "00", "PCT/US2005/039541", "pct_application"),
+]
+# patents__application rows of patents that are not fixture patents (a parent granted on 13/655,875)
+APPLICATIONS = [("8746538", 0, "13655875", "2012-10-19")]
 # patents__us_related_documents rows, as PatentsView and the weekly-grant parser write them: the term counts from the earliest
 # continuation, division or continuation-in-part parent-doc; a parent's grant date, a child and a provisional never count
 RELATED = [
@@ -69,6 +82,12 @@ RELATED = [
     ("6459001", 1, "division", "parent-grant-document", "6221907", None),
     ("6459001", 2, "related-publication", "parent-pct-document", "PCT/FR97/00487", "1997-03-20"),
     ("6459001", 3, "related-publication", None, "WO97/36000", "1997-10-02"),
+    ("9527819", 0, "division", "parent-pct-document", "PCT/US2005/039541", "2008-07-22"),
+    ("9527819", 1, "division", "parent-doc", "13491986", "2012-06-08"),
+    ("9087778", 0, "division", "parent-doc", "13655875", "1920-02-10"),
+    ("9087778", 1, "division", "parent-grant-document", "8746538", None),
+    ("6419129", 0, "related-publication", "parent-pct-document", "PCT/US94/07514", "1914-06-29"),
+    ("6419129", 1, "continuation-in-part", "parent-doc", "08253143", "1994-06-02"),
 ]
 CATALOG = [
     # id, filing, grant, fee_status, lapse_date, reinstated_date, prior, prior_pct, fwd_early, fwd_late, fwd_cites, fwd_recent
@@ -79,6 +98,9 @@ CATALOG = [
     ("US11086507", "2020-07-21", "2021-08-10", None, None, None, None, None, 0, 0, 0, 0),
     ("US7208489", "2005-01-28", "2007-04-24", None, None, None, None, None, 0, 0, 0, 0),
     ("US6459001", "2001-01-25", "2002-10-01", None, None, None, None, None, 0, 0, 0, 0),
+    ("US9527819", "2014-12-03", "2016-12-20", None, None, None, None, None, 0, 0, 0, 0),
+    ("US9087778", "2014-04-11", "2015-07-21", None, None, None, None, None, 0, 0, 0, 0),
+    ("US6419129", "1997-07-07", "2002-07-16", None, None, None, None, None, 0, 0, 0, 0),
 ]
 
 
@@ -104,6 +126,10 @@ def build_search_db(path):
                 'related_doc_sequence INTEGER, wipo_kind TEXT)')
     con.executemany("INSERT INTO patents__us_related_documents VALUES (?,?,?,?,?,'US',?,NULL,?,NULL)",
                     [(pid, o, t, k, n, d, o) for pid, o, t, k, n, d in RELATED])
+    con.execute('CREATE TABLE patents__pct_data(_pid TEXT NOT NULL, _ord INTEGER, published_filed_date TEXT, pct_102_date TEXT, '
+                'pct_371_date TEXT, application_kind TEXT, pct_doc_number TEXT, pct_doc_type TEXT)')
+    con.executemany("INSERT INTO patents__pct_data VALUES (?,?,?,?,?,?,?,?)", PCT_DATA)
+    con.executemany("INSERT INTO patents__application VALUES (?,?,?,?)", APPLICATIONS)
     for pid, title, pdate, ptype, wd, fdate, ext, td, dd in PATENTS:
         con.execute("INSERT INTO patents VALUES (?,?,?,?,?,?,?,?)", (pid, pid, title, pdate, ptype, wd, title + " abstract text", None))
         con.execute("INSERT INTO patents__application VALUES (?,?,?,?)", (pid, 0, "a" + pid, fdate))
@@ -508,7 +534,8 @@ def test_wording_templates_and_banned_check():
     # a status that states a computed term end falls back to "does not settle" when the date is missing
     assert lapse_wording.plain({"status": "active", "as_of": "2026-10-06", "basis": []}, "USRE31177", "20261006.5") == unknown
     for t in (list(lapse_wording.TEMPLATES.values()) + list(lapse_wording.PTE_TEMPLATES.values())
-              + [lapse_wording.EXPIRED_TERM_NO_LIST, lapse_wording.EXPIRED_TERM_REISSUED, lapse_wording.PTE_CONFLICT]):
+              + [lapse_wording.EXPIRED_TERM_NO_LIST, lapse_wording.EXPIRED_TERM_REISSUED, lapse_wording.PTE_CONFLICT,
+                 lapse_wording.UNKNOWN_PARENT_DATE]):
         assert lapse_wording.check_banned(t) == [] and "{as_of}" in t and "{v}" in t
         # finding G2: a term end is computed from the record's dates; no sentence may say the record shows it, and the 156
         # list prints an original date and a period, never a term end (review 2)
@@ -578,3 +605,46 @@ def test_bundle4_wording_review_read_date_and_disputed_term_end(lapse_env):
         "none: the dates on the USPTO 35 USC 156 list add up to 2025-05-31 and the record's own dates to 2030-06-08")
     rec = expiry.expiry_record(patent_id="US5000000", as_of="2026-10-06", **REVIEW_INPUTS["5000000"])
     assert lapse_wording.term_end_text(rec) is None
+
+
+def test_parent_dates_the_record_contradicts(client, lapse_env):
+    """Independent audit 4 of 2026-10-12, finding F3 (bundle 5, B10; patentref lapse/parents.py): a parent date the record
+    contradicts is never used. US 9527819: PCT/US2005/039541 dated 2008-07-22, and its national stage's record gives
+    2005-11-02, so 2025-11-02 (it served active to 2028-07-22). US 9087778: 13/655,875 dated 1920-02-10, and the patent
+    granted on it gives 2012-10-19, so 2032-10-19 (it served expired_term 1940-02-10). US 6419129: PCT/US94/07514 dated
+    1914-06-29, no other record dates it, and it could be earlier than the 1994-06-02 parent: no term end."""
+    import html as html_mod
+
+    from API import lapse_group
+    from API.search_sqlite import LapseSQLiteSearch
+
+    searcher = LapseSQLiteSearch.from_django_settings()
+    con = searcher.connection()
+    cat = searcher.catalog_facts()
+    expiry = lapse_group.expiry_module()
+    rows = lapse_group.fetch_rows(con, cat, ["9527819", "9087778", "6419129", "11086507"])
+    assert rows["9527819"]["parent_filing_date"] == "2005-11-02" and "parent_unsettled" not in rows["9527819"]
+    assert rows["9087778"]["parent_filing_date"] == "2012-10-19"
+    assert rows["11086507"]["parent_filing_date"] == "2005-12-23"  # the rule leaves good rows alone
+    assert rows["6419129"].get("parent_filing_date") is None
+    assert rows["6419129"]["parent_unsettled"] == {"number": "PCT/US94/07514", "date": "1914-06-29", "why": "pct_year"}
+    rec = lapse_group.record_for(expiry, cat, "9527819", rows["9527819"])
+    assert (rec["status"], rec["expiry_date_estimated"], rec["term_from_parent"]) == ("expired_term", "2025-11-02", "2005-11-02")
+    rec = lapse_group.record_for(expiry, cat, "9087778", rows["9087778"])
+    assert (rec["status"], rec["expiry_date_estimated"]) == ("active", "2032-10-19")
+    rec = lapse_group.record_for(expiry, cat, "6419129", rows["6419129"])
+    assert (rec["status"], rec["expiry_date_estimated"], rec["basis"]) == ("unknown", None, [])
+    sentence = lapse_wording.plain(rec, "US6419129", "20261006.2")
+    assert sentence == (
+        "As of 2026-10-06, the USPTO record for US 6419129 does not settle its status: it gives parent application "
+        "PCT/US94/07514 the filing date 1914-06-29, which is not in the year that application's number names, and no other "
+        "USPTO record gives that application's filing date (data version 20261006.2).")
+    assert lapse_wording.check_banned(sentence) == []
+    assert lapse_wording.term_end_text(rec) == ("none: the USPTO record gives parent application PCT/US94/07514 the filing "
+                                                "date 1914-06-29, which is not in the year that application's number names")
+    page = html_mod.unescape(client.get("/p/6419129").content.decode())
+    assert sentence in page and lapse_wording.term_end_text(rec) in page and "parent_unsettled" not in page
+    # the US form of the clause, with the serial number as the USPTO writes it
+    us = dict(rec, parent_unsettled={"number": "13655875", "date": "1920-02-10", "why": "us_series"})
+    assert "parent application 13/655,875 the filing date 1920-02-10, which is outside the years in which applications " \
+           "of that serial number's series were filed" in lapse_wording.plain(us, "US9087778", "v")

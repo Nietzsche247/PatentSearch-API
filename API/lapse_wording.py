@@ -54,6 +54,31 @@ PRINTED_TEXT = "{date} (printed on the list as {printed})"
 TERM_END_DISAGREE = "none: the dates on the USPTO 35 USC 156 list add up to {pte_end} and the record's own dates to {record_end}"
 
 
+# Independent audit 4 of 2026-10-12, finding F3 (bundle 5, B10; patentref lapse/parents.py): a parent date the record
+# contradicts and no other record dates, when that parent could be the earliest, leaves the record without a term end.
+# These strings await the bundle 5 fresh-agent wording review (deploy step 0 of its handoff).
+UNKNOWN_PARENT_DATE = "As of {as_of}, the USPTO record for US {id} does not settle its status: it gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date (data version {v})."
+TERM_END_PARENT = "none: the USPTO record gives parent application {parent_number} the filing date {parent_date}, which {parent_why}"
+PARENT_WHY = {
+    "pct_year": "is not in the year that application's number names",
+    "pct_before_1978": "is before 1978-06-01, the first day an international application could be filed",
+    "us_series": "is outside the years in which applications of that serial number's series were filed",
+    "us_before_1950": "is before 1950",
+}
+
+
+def parent_number_text(number):
+    """A US application number as the USPTO writes it (13/655,875); a PCT number as printed."""
+    n = str(number or "")
+    return f"{n[:2]}/{n[2:5]},{n[5:]}" if (len(n) == 8 and n.isdigit()) else n
+
+
+def _parent_args(record):
+    u = (record or {}).get("parent_unsettled") or {}
+    return {"parent_number": parent_number_text(u.get("number")), "parent_date": u.get("date"),
+            "parent_why": PARENT_WHY.get(u.get("why"), "does not fit that application's number")}
+
+
 def pte_original_text(row):
     """The list's original expiration date as shown: the date, and the cell as printed when the date was read by hand."""
     row = row or {}
@@ -63,10 +88,15 @@ def pte_original_text(row):
 
 def term_end_text(record):
     """The record page's term-end text when the engine gives no term end because the 35 USC 156 list and the record
-    disagree on whether the term has passed (`record` is expiry.expiry_record output); None otherwise."""
+    disagree on whether the term has passed, or because a parent date the record contradicts leaves the term unsettled
+    (bundle 5, B10) (`record` is expiry.expiry_record output); None otherwise."""
     record = record or {}
     row = record.get("pte_156") or {}
-    if record.get("expiry_date_estimated") or not record.get("record_term_end") or not row.get("extended_expiry"):
+    if record.get("expiry_date_estimated"):
+        return None
+    if record.get("parent_unsettled") and not row:
+        return TERM_END_PARENT.format(**_parent_args(record))
+    if not record.get("record_term_end") or not row.get("extended_expiry"):
         return None
     return TERM_END_DISAGREE.format(pte_end=row["extended_expiry"], record_end=record["record_term_end"])
 
@@ -124,6 +154,8 @@ def plain(record, patent_id, data_version):
         tpl = EXPIRED_TERM_REISSUED
     elif status == "expired_term" and not record.get("pte_list_through"):
         tpl = EXPIRED_TERM_NO_LIST
+    elif status == "unknown" and record.get("parent_unsettled") and not row:
+        tpl = UNKNOWN_PARENT_DATE
     else:
         tpl = TEMPLATES.get(status, TEMPLATES["unknown"])
     pid = patent_id[2:] if patent_id.upper().startswith("US") else patent_id
@@ -138,7 +170,8 @@ def plain(record, patent_id, data_version):
                       record_later=(f"; the term end computed from the dates in the USPTO record, before any extension, is later, {rend}"
                                     if rend and row else ""),
                       pte_list_through=record.get("pte_list_through"),
-                      pte_reissue=(record.get("pte_reissue") or "")[2:] if (record.get("pte_reissue") or "").startswith("US") else record.get("pte_reissue"))
+                      pte_reissue=(record.get("pte_reissue") or "")[2:] if (record.get("pte_reissue") or "").startswith("US") else record.get("pte_reissue"),
+                      **_parent_args(record))
 
 
 def check_banned(text):
