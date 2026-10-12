@@ -774,3 +774,31 @@ builder fixes B1 to B9. The fork carries two; the engine fixes come with the pat
   expiry_date_estimated null instead of 2023-08-12: 4,523 term ends move in all, nothing else in the recount changed.
 - Tests: the related-publication parent (6459001), the plain labels, 7511131's gloss, the term-end row of 9580461 and
   8158616. Needs patentref wave2-pending-approval-4.
+
+## 2026-10-12 pending approval: bundle 5, the fix of independent audit 4 (B10)
+
+Independent audit 4 (the patentref repo's `ops/audits/2026-10-12_independent-audit-4_patentref-us1.txt`, finding F3): the
+term counted from a parent's row date even where the record contradicts it (a PCT number names the year it was filed;
+a US serial number names its series, filed in known years). patentref `lapse/parents.py` holds the rule; the catalog's
+term_dates step and the weekly grants parser use it too.
+
+- `API/lapse_group.py` fetch_rows reads the parent rows whole and `_resolve_parents` applies the rule once the filing
+  dates are known. A date that fits its number counts as before. A contradicted date gives way to the date another
+  record gives for the same application: another row of the same patent; for a PCT number, the international filing
+  date in `patents__pct_data`; for a US application number, the filing date in `patents__application` (the record of
+  the patent granted on it). Both lookups scan once per number and are cached per process. With none, and when that
+  parent could be the earliest (its number's year, or its series' years, begin before the earliest usable parent and
+  the patent's own filing), `record_for` passes `parent_unsettled` and the engine gives no term end: unknown, or
+  expired_fee_nonpayment with reinstatement_possible "unknown" under a live fee lapse.
+- `API/lapse_wording.py`: the unknown sentence `UNKNOWN_PARENT_DATE` and the record page's term-end row
+  `TERM_END_PARENT`, with the four reasons in `PARENT_WHY`; they await the bundle 5 fresh-agent wording review.
+- Recount on data version 20261006.5 (the live engine fac25f5 against the branch, every patent with a contradicted
+  parent row): 2,587 rows of 2,519 patents; 1,392 patents take another record's date, 132 have the row behind an
+  earlier parent, 995 are unsettled (990 of them left with no term end; 4 designs and 1 listed patent keep theirs);
+  2,066 term ends change (1,085 to another date, 981 to none); 902 statuses change (69 active to expired_term, 71
+  expired_term to active, 57 expired_fee_nonpayment to expired_term, 160 expired_term to expired_fee_nonpayment, 384
+  active to unknown, 161 expired_term to unknown).
+- B11, for the record of bundle 4 above: of the 267 patents that move "with the earlier parent", 229 move because of the
+  related-publication parent; the fee rule alone moves the other 38 either way (independent audit 4, check 4).
+- Tests: 9527819 (PCT dated by its national stage), 9087778 (US parent dated by the granted patent's record), 6419129
+  (unsettled under a fee lapse) in `lapse_accounts/tests/test_lapse_group.py`. Needs patentref wave2-pending-approval-5.
