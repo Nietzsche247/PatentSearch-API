@@ -148,7 +148,7 @@
         <dt>Serving</dt><dd>{% if f.current %}data version {{ f.current.data_version }}, built {{ f.current.built_at }}{% if f.current.verdict %}, verdict {{ f.current.verdict }}{% endif %}{% if f.current.swapped %}, live since {{ f.current.swapped_at }}{% endif %}{% else %}{{ d.service.data_version }} (no sidecar){% endif %}</dd>
         <dt>Last catalog check</dt><dd>{% if f.last_check %}{{ f.last_check.t }}: {{ f.last_check.verdict }}{% else %}none recorded{% endif %}</dd>
         <dt>Next build</dt><dd>{% if f.next %}data version {{ f.next.data_version }}, verdict {{ f.next.verdict }}, built {{ f.next.built_at }} (not yet live; the swap is a separate, verified step){% else %}none waiting{% endif %}</dd>
-        {% if f.current.gates %}<dt>Checks of the live build</dt><dd>{% for g, s in f.current.gates.items %}<code>{{ g }}</code> {{ s }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+        {% if build_checks %}<dt>Checks of the live build</dt><dd>{% for label, s in build_checks %}{{ label }}: {{ s }}{% if not forloop.last %}; {% endif %}{% endfor %}</dd>{% endif %}
       </dl>
       <p class="muted">The weekly check polls the USPTO catalog on Wednesdays at 06:10 UTC and starts a build only when a wanted file changed. A build never replaces the live file by itself.</p>
       {% endwith %}

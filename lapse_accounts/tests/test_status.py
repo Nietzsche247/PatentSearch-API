@@ -172,3 +172,24 @@ def test_public_status_shows_no_paths_desk_ids_or_sizes(client, monkeypatch, tmp
     low = html.lower()
     for banned in ("gate 5", "desk", "checklist", "scaffold", "ops/"):
         assert banned not in low, banned
+
+
+def test_status_page_names_the_build_checks_in_plain_words(client, monkeypatch, tmp_path):
+    """Independent audit 3 of 2026-10-12, B4: the HTML page gives the build checks plain labels; status.json keeps the keys
+    (stable field names)."""
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
+                                                         "backup_journal": str(tmp_path / "bj.jsonl")})
+    (tmp_path / "reports").mkdir()
+    keys = ["fetch", "tripwire", "build", "integrity", "count_deltas", "contract_examples", "backtest_gate", "expiry_audit", "new_check"]
+    (tmp_path / "snapshot_current.json").write_text(json.dumps({
+        "data_version": "20261006.5", "verdict": "PASS", "built_at": "2026-10-09T01:20:00Z", "swapped": True,
+        "swapped_at": "2026-10-09T01:23:38Z", "gates": {k: {"status": "pass"} for k in keys}}))
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert ("Checks of the live build</dt><dd>the USPTO files fetched: pass; file formats unchanged: pass; build: pass; database "
+            "integrity: pass; row counts against the previous build: pass; the upstream examples answer as upstream: pass; the "
+            "score's backtest within tolerance: pass; the expiry audit of known patents: pass; new check: pass</dd>") in html.replace("&#x27;", "'")
+    for code in ("count_deltas", "tripwire", "contract_examples", "backtest_gate", "expiry_audit", "<code>fetch"):
+        assert code not in html, code
+    d = client.get("/api/v1/meta/status.json").json()
+    assert list(d["refresh"]["current"]["gates"]) == keys and d["refresh"]["current"]["gates"]["count_deltas"] == "pass"

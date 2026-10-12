@@ -472,6 +472,25 @@ def status_json(request):
     return resp
 
 
+# Plain words for the build checks on the HTML page (independent audit 3 of 2026-10-12, B4). status.json keeps the keys:
+# they are stable field names, documented in llms-full.txt. A check this table does not name shows its key with spaces.
+BUILD_CHECK_LABELS = {
+    "fetch": "the USPTO files fetched",
+    "tripwire": "file formats unchanged",
+    "build": "build",
+    "integrity": "database integrity",
+    "count_deltas": "row counts against the previous build",
+    "contract_examples": "the upstream examples answer as upstream",
+    "backtest_gate": "the score's backtest within tolerance",
+    "expiry_audit": "the expiry audit of known patents",
+}
+
+
+def build_check_labels(gates):
+    """[(plain label, state)] for the build checks of a refresh object, in its order."""
+    return [(BUILD_CHECK_LABELS.get(k, str(k).replace("_", " ")), v) for k, v in (gates or {}).items()]
+
+
 @require_GET
 def status_page(request):
     if request.GET.get("format") == "json":
@@ -481,6 +500,7 @@ def status_page(request):
         "d": data, "state": data["state"][0], "state_text": data["state"][1],
         "data_version": data["service"]["data_version"] or "unversioned", "as_of": _as_of(data["service"]["data_version"]),
         "json_url": "/api/v1/meta/status.json",
+        "build_checks": build_check_labels(((data.get("refresh") or {}).get("current") or {}).get("gates")),
         "footer_lines": public.footer_lines(),
     })
     resp = HttpResponse(html, content_type="text/html; charset=utf-8")

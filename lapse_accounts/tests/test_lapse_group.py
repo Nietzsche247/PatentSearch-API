@@ -46,6 +46,8 @@ PATENTS = [
     ("11086507", "Vehicle data processing", "2021-08-10", "utility", 0, "2020-07-21", "", "This patent is subject to a terminal disclaimer.", ""),
     # reissued as RE47739, which is on the USPTO 35 USC 156 list (review 2 of 2026-10-11): its sentence names the reissue
     ("7208489", "Pyrimidine derivatives", "2007-04-24", "utility", 0, "2005-01-28", "", "This patent is subject to a terminal disclaimer.", ""),
+    # a parent's international application filed as related-publication, parent-pct-document (independent audit 3, F2)
+    ("6459001", "Process for preparing a sulfonamide", "2002-10-01", "utility", 0, "2001-01-25", "", "", ""),
 ]
 # patents__us_related_documents rows, as PatentsView and the weekly-grant parser write them: the term counts from the earliest
 # continuation, division or continuation-in-part parent-doc; a parent's grant date, a child and a provisional never count
@@ -63,6 +65,10 @@ RELATED = [
     ("RE47739", 0, "reissue", "child-doc", "16048143", None),
     ("RE47739", 1, "reissue", "parent-grant-document", "7208489", "2007-04-24"),
     ("RE47739", 2, "reissue", "parent-doc", "11046126", "2005-01-28"),
+    ("6459001", 0, "division", "child-doc", "09769377", None),
+    ("6459001", 1, "division", "parent-grant-document", "6221907", None),
+    ("6459001", 2, "related-publication", "parent-pct-document", "PCT/FR97/00487", "1997-03-20"),
+    ("6459001", 3, "related-publication", None, "WO97/36000", "1997-10-02"),
 ]
 CATALOG = [
     # id, filing, grant, fee_status, lapse_date, reinstated_date, prior, prior_pct, fwd_early, fwd_late, fwd_cites, fwd_recent
@@ -72,6 +78,7 @@ CATALOG = [
     ("US4890344", "1989-01-31", "1990-01-02", None, None, None, None, None, 0, 0, 0, 0),
     ("US11086507", "2020-07-21", "2021-08-10", None, None, None, None, None, 0, 0, 0, 0),
     ("US7208489", "2005-01-28", "2007-04-24", None, None, None, None, None, 0, 0, 0, 0),
+    ("US6459001", "2001-01-25", "2002-10-01", None, None, None, None, None, 0, 0, 0, 0),
 ]
 
 
@@ -521,3 +528,21 @@ def test_similar_term_selection_uses_document_frequencies(lapse_env):
     # 'lens' is in one title, 'a' in several, 'zzz' in none: known tokens only, rarest first, at least three kept
     assert lapse_views.select_terms(con, ["a", "lens", "zzz", "web", "composition"]) == ["composition", "lens", "web"]
     assert lapse_views.select_terms(con, []) == []
+
+
+def test_parent_pct_filed_as_related_publication_counts(lapse_env):
+    """Independent audit 3 of 2026-10-12, F2: a parent's international application filed as related-publication,
+    parent-pct-document is a date the term counts from (US 6459001: PCT/FR97/00487 filed 1997-03-20, so 2017-03-20, not
+    20 years from its own 2001 filing); a related-publication row of another kind is not."""
+    from API import lapse_group
+    from API.search_sqlite import LapseSQLiteSearch
+
+    searcher = LapseSQLiteSearch.from_django_settings()
+    con = searcher.connection()
+    cat = searcher.catalog_facts()
+    expiry = lapse_group.expiry_module()
+    d = lapse_group.fetch_rows(con, cat, ["6459001"])["6459001"]
+    assert d["parent_filing_date"] == "1997-03-20"
+    rec = lapse_group.record_for(expiry, cat, "6459001", d)
+    assert rec["expiry_date_estimated"] == "2017-03-20" and rec["term_from_parent"] == "1997-03-20" and rec["status"] == "expired_term"
+    assert lapse_group.fetch_rows(con, cat, ["10000364"])["10000364"].get("parent_filing_date") is None  # its related-publication row

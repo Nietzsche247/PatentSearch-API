@@ -154,11 +154,15 @@ def fetch_rows(con, cat, ids):
         # the earliest continuation, division or continuation-in-part parent the record lists: the 20-year term counts
         # from its filing date (35 USC 154(a)(2)); never a parent's grant date (parent-grant-document rows) or a
         # provisional (us-provisional-application rows, 35 USC 154(a)(3)). Wording review 2026-10-11, section 2.2.
+        # Grants of about 2002 to 2004 file a parent's international application as related-publication,
+        # parent-pct-document; it counts too (35 USC 120, 365(c), 363; independent audit 3 of 2026-10-12, finding F2;
+        # patentref lapse.expiry.counts_as_term_parent holds the same rule for the catalog).
         try:
             for pid, pf in con.execute(
                     'SELECT "_pid", MIN(related_doc_published_date) FROM patents__us_related_documents '
-                    "WHERE related_doc_kind IN ('parent-doc', 'parent-pct-document') "
-                    "AND related_doc_type IN ('continuation', 'division', 'continuation-in-part') "
+                    "WHERE ((related_doc_kind IN ('parent-doc', 'parent-pct-document') "
+                    "AND related_doc_type IN ('continuation', 'division', 'continuation-in-part')) "
+                    "OR (related_doc_type = 'related-publication' AND related_doc_kind = 'parent-pct-document')) "
                     "AND COALESCE(related_doc_published_date, '') >= '1900-01-01' "  # a few rows carry a year like 0213
                     f'AND "_pid" IN ({_ids_sql(len(part))}) GROUP BY "_pid"', part):
                 out.setdefault(pid, {"id": "US" + pid})["parent_filing_date"] = pf
