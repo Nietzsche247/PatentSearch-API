@@ -475,14 +475,14 @@ def status_json(request):
 # Plain words for the build checks on the HTML page (independent audit 3 of 2026-10-12, B4). status.json keeps the keys:
 # they are stable field names, documented in llms-full.txt. A check this table does not name shows its key with spaces.
 BUILD_CHECK_LABELS = {
-    "fetch": "the USPTO files fetched",
+    "fetch": "USPTO files fetched",
     "tripwire": "file formats unchanged",
-    "build": "build",
+    "build": "database built",
     "integrity": "database integrity",
     "count_deltas": "row counts against the previous build",
-    "contract_examples": "the upstream examples answer as upstream",
-    "backtest_gate": "the score's backtest within tolerance",
-    "expiry_audit": "the expiry audit of known patents",
+    "contract_examples": "the PatentsView API's example queries",
+    "backtest_gate": "history-match score tested on past patents",
+    "expiry_audit": "expiry audit of known patents",
 }
 
 

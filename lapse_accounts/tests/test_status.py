@@ -186,9 +186,10 @@ def test_status_page_names_the_build_checks_in_plain_words(client, monkeypatch, 
         "data_version": "20261006.5", "verdict": "PASS", "built_at": "2026-10-09T01:20:00Z", "swapped": True,
         "swapped_at": "2026-10-09T01:23:38Z", "gates": {k: {"status": "pass"} for k in keys}}))
     html = client.get("/api/v1/meta/status/").content.decode()
-    assert ("Checks of the live build</dt><dd>the USPTO files fetched: pass; file formats unchanged: pass; build: pass; database "
-            "integrity: pass; row counts against the previous build: pass; the upstream examples answer as upstream: pass; the "
-            "score's backtest within tolerance: pass; the expiry audit of known patents: pass; new check: pass</dd>") in html.replace("&#x27;", "'")
+    # the labels of the bundle 4 wording review of 2026-10-12 (patentref ops/reviews/2026-10-12_bundle-4_wording_review.md, item 1)
+    assert ("Checks of the live build</dt><dd>USPTO files fetched: pass; file formats unchanged: pass; database built: pass; database "
+            "integrity: pass; row counts against the previous build: pass; the PatentsView API's example queries: pass; "
+            "history-match score tested on past patents: pass; expiry audit of known patents: pass; new check: pass</dd>") in html.replace("&#x27;", "'")
     for code in ("count_deltas", "tripwire", "contract_examples", "backtest_gate", "expiry_audit", "<code>fetch"):
         assert code not in html, code
     d = client.get("/api/v1/meta/status.json").json()

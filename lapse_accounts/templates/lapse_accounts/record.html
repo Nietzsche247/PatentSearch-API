@@ -65,7 +65,7 @@
       <dl>
         <dt>Status</dt><dd><code>{{ rec.status }}</code></dd>
         <dt>Basis</dt><dd>{% for b in rec.basis %}<code>{{ b }}</code> {% empty %}none{% endfor %}{% if basis_text %} ({{ basis_text }}){% endif %}</dd>
-        <dt>Term end, computed from the record's dates</dt><dd>{{ rec.expiry_date_estimated|default:"not derivable from this record" }}</dd>
+        <dt>Term end, computed from the record's dates</dt><dd>{% if term_end_text %}{{ term_end_text }}{% else %}{{ rec.expiry_date_estimated|default:"not derivable from this record" }}{% endif %}</dd>
         <dt>Fee lapse</dt><dd>{{ rec.lapse_date|default:"none on record" }}</dd>
         <dt>Reinstatement on record</dt><dd>{{ rec.reinstated_date|default:"none" }}</dd>
         <dt>Reinstatement possible</dt><dd><code>{{ rec.reinstatement_possible }}</code>: {{ rec.reinstatement_basis }}</dd>

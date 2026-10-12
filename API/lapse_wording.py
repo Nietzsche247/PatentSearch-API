@@ -47,6 +47,29 @@ PTE_CONFLICT = "As of {as_of}, the USPTO sources for US {id} do not settle its s
 
 TERM_TEXT = {"term_17y": "17 years from grant", "term_14y": "14 years from grant", "term_15y": "15 years from grant"}
 
+# The bundle 4 wording review of 2026-10-12 (patentref ops/reviews/2026-10-12_bundle-4_wording_review.md, items 6 and 7):
+# a list date read by hand names the cell as printed, and the record page's term-end row for a patent whose two USPTO term
+# ends disagree on whether the term has passed (expiry_date_estimated null) gives both dates.
+PRINTED_TEXT = "{date} (printed on the list as {printed})"
+TERM_END_DISAGREE = "none: the dates on the USPTO 35 USC 156 list add up to {pte_end} and the record's own dates to {record_end}"
+
+
+def pte_original_text(row):
+    """The list's original expiration date as shown: the date, and the cell as printed when the date was read by hand."""
+    row = row or {}
+    date = row.get("original_expiry")
+    return PRINTED_TEXT.format(date=date, printed=row["printed"]) if (date and row.get("printed")) else date
+
+
+def term_end_text(record):
+    """The record page's term-end text when the engine gives no term end because the 35 USC 156 list and the record
+    disagree on whether the term has passed (`record` is expiry.expiry_record output); None otherwise."""
+    record = record or {}
+    row = record.get("pte_156") or {}
+    if record.get("expiry_date_estimated") or not record.get("record_term_end") or not row.get("extended_expiry"):
+        return None
+    return TERM_END_DISAGREE.format(pte_end=row["extended_expiry"], record_end=record["record_term_end"])
+
 
 def basis_text(basis, record=None, sentence=False):
     """The basis as a short clause. `record` (expiry.expiry_record output) supplies term_from_parent, disclaimer_applied,
@@ -72,7 +95,7 @@ def basis_text(basis, record=None, sentence=False):
         elif b.startswith("pte_156:") and not sentence:
             row = record.get("pte_156") or {}
             parts.append(f"on the USPTO list of patent terms extended under 35 USC 156: original expiration date "
-                         f"{row['original_expiry']} plus {row['period']}" if row.get("period")
+                         f"{pte_original_text(row)} plus {row['period']}" if row.get("period")
                          else f"on the USPTO list of patent terms extended under 35 USC 156: {b[8:]} days of extension")
     if "terminal_disclaimer" in basis and not listed:
         if record.get("disclaimer_applied"):
@@ -109,7 +132,7 @@ def plain(record, patent_id, data_version):
                       basis_text=basis_text(record.get("basis"), dict(record, status=status), sentence=True),
                       lapse_date=record.get("lapse_date"),
                       reinstated_text=f" (a reinstatement dated {rd} ended an earlier lapse)" if rd else "",
-                      pte_original=row.get("original_expiry"), pte_period=row.get("period"),
+                      pte_original=pte_original_text(row), pte_period=row.get("period"),
                       pte_end=row.get("extended_expiry"), pte_end_state=_state(row.get("extended_expiry") or "", as_of or ""),
                       record_end=rend, record_end_state=_state(rend or "", as_of or ""),
                       record_later=(f"; the term end computed from the dates in the USPTO record, before any extension, is later, {rend}"

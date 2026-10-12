@@ -546,3 +546,35 @@ def test_parent_pct_filed_as_related_publication_counts(lapse_env):
     rec = lapse_group.record_for(expiry, cat, "6459001", d)
     assert rec["expiry_date_estimated"] == "2017-03-20" and rec["term_from_parent"] == "1997-03-20" and rec["status"] == "expired_term"
     assert lapse_group.fetch_rows(con, cat, ["10000364"])["10000364"].get("parent_filing_date") is None  # its related-publication row
+
+
+def test_bundle4_wording_review_read_date_and_disputed_term_end(lapse_env):
+    """The bundle 4 wording review of 2026-10-12 (patentref ops/reviews/2026-10-12_bundle-4_wording_review.md): a list date
+    read by hand names the cell as printed (item 6, US 7511131), and while the 35 USC 156 list and the record disagree on
+    whether the term has passed the record page's term-end row gives both dates (item 7, US 9580461 and the unknown
+    patents of review 2); the engine gives no term end then, whatever the status (item 3)."""
+    from django.template.loader import render_to_string
+
+    expiry = _engine()
+    rec = expiry.expiry_record("2003-11-13", "2009-03-31", "lapsed", "2021-05-03", pta_days=761, patent_id="US7511131", as_of="2026-10-06")
+    assert rec["pte_156"]["printed"] == "12/13/22025"
+    assert ("on the USPTO list of patent terms extended under 35 USC 156: original expiration date 2025-12-13 (printed on the "
+            "list as 12/13/22025) plus 412 days") in lapse_wording.basis_text(rec["basis"], rec)
+    assert lapse_wording.pte_original_text(rec["pte_156"]) == "2025-12-13 (printed on the list as 12/13/22025)"
+    assert lapse_wording.pte_original_text({"original_expiry": "2023-01-16"}) == "2023-01-16"
+    assert lapse_wording.term_end_text(rec) is None
+    rec = expiry.expiry_record("2011-07-27", "2017-02-28", "lapsed", "2025-04-07", pta_days=252, patent_id="US9580461", as_of="2026-10-06")
+    assert rec["status"] == "expired_fee_nonpayment" and rec["expiry_date_estimated"] is None and rec["reinstatement_possible"] == "unknown"
+    text = lapse_wording.term_end_text(rec)
+    assert text == "none: the dates on the USPTO 35 USC 156 list add up to 2023-08-12 and the record's own dates to 2032-04-04"
+    assert lapse_wording.plain(rec, "US9580461", "20261006.5") == (
+        "As of 2026-10-06, the USPTO maintenance-fee record for US 9580461 has an entry dated 2025-04-07 recording that the "
+        "patent expired for nonpayment of a maintenance fee, and no reinstatement after it (data version 20261006.5).")
+    page = render_to_string("lapse_accounts/record.html", {"rec": rec, "pid": "9580461", "term_end_text": text, "basis_text": ""})
+    assert "<dt>Term end, computed from the record's dates</dt><dd>" + text.replace("'", "&#x27;") + "</dd>" in page
+    assert "not derivable from this record" not in page
+    rec = expiry.expiry_record(patent_id="US8158616", as_of="2026-10-06", **REVIEW_INPUTS["8158616"])
+    assert rec["status"] == "unknown" and lapse_wording.term_end_text(rec) == (
+        "none: the dates on the USPTO 35 USC 156 list add up to 2025-05-31 and the record's own dates to 2030-06-08")
+    rec = expiry.expiry_record(patent_id="US5000000", as_of="2026-10-06", **REVIEW_INPUTS["5000000"])
+    assert lapse_wording.term_end_text(rec) is None

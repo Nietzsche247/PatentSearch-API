@@ -230,6 +230,7 @@ class RecordPage(APIView):
             "rec": rec, "pid": pid, "title": title, "superseded": sup, "data_version": data_version,
             "as_of": rec.get("as_of"), "footer_lines": footer_lines(),
             "basis_text": lapse_wording.basis_text(rec.get("basis"), engine_rec),
+            "term_end_text": lapse_wording.term_end_text(engine_rec),
             "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1),
         })
         bad = lapse_wording.check_banned(html.split('data-user-content="true"')[0])
