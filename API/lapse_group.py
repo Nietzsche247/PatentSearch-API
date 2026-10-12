@@ -203,6 +203,7 @@ def fetch_rows(con, cat, ids):
 
 
 _pct_dates = {}  # PCT number -> the international filing date its national stage's record gives (or None), per process
+_app_dates = {}  # US application number -> the filing date the record of the patent granted on it gives (or None), per process
 
 
 def parents_module():
@@ -220,9 +221,10 @@ def _resolve_parents(con, out):
     """parent_filing_date (and parent_unsettled) for each merged row from its parent rows (independent audit 4 of
     2026-10-12, finding F3; patentref lapse/parents.py holds the rule and the catalog's term_dates step uses it too). A
     row whose date fits its number counts as before; a contradicted date is replaced by the date another record gives for
-    the same application (a PCT number's international filing date in patents__pct_data, a scan cached per process; a US
-    application's filing date in the record of the patent granted on it), or, when there is none and that parent could be
-    the earliest, the patent gets no term end. A patentref checkout without lapse.parents keeps the old rule."""
+    the same application (another row of the same patent; a PCT number's international filing date in patents__pct_data; a
+    US application's filing date in patents__application, the record of the patent granted on it; both scans cached per
+    process), or, when there is none and that parent could be the earliest, the patent gets no term end. A patentref
+    checkout without lapse.parents keeps the old rule."""
     P = parents_module()
     for pid, d in out.items():
         rows = d.pop("_parent_rows", None)
@@ -250,24 +252,16 @@ def _resolve_parents(con, out):
                 _pct_dates[key] = min(got) if got else None
             return _pct_dates[key]
 
-        def us_lookup(number, pid=pid):
-            want = "".join(ch for ch in str(number or "") if ch.isdigit())
-            try:
-                granted = [str(r[0]).strip() for r in con.execute(
-                    'SELECT related_doc_number FROM patents__us_related_documents WHERE "_pid" = ? '
-                    "AND related_doc_kind = 'parent-grant-document'", (pid,)) if r[0]]
-                granted = [g[2:] if g.upper().startswith("US") else g for g in granted]
-                granted = [g.lstrip("0") if g.isdigit() else g for g in granted]
-                if not granted:
-                    return None
-                for app, fd in con.execute(
-                        f'SELECT application_id, filing_date FROM patents__application WHERE "_pid" IN ({_ids_sql(len(granted))})',
-                        granted):
-                    if "".join(ch for ch in str(app or "") if ch.isdigit()) == want and fd:
-                        return fd
-            except sqlite3.Error:
-                return None
-            return None
+        def us_lookup(number):
+            key = "".join(ch for ch in str(number or "") if ch.isdigit())
+            if key not in _app_dates:
+                try:
+                    got = [r[0] for r in con.execute(
+                        "SELECT filing_date FROM patents__application WHERE application_id = ?", (key,)) if r[0]]
+                except sqlite3.Error:
+                    got = []
+                _app_dates[key] = min(got) if got else None
+            return _app_dates[key]
 
         own = [x for x in (d.get("filing_date"), d.get("pct_filing_date")) if x]
         got = P.resolve(rows, min(own) if own else None, pct_lookup, us_lookup)
