@@ -58,6 +58,15 @@ TERM_END_DISAGREE = "none: the dates on the USPTO 35 USC 156 list add up to {pte
 # contradicts and no other record dates, when that parent could be the earliest, leaves the record without a term end.
 # These strings await the bundle 5 fresh-agent wording review (deploy step 0 of its handoff).
 UNKNOWN_PARENT_DATE = "As of {as_of}, the USPTO record for US {id} does not settle its status: it gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date (data version {v})."
+# The coordinator's decision of 2026-10-12: when every filing date the parent's number allows gives the same status, that
+# status is served with no term end (patentref lapse.expiry, parent_unsettled["settled"]), in these sentences.
+SETTLED_PARENT = {
+    "active": "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}; it gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but on every filing date that application's number allows, the term end computed from the record's dates has not passed (data version {v}).",
+    "expired_term": "As of {as_of}, the USPTO record for US {id} gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but on every filing date that application's number allows, the term end computed from the record's dates has passed, and the USPTO list of patent terms extended under 35 USC 156, updated through {pte_list_through}, does not name this patent (data version {v}).",
+    "expired_fee_nonpayment": "As of {as_of}, the USPTO maintenance-fee record for US {id} has an entry dated {lapse_date} recording that the patent expired for nonpayment of a maintenance fee, and no reinstatement after it; the record gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but on every filing date that application's number allows, the grace period of the unpaid fee ran out on or before the term end computed from the record's dates (data version {v}).",
+}
+# expired_term, settled that way, when no copy of the 35 USC 156 list is loaded
+SETTLED_PARENT_EXPIRED_NO_LIST = "As of {as_of}, the USPTO record for US {id} gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and no other USPTO record gives that application's filing date, so no single term end can be computed, but on every filing date that application's number allows, the term end computed from the record's dates has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version {v})."
 TERM_END_PARENT = "none: the USPTO record gives parent application {parent_number} the filing date {parent_date}, which {parent_why}"
 PARENT_WHY = {
     "pct_year": "is not in the year that application's number names",
@@ -142,11 +151,15 @@ def _state(d, as_of):
 def plain(record, patent_id, data_version):
     """One sentence from the template for the record's status (`record` is `expiry.expiry_record` output)."""
     status = record.get("status") or "unknown"
-    if status in NEEDS_EXPIRY_DATE and not record.get("expiry_date_estimated"):
-        status = "unknown"
     row = record.get("pte_156") or {}
+    settled = bool((record.get("parent_unsettled") or {}).get("settled")) and not row and status in SETTLED_PARENT
+    if status in NEEDS_EXPIRY_DATE and not record.get("expiry_date_estimated") and not settled:
+        status = "unknown"
     as_of, rend = record.get("as_of"), record.get("record_term_end")
-    if status == "unknown" and row and rend:
+    if settled:
+        tpl = SETTLED_PARENT_EXPIRED_NO_LIST if (status == "expired_term" and not record.get("pte_list_through")) \
+            else SETTLED_PARENT[status]
+    elif status == "unknown" and row and rend:
         tpl = PTE_CONFLICT
     elif row and status in PTE_TEMPLATES:
         tpl = PTE_TEMPLATES[status]

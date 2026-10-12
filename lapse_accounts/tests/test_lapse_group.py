@@ -612,7 +612,9 @@ def test_parent_dates_the_record_contradicts(client, lapse_env):
     contradicts is never used. US 9527819: PCT/US2005/039541 dated 2008-07-22, and its national stage's record gives
     2005-11-02, so 2025-11-02 (it served active to 2028-07-22). US 9087778: 13/655,875 dated 1920-02-10, and the patent
     granted on it gives 2012-10-19, so 2032-10-19 (it served expired_term 1940-02-10). US 6419129: PCT/US94/07514 dated
-    1914-06-29, no other record dates it, and it could be earlier than the 1994-06-02 parent: no term end."""
+    1914-06-29, no other record dates it, and it could be earlier than the 1994-06-02 parent: no term end, and since the
+    term ends in 2014 on every 1994 day before that parent, expired_term (the coordinator's decision of 2026-10-12; the
+    fixture has no fee lapse for it). A status that depends on the day stays unknown with UNKNOWN_PARENT_DATE."""
     import html as html_mod
 
     from API import lapse_group
@@ -627,23 +629,43 @@ def test_parent_dates_the_record_contradicts(client, lapse_env):
     assert rows["9087778"]["parent_filing_date"] == "2012-10-19"
     assert rows["11086507"]["parent_filing_date"] == "2005-12-23"  # the rule leaves good rows alone
     assert rows["6419129"].get("parent_filing_date") is None
-    assert rows["6419129"]["parent_unsettled"] == {"number": "PCT/US94/07514", "date": "1914-06-29", "why": "pct_year"}
+    assert rows["6419129"]["parent_unsettled"] == {"number": "PCT/US94/07514", "date": "1914-06-29", "why": "pct_year",
+                                                   "first": "1994-01-01", "last": "1994-12-31", "other": "1994-06-02"}
     rec = lapse_group.record_for(expiry, cat, "9527819", rows["9527819"])
     assert (rec["status"], rec["expiry_date_estimated"], rec["term_from_parent"]) == ("expired_term", "2025-11-02", "2005-11-02")
     rec = lapse_group.record_for(expiry, cat, "9087778", rows["9087778"])
     assert (rec["status"], rec["expiry_date_estimated"]) == ("active", "2032-10-19")
     rec = lapse_group.record_for(expiry, cat, "6419129", rows["6419129"])
-    assert (rec["status"], rec["expiry_date_estimated"], rec["basis"]) == ("unknown", None, [])
+    assert (rec["status"], rec["expiry_date_estimated"], rec["basis"]) == ("expired_term", None, [])
+    assert rec["parent_unsettled"]["settled"] is True
     sentence = lapse_wording.plain(rec, "US6419129", "20261006.2")
     assert sentence == (
-        "As of 2026-10-06, the USPTO record for US 6419129 does not settle its status: it gives parent application "
-        "PCT/US94/07514 the filing date 1914-06-29, which is not in the year that application's number names, and no other "
-        "USPTO record gives that application's filing date (data version 20261006.2).")
+        "As of 2026-10-06, the USPTO record for US 6419129 gives parent application PCT/US94/07514 the filing date 1914-06-29, "
+        "which is not in the year that application's number names, and no other USPTO record gives that application's filing "
+        "date, so no single term end can be computed, but on every filing date that application's number allows, the term "
+        "end computed from the record's dates has passed, and the USPTO list of patent terms extended under 35 USC 156, "
+        "updated through 2026-09-08, does not name this patent (data version 20261006.2).")
     assert lapse_wording.check_banned(sentence) == []
     assert lapse_wording.term_end_text(rec) == ("none: the USPTO record gives parent application PCT/US94/07514 the filing "
                                                 "date 1914-06-29, which is not in the year that application's number names")
     page = html_mod.unescape(client.get("/p/6419129").content.decode())
     assert sentence in page and lapse_wording.term_end_text(rec) in page and "parent_unsettled" not in page
+    # the other two settled statuses, and a status that depends on the day
+    act = dict(rec, status="active", reinstatement_possible=False)
+    assert lapse_wording.plain(act, "US6419129", "v").endswith(
+        "so no single term end can be computed, but on every filing date that application's number allows, the term end "
+        "computed from the record's dates has not passed (data version v).")
+    fee = dict(rec, status="expired_fee_nonpayment", lapse_date="2010-07-16")
+    assert lapse_wording.plain(fee, "US6419129", "v").startswith(
+        "As of 2026-10-06, the USPTO maintenance-fee record for US 6419129 has an entry dated 2010-07-16 recording that the "
+        "patent expired for nonpayment of a maintenance fee, and no reinstatement after it; the record gives parent application")
+    unk = dict(rec, status="unknown", parent_unsettled=dict(rec["parent_unsettled"], settled=False))
+    assert lapse_wording.plain(unk, "US6419129", "20261006.2") == (
+        "As of 2026-10-06, the USPTO record for US 6419129 does not settle its status: it gives parent application "
+        "PCT/US94/07514 the filing date 1914-06-29, which is not in the year that application's number names, and no other "
+        "USPTO record gives that application's filing date (data version 20261006.2).")
+    for tpl in list(lapse_wording.SETTLED_PARENT.values()) + [lapse_wording.SETTLED_PARENT_EXPIRED_NO_LIST]:
+        assert lapse_wording.check_banned(tpl) == []
     # the US form of the clause, with the serial number as the USPTO writes it
     us = dict(rec, parent_unsettled={"number": "13655875", "date": "1920-02-10", "why": "us_series"})
     assert "parent application 13/655,875 the filing date 1920-02-10, which is outside the years in which applications " \
