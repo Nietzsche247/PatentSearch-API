@@ -763,4 +763,14 @@ builder fixes B1 to B9. The fork carries two; the engine fixes come with the pat
   expired_term (83,320 by the fee rule alone, 267 with the earlier parent); 4,522 term ends move (4,521 by the parent
   rule, all earlier, and US 7511131 to 2027-01-29); reinstatement_basis changes on 83,589 (83,587 to the new form, and
   US 7511131 and US 9580461 to the 37 CFR 1.378 form, reinstatement_possible false to "unknown"). No other status moves.
-- Tests: the related-publication parent (6459001), the plain labels. Needs patentref wave2-pending-approval-4.
+- The fresh-agent wording review of 2026-10-12 (the patentref repo's `ops/reviews/2026-10-12_bundle-4_wording_review.md`),
+  applied word for word: the eight labels are "USPTO files fetched", "file formats unchanged", "database built",
+  "database integrity", "row counts against the previous build", "the PatentsView API's example queries",
+  "history-match score tested on past patents", "expiry audit of known patents"; `lapse_wording.pte_original_text` shows a
+  list date read by hand with its printed cell ("2025-12-13 (printed on the list as 12/13/22025)"); the record page's
+  term-end row for a patent whose list and record disagree on whether the term has passed reads "none: the dates on the
+  USPTO 35 USC 156 list add up to {list date} and the record's own dates to {record date}"
+  (`lapse_wording.term_end_text`). The engine gives no term end then, whatever the status, so US 9580461 serves
+  expiry_date_estimated null instead of 2023-08-12: 4,523 term ends move in all, nothing else in the recount changed.
+- Tests: the related-publication parent (6459001), the plain labels, 7511131's gloss, the term-end row of 9580461 and
+  8158616. Needs patentref wave2-pending-approval-4.
