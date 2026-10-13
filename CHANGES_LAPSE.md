@@ -842,6 +842,12 @@ Independent audit 5 (the patentref repo's `ops/audits/2026-10-13_independent-aud
   PCTUS2004012345) as the same international application and lists those spellings too, so a contradicted row written
   that way is checked against its year, and a national stage record stored that way (PCTCA02/00255 for US 7377652's
   parent) is found. Needs patentref wave2-pending-approval-6.
+- The bundle 6 wording review, R1 (patentref `ops/reviews/2026-10-13_bundle-6_wording_review.md`, applied word for
+  word): `API/lapse_wording.py` parent_number_text shows a PCT number a record writes without one or both slashes with
+  them, split as lapse.parents reads it, the year digits as written and the serial padded to 5 or 6 digits
+  (PCTGB9300583 as PCT/GB93/00583, PCTFR1001003 as PCT/FR10/01003); TERM_END_PARENT adds the record's spelling after it,
+  " (written there PCTGB9300583)". A US number and a number written with both slashes read as before, with no note.
+  Test: test_bundle6_review_r1_pct_numbers_shown_with_their_slashes.
 - Recount on data version 20261013.1 (patentref 6608a2f against the live engine 5641ac9): 13,035 more parent rows read as
   international applications; 2,736 contradicted rows of 2,666 patents (149 more). 141 term ends change (17 to another
   date, 124 to none) and 6 statuses (4 expired_fee_nonpayment to unknown, 2 expired_term to unknown). 1,150 unsettled: 922

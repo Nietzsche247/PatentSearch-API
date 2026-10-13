@@ -685,3 +685,38 @@ def test_parent_dates_the_record_contradicts(client, lapse_env):
     us = dict(rec, parent_unsettled={"number": "13655875", "date": "1920-02-10", "why": "us_series"})
     assert "parent application 13/655,875 the filing date 1920-02-10, which is outside the years in which applications " \
            "of that serial number's series were filed" in lapse_wording.plain(us, "US9087778", "v")
+
+
+def test_bundle6_review_r1_pct_numbers_shown_with_their_slashes(lapse_env):
+    """The bundle 6 wording review, R1 (patentref ops/reviews/2026-10-13_bundle-6_wording_review.md): a PCT number a record
+    writes without one or both slashes is shown with them, and the record page names the record's spelling beside it."""
+    for written, shown in (("PCTGB9300583", "PCT/GB93/00583"), ("PCTCA02/00255", "PCT/CA02/00255"),
+                           ("PCTFR1001003", "PCT/FR10/01003"), ("PCTUS2004012345", "PCT/US2004/012345"),
+                           ("PCTEP9405333", "PCT/EP94/05333"), ("PCTUS01/32039", "PCT/US01/32039"),
+                           ("PCT/GB9300583", "PCT/GB93/00583"), ("PCTGB93/583", "PCT/GB93/00583")):
+        assert lapse_wording.parent_number_text(written) == shown, written
+        assert lapse_wording.parent_written_text(written) == f" (written there {written})", written
+    # a number with both slashes, any other number, and a US number: as before, and no note
+    for n, shown in (("PCT/GB93/00583", "PCT/GB93/00583"), ("PCT/US2005/039541", "PCT/US2005/039541"),
+                     ("PCTUS200412345", "PCTUS200412345"), ("13655875", "13/655,875"), ("EP1234567", "EP1234567")):
+        assert lapse_wording.parent_number_text(n) == shown and lapse_wording.parent_written_text(n) == "", n
+    # the reviewer's renders, byte for byte
+    rec = {"status": "unknown", "expiry_date_estimated": None, "as_of": "2026-10-06", "basis": ["fee_lapse:2011-05-13"],
+           "lapse_date": "2011-05-13", "parent_unsettled": {"number": "PCTGB9300583", "date": "1983-03-22", "why": "pct_year",
+                                                            "first": "1983-03-22", "last": "1993-12-31", "span": "number_and_row"}}
+    assert lapse_wording.plain(rec, "US6560944", "20261013.1") == (
+        "As of 2026-10-06, the USPTO record for US 6560944 does not settle its status: it gives parent application "
+        "PCT/GB93/00583 the filing date 1983-03-22, which is not in the year that application's number names, and PatentRef "
+        "holds no other USPTO record that gives that application's filing date (data version 20261013.1).")
+    assert lapse_wording.term_end_text(rec) == (
+        "none: the USPTO record gives parent application PCT/GB93/00583 (written there PCTGB9300583) the filing date "
+        "1983-03-22, which is not in the year that application's number names")
+    short = dict(rec, parent_unsettled={"number": "PCTFR1001003", "date": "2001-04-04", "why": "pct_short_year", "span": "open"})
+    assert ("it gives parent application PCT/FR10/01003 the filing date 2001-04-04, which cannot be checked against that "
+            "application's number, since the number is written with a two-digit year, a form in use only up to 2003, ") \
+        in lapse_wording.plain(short, "US6640964", "v")
+    # a slashed number keeps the bundle 5 row word for word
+    us = dict(rec, parent_unsettled={"number": "PCT/US94/07514", "date": "1914-06-29", "why": "pct_year", "span": "number"})
+    assert lapse_wording.term_end_text(us) == ("none: the USPTO record gives parent application PCT/US94/07514 the filing "
+                                               "date 1914-06-29, which is not in the year that application's number names")
+    assert lapse_wording.check_banned(lapse_wording.plain(rec, "US6560944", "v")) == []

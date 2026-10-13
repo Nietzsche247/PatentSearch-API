@@ -70,7 +70,7 @@ SETTLED_PARENT = {
 }
 # expired_term, settled that way, when no copy of the 35 USC 156 list is loaded
 SETTLED_PARENT_EXPIRED_NO_LIST = "As of {as_of}, the USPTO record for US {id} gives parent application {parent_number} the filing date {parent_date}, which {parent_why}, and PatentRef holds no other USPTO record that gives that application's filing date, so no single term end can be computed, but {parent_span}, the term end computed from the record's dates has passed; it does not count any patent term extension for regulatory review (35 USC 156), which this record does not hold (data version {v})."
-TERM_END_PARENT = "none: the USPTO record gives parent application {parent_number} the filing date {parent_date}, which {parent_why}"
+TERM_END_PARENT = "none: the USPTO record gives parent application {parent_number}{parent_written} the filing date {parent_date}, which {parent_why}"
 PARENT_WHY = {
     "pct_year": "is not in the year that application's number names",
     "pct_before_1978": "is before 1978-06-01, the first day an international application could be filed",
@@ -88,15 +88,46 @@ PARENT_SPAN = {
 }
 
 
+def _pct_with_slashes(number):
+    """A PCT number a record writes without one or both of its slashes (PCTGB9300583, PCTCA02/00255) as PCT/CCYY/NNNNN or
+    PCT/CCYYYY/NNNNNN: split as patentref lapse.parents reads it, the year digits as written, the serial padded to 5 digits
+    after a two-digit year and 6 after a four-digit year (the bundle 6 wording review, R1). None for a number written with
+    both slashes, for any other number, and for a patentref checkout without lapse.parents."""
+    from API import lapse_group  # lazy: lapse_group finds the patentref clone
+    parents = lapse_group.parents_module()
+    if parents is None or not hasattr(parents, "_pct_match"):
+        return None
+    n = parents.norm_number(number)
+    if parents._PCT.match(n):
+        return None
+    m = parents._pct_match(n)
+    if not m:
+        return None
+    cc, y, serial = m
+    return f"PCT/{cc}{y}/{serial:0{5 if len(y) == 2 else 6}d}"
+
+
 def parent_number_text(number):
-    """A US application number as the USPTO writes it (13/655,875); a PCT number as printed."""
+    """A US application number as the USPTO writes it (13/655,875); a PCT number as printed, with the slashes put in where
+    the record leaves them out (PCTGB9300583 is shown as PCT/GB93/00583); any other number as printed."""
     n = str(number or "")
-    return f"{n[:2]}/{n[2:5]},{n[5:]}" if (len(n) == 8 and n.isdigit()) else n
+    if len(n) == 8 and n.isdigit():
+        return f"{n[:2]}/{n[2:5]},{n[5:]}"
+    return _pct_with_slashes(n) or n
+
+
+def parent_written_text(number):
+    """The record page's note of the record's own spelling, " (written there PCTGB9300583)", when the number is shown with
+    slashes the record leaves out; else nothing (a US number is shown in the USPTO's form, as before)."""
+    n = str(number or "")
+    shown = _pct_with_slashes(n)
+    return f" (written there {n})" if (shown and shown != n) else ""
 
 
 def _parent_args(record):
     u = (record or {}).get("parent_unsettled") or {}
-    return {"parent_number": parent_number_text(u.get("number")), "parent_date": u.get("date"),
+    return {"parent_number": parent_number_text(u.get("number")), "parent_written": parent_written_text(u.get("number")),
+            "parent_date": u.get("date"),
             "parent_why": PARENT_WHY.get(u.get("why"), "does not fit that application's number"),
             "parent_span": PARENT_SPAN.get(u.get("span"), PARENT_SPAN["number"])}
 
