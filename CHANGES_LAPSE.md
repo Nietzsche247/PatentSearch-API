@@ -826,3 +826,27 @@ term_dates step and the weekly grants parser use it too.
 - Tests: 9527819 (PCT dated by its national stage), 9087778 (US parent dated by the granted patent's record), 6419129
   (settled expired_term in the fixture) and the four settled and unknown sentences in
   `lapse_accounts/tests/test_lapse_group.py`. Needs patentref wave2-pending-approval-5.
+
+## 2026-10-13 pending approval: bundle 6, the fixes of independent audit 5 (B13, B14, B17)
+
+Independent audit 5 (the patentref repo's `ops/audits/2026-10-13_independent-audit-5_patentref-us1.txt`, section M).
+
+- B14 (F5; the coordinator's decision of 2026-10-13: nobody uses the Django admin, accounts run on Supabase):
+  `lapse_accounts/root_urls.py` serves upstream's `pvapi.urls` without the routes of the admin and social namespaces, and
+  `pvapi/settings/lapse_local.py` sets AUTHENTICATION_BACKENDS to Django's ModelBackend alone, without upstream's
+  GoogleOAuth2. /admin/, /login/google-oauth2/, /complete/google-oauth2/ and /disconnect/google-oauth2/ answer 404 (a POST
+  403 or 404), never 500, and nothing in the app can post to Google. patentref `ops/caddy/patentref.caddy` answers 404 for
+  /admin*, /login, /logout, /complete and /disconnect before the app. Test: `lapse_accounts/tests/test_no_admin_or_login.py`.
+- B13 (F4, F4b): no change here. `API/lapse_group.py` asks the PCT lookup for lapse.parents.pct_spellings(number), and
+  patentref's lapse/parents.py now reads a number written without the slashes (PCTGB9300583, PCTGB93/00583,
+  PCTUS2004012345) as the same international application and lists those spellings too, so a contradicted row written
+  that way is checked against its year, and a national stage record stored that way (PCTCA02/00255 for US 7377652's
+  parent) is found. Needs patentref wave2-pending-approval-6.
+- Recount on data version 20261013.1 (patentref 6608a2f against the live engine 5641ac9): 13,035 more parent rows read as
+  international applications; 2,736 contradicted rows of 2,666 patents (149 more). 141 term ends change (17 to another
+  date, 124 to none) and 6 statuses (4 expired_fee_nonpayment to unknown, 2 expired_term to unknown). 1,150 unsettled: 922
+  hold on every possible date (314 active, 281 expired_term, 327 expired_fee_nonpayment), 213 unknown, 15 keep their
+  status.
+- B17, for bundle 5 above: on 20261006.5 the API serves 1,053 term ends to another date and 1,020 to none, 1,034 unsettled
+  with 207 unknown, and 70, 55, 81 and 55 for the moves the count above gave as 69, 54, 82 and 56. The count keyed the
+  national stage dates by one spelling per row and missed US 8243876 and 8892399, which this lookup finds.
