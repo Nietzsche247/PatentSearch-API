@@ -29,6 +29,9 @@ from pvapi.settings.base import *  # noqa: E402,F403
 from pvapi.settings.base import ALLOWED_HOSTS, INSTALLED_APPS, LOGGING, MIDDLEWARE, REST_FRAMEWORK  # noqa: E402
 
 DEBUG = os.environ.get("LAPSE_DEBUG", "0") == "1"
+# No Google login (independent audit 5, B14): upstream's GoogleOAuth2 backend is dropped, and lapse_accounts/root_urls.py
+# serves neither social-auth's routes nor the Django admin. Accounts run on Supabase (lapse_accounts/supabase_jwt.py).
+AUTHENTICATION_BACKENDS = ("django.contrib.auth.backends.ModelBackend",)
 ALLOWED_HOSTS = ALLOWED_HOSTS + ["127.0.0.1", "localhost", "testserver"]
 # Public hostnames behind the reverse proxy, comma separated (LAPSE_ALLOWED_HOSTS=patentref.io,patentref.com)
 ALLOWED_HOSTS += [h.strip() for h in os.environ.get("LAPSE_ALLOWED_HOSTS", "").split(",") if h.strip()]

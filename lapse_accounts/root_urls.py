@@ -1,10 +1,19 @@
 """Root URLconf for the Lapse settings: the account routes first, then upstream's `pvapi.urls`
 unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream settings keep theirs."""
-from django.urls import include, path, re_path
+from django.urls import URLResolver, include, path, re_path
 
 from API import lapse_views
 from lapse_accounts import public
 from pvapi.urls import urlpatterns as upstream_urlpatterns
+
+
+def _ours(pattern):
+    """Upstream's routes without the Django admin and social-auth's Google login (independent audit 5, F5 and B14; the
+    coordinator's decision of 2026-10-13): nobody uses the admin, PatentRef's accounts run on Supabase, and the login could
+    make the API server post to Google. ops/caddy/patentref.caddy answers 404 for the same paths before they reach the app."""
+    return not (isinstance(pattern, URLResolver) and ({getattr(pattern, "namespace", None), getattr(pattern, "app_name", None)}
+                                                       & {"admin", "social"}))
+
 
 urlpatterns = [
     path("api/v1/meta/", include("lapse_accounts.urls")),
@@ -18,4 +27,4 @@ urlpatterns = [
     re_path(r"^(?P<name>llms\.txt|llms-full\.txt|openapi\.json|changes\.txt|LICENSES\.md)$", public.public_file, name="public-file"),
     re_path(r"^docs/errors/?$", public.error_docs, name="error-docs"),
     re_path(r"^docs/errors/(?P<code>[A-Za-z_]+)/?$", public.error_docs, name="error-doc"),
-] + list(upstream_urlpatterns)
+] + [p for p in upstream_urlpatterns if _ours(p)]
