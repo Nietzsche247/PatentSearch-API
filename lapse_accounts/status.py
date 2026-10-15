@@ -11,6 +11,8 @@
       the last 24 hours and 30 days;
     - the external probe history mirrored to the box by the watchdog (ops/systemd/watchdog.sh in the
       patentref repo) from the public status repository: uptime since the 5.8 clock started;
+    - the UptimeRobot check of the health route, mirrored by the same watchdog (ops/uptime/uptimerobot.py in
+      the patentref repo, GET calls with a read-only key): its state, last check time and interval;
     - the refresh runner's state (refresh_state.json, the newest refresh_check log, snapshot_next.json,
       snapshot_current.json);
     - the nightly backup journal, the watchdog state and the alerts log;
@@ -37,7 +39,7 @@ from pathlib import Path
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.template.loader import render_to_string
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_safe
 
 from lapse_accounts import public
 
@@ -45,6 +47,7 @@ CACHE_SECONDS = 60
 UPTIME_CLOCK_START = "2026-10-06T03:47:00Z"  # checklist 5.8: the weekly refresh task went live
 PROBE_CADENCE_MIN = 5
 MAX_DOWN_SPAN_MIN = 3 * PROBE_CADENCE_MIN  # a gap longer than this between two failed probes is a missing run, not an outage
+EXTERNAL_FRESH_MIN = 15  # the UptimeRobot mirror is read every 2 minutes; a reading older than this is shown as stale
 
 _lock = threading.Lock()
 _cache = {"at": 0.0, "data": None}
@@ -58,6 +61,7 @@ def paths():
     return {
         "request_log": getattr(settings, "USAGE_LOG_SQLITE_PATH", ""),
         "probe_history": p.get("probe_history", f"{data}/status_mirror/history.json"),
+        "uptimerobot": p.get("uptimerobot", f"{data}/status_mirror/uptimerobot.json"),
         "refresh_state": p.get("refresh_state", f"{data}/refresh_state.json"),
         "refresh_logs": p.get("refresh_logs", f"{data}/logs"),
         "next_sidecar": p.get("next_sidecar", f"{api}/snapshot_next.json"),
@@ -146,12 +150,17 @@ def text_version():
         return None
 
 
-@require_GET
+@require_safe
 def health(request):
+    """GET answers the JSON body; HEAD the same status and headers with no body (UptimeRobot's HTTP check sends HEAD
+    first: until 2026-10-15 that was a 405 and every check fell back to a second GET)."""
     ok, data_version, detail = db_check()
-    body = {"ok": ok, "version": code_version(), "data_version": data_version, "db": detail, "time": iso(time.time()),
-            "text_data_version": text_version(), "patentref_version": patentref_version()}
-    resp = JsonResponse(body, status=200 if ok else 503)
+    if request.method == "HEAD":
+        resp = HttpResponse(b"", status=200 if ok else 503, content_type="application/json")
+    else:
+        body = {"ok": ok, "version": code_version(), "data_version": data_version, "db": detail, "time": iso(time.time()),
+                "text_data_version": text_version(), "patentref_version": patentref_version()}
+        resp = JsonResponse(body, status=200 if ok else 503)
     resp["Cache-Control"] = "no-store"
     resp["X-Data-Version"] = data_version or "unversioned"
     return resp
@@ -280,6 +289,63 @@ def uptime_figures(history_path, now=None):
     return out
 
 
+def _iso_seconds(s):
+    t = parse_iso(s) if isinstance(s, str) else None
+    return iso(t) if t is not None else None
+
+
+def external_check_figures(path, now=None):
+    """The UptimeRobot check of the health route, from the mirror the watchdog writes (patentref
+    ops/uptime/uptimerobot.py; GET calls with a read-only key, at most one a minute). Not part of the 5.8 figure,
+    which stays on the GitHub probe history; shown beside it."""
+    now = now or time.time()
+    out = {"provider": "UptimeRobot", "configured": False, "state": None, "state_since": None, "last_check_at": None,
+           "last_check_age_minutes": None, "last_check_ms": None, "interval_minutes": None, "checks_24h": None, "regions": [],
+           "last_incident": None, "read_at": None, "read_age_minutes": None, "fresh": False, "note": ""}
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        out["note"] = "not set up yet"
+        return out
+    except (OSError, ValueError):
+        out["note"] = "reading unavailable"
+        return out
+    if not isinstance(doc, dict):
+        out["note"] = "reading unavailable"
+        return out
+    out["configured"] = True
+    t = parse_iso(doc.get("last_ok_at") or "")
+    if t is not None:
+        out["read_at"] = iso(t)
+        out["read_age_minutes"] = int((now - t) / 60)
+        out["fresh"] = (now - t) <= EXTERNAL_FRESH_MIN * 60
+    if not doc.get("fetch_ok"):
+        out["note"] = "the last read of the UptimeRobot record failed"
+    m = doc.get("monitor") if isinstance(doc.get("monitor"), dict) else None
+    if not m:
+        out["note"] = out["note"] or "no reading yet"
+        return out
+    out["state"] = m.get("state")
+    out["state_since"] = _iso_seconds(m.get("state_since"))
+    out["last_check_at"] = _iso_seconds(m.get("last_check_at"))
+    lt = parse_iso(out["last_check_at"] or "")
+    if lt is not None:
+        out["last_check_age_minutes"] = int((now - lt) / 60)
+    if isinstance(m.get("last_check_ms"), (int, float)):
+        out["last_check_ms"] = m["last_check_ms"]
+    iv = m.get("interval_s")
+    if isinstance(iv, (int, float)) and iv > 0:
+        out["interval_minutes"] = int(iv // 60) if iv % 60 == 0 else round(iv / 60.0, 1)
+    if isinstance(m.get("checks_24h"), int):
+        out["checks_24h"] = m["checks_24h"]
+    out["regions"] = [r for r in (m.get("regions") or []) if isinstance(r, str)]
+    inc = m.get("last_incident")
+    if isinstance(inc, dict):
+        out["last_incident"] = {"started_at": _iso_seconds(inc.get("started_at")), "duration_s": inc.get("duration_s"),
+                                "reason": inc.get("reason"), "status": (inc.get("status") or "").lower() or None}
+    return out
+
+
 def refresh_figures(p):
     out = {"last_check": None, "current": None, "next": None}
     try:
@@ -382,6 +448,7 @@ def collect():
         "service": {"name": "PatentRef API", "base": "https://patentref.io/api/v1/", "health": ok, "health_detail": detail,
                     "code_version": code_version(), "data_version": data_version},
         "uptime": uptime_figures(p["probe_history"], now),
+        "external_check": external_check_figures(p["uptimerobot"], now),
         "requests_24h": request_figures(p["request_log"], now - 86400),
         "requests_30d": request_figures(p["request_log"], now - 30 * 86400),
         "refresh": refresh_figures(p),
@@ -389,10 +456,13 @@ def collect():
         "alerts": alert_figures(p["alerts"]),
     }
     up = data["uptime"]
+    ext = data["external_check"]
     if not ok:
         data["state"] = ("down", "The API is not answering health checks on the box.")
     elif up.get("outages") and up["outages"][-1].get("open"):
         data["state"] = ("down", "The last two external probes failed.")
+    elif ext.get("fresh") and ext.get("state") == "down":
+        data["state"] = ("degraded", "UptimeRobot reports the API down from its network; the box itself answers.")
     elif data["alerts"]["open"]:
         data["state"] = ("degraded", f"{len(data['alerts']['open'])} alert(s) open on the box.")
     elif up.get("last_probe") and not up["last_probe"]["ok"]:
