@@ -169,6 +169,52 @@ def test_uptime_no_history(tmp_path):
     assert u["uptime_percent"] is None and "no probe history" in u["note"]
 
 
+def test_official_uptime_github_before_the_switch_uptimerobot_after(tmp_path):
+    # GitHub: a 10-minute outage before the switch, and a 5-minute one after it (which no longer counts)
+    probes = [{"t": t, "ok": ok} for t, ok in (("2026-10-10T00:00:00Z", True), ("2026-10-10T00:05:00Z", False), ("2026-10-10T00:10:00Z", False),
+                                               ("2026-10-10T00:15:00Z", False), ("2026-10-10T00:20:00Z", True),
+                                               ("2026-10-16T00:00:00Z", False), ("2026-10-16T00:05:00Z", False), ("2026-10-16T00:10:00Z", True))]
+    now = status.parse_iso("2026-10-17T00:00:00Z")
+    up = status.uptime_figures(_hist(tmp_path, probes), now)
+    assert up["down_minutes"] == 15.0 and up["down_minutes_before_switch"] == 10.0
+    # no UptimeRobot reading on the box: the GitHub rule counts after the switch too
+    o = status.official_uptime(up, status.external_check_figures(str(tmp_path / "missing.json"), now), now)
+    assert o["down_minutes"] == 15.0 and o["observer_after"] == "GitHub probe" and "not on the box yet" in o["note"]
+    # with the mirror: the setup incident before the switch is not counted; a resolved 6-minute incident after it is,
+    # and an open one counts up to now while the reading is fresh
+    path = tmp_path / "status_mirror" / "uptimerobot.json"
+    path.parent.mkdir(exist_ok=True)
+    doc = {"fetch_ok": True, "last_ok_at": "2026-10-16T23:59:00Z", "monitor": {"state": "down", "interval_s": 300},
+           "incidents": [{"started_at": "2026-10-15T02:52:31.361Z", "duration_s": 276, "status": "Resolved", "reason": "404 Not Found"},
+                         {"started_at": "2026-10-16T12:00:00Z", "duration_s": 360, "status": "Resolved", "reason": "503 Service Unavailable"},
+                         {"started_at": "2026-10-16T23:50:00Z", "duration_s": 300, "status": "Ongoing", "reason": "Connection Timeout"}]}
+    path.write_text(json.dumps(doc))
+    ext = status.external_check_figures(str(path), now)
+    o = status.official_uptime(up, ext, now)
+    assert o["observer_after"] == "UptimeRobot" and o["down_minutes_before_switch"] == 10.0
+    assert o["down_minutes_after_switch"] == 16.0  # 6 + 10 (the open one, 23:50 to now)
+    assert o["down_minutes"] == 26.0 and [r["minutes"] for r in o["incidents_after_switch"]] == [6.0, 10.0]
+    elapsed = int((now - status.parse_iso(status.UPTIME_CLOCK_START)) / 60)
+    assert o["elapsed_minutes"] == elapsed and o["uptime_percent"] == pytest.approx(100 * (1 - 26 / elapsed), abs=0.0001)
+    # a stale reading: the open incident counts only up to the last read, and the note says so
+    later = now + 3600
+    o = status.official_uptime(status.uptime_figures(_hist(tmp_path, probes), later), status.external_check_figures(str(path), later), later)
+    assert o["down_minutes_after_switch"] == 15.0 and "last read 61 minutes ago" in o["note"]
+
+
+def test_status_page_tile_uses_the_official_figure(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
+                                                         "backup_journal": str(tmp_path / "bj.jsonl")})
+    (tmp_path / "reports").mkdir()
+    _ur_mirror(tmp_path, 60)
+    d = client.get("/api/v1/meta/status.json").json()
+    assert d["uptime_5_8"]["observer_after"] == "UptimeRobot" and d["uptime_5_8"]["switch_at"] == "2026-10-15T02:57:08Z"
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert "the GitHub probe until 2026-10-15 02:57 UTC" in html and "then UptimeRobot" in html
+    assert "its incidents are the down time of the uptime figure" in html
+
+
 def test_status_page_and_json(client, monkeypatch, tmp_path):
     monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),

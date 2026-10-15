@@ -48,6 +48,9 @@ UPTIME_CLOCK_START = "2026-10-06T03:47:00Z"  # checklist 5.8: the weekly refresh
 PROBE_CADENCE_MIN = 5
 MAX_DOWN_SPAN_MIN = 3 * PROBE_CADENCE_MIN  # a gap longer than this between two failed probes is a missing run, not an outage
 EXTERNAL_FRESH_MIN = 15  # the UptimeRobot mirror is read every 2 minutes; a reading older than this is shown as stale
+# decisions.md 2026-10-15: UptimeRobot is the official outside observer of the 5.8 clock from its first up state on the
+# health route (2026-10-15 02:57:08 UTC); the GitHub probe history counts before that moment.
+OBSERVER_SWITCH = "2026-10-15T02:57:08Z"
 
 _lock = threading.Lock()
 _cache = {"at": 0.0, "data": None}
@@ -280,6 +283,17 @@ def uptime_figures(history_path, now=None):
     out["down_minutes"] = round(down, 1)
     if out["elapsed_minutes"] > 0:
         out["uptime_percent"] = round(100.0 * (1 - down / out["elapsed_minutes"]), 4)
+    # the same rule on the probes up to the observer switch only (a span that crosses it counts up to it)
+    switch = parse_iso(OBSERVER_SWITCH)
+    before, prev = 0.0, None
+    for p in probes:
+        t = parse_iso(p["t"])
+        if prev is not None and parse_iso(prev["t"]) >= switch:
+            break
+        if not p.get("ok") and prev is not None and not prev.get("ok"):
+            before += min((min(t, switch) - parse_iso(prev["t"])) / 60.0, MAX_DOWN_SPAN_MIN)
+        prev = p
+    out["down_minutes_before_switch"] = round(before, 1)
     out["outages"] = outages[-10:]
     if probes:
         last = probes[-1]
@@ -296,12 +310,13 @@ def _iso_seconds(s):
 
 def external_check_figures(path, now=None):
     """The UptimeRobot check of the health route, from the mirror the watchdog writes (patentref
-    ops/uptime/uptimerobot.py; GET calls with a read-only key, at most one a minute). Not part of the 5.8 figure,
-    which stays on the GitHub probe history; shown beside it."""
+    ops/uptime/uptimerobot.py; GET calls with a read-only key, at most one a minute), with the incident ledger the
+    mirror keeps. Since 2026-10-15 UptimeRobot is the official observer of the 5.8 figure from OBSERVER_SWITCH on
+    (official_uptime); the GitHub probe history counts before it."""
     now = now or time.time()
     out = {"provider": "UptimeRobot", "configured": False, "state": None, "state_since": None, "last_check_at": None,
            "last_check_age_minutes": None, "last_check_ms": None, "interval_minutes": None, "checks_24h": None, "regions": [],
-           "last_incident": None, "read_at": None, "read_age_minutes": None, "fresh": False, "note": ""}
+           "last_incident": None, "incidents": [], "read_at": None, "read_age_minutes": None, "fresh": False, "note": ""}
     try:
         doc = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -314,6 +329,11 @@ def external_check_figures(path, now=None):
         out["note"] = "reading unavailable"
         return out
     out["configured"] = True
+    for row in doc.get("incidents") or []:
+        if isinstance(row, dict) and parse_iso(row.get("started_at") or "") is not None:
+            d = row.get("duration_s")
+            out["incidents"].append({"started_at": _iso_seconds(row["started_at"]), "duration_s": d if isinstance(d, (int, float)) else None,
+                                     "status": (row.get("status") or "").lower() or None, "reason": row.get("reason")})
     t = parse_iso(doc.get("last_ok_at") or "")
     if t is not None:
         out["read_at"] = iso(t)
@@ -343,6 +363,47 @@ def external_check_figures(path, now=None):
     if isinstance(inc, dict):
         out["last_incident"] = {"started_at": _iso_seconds(inc.get("started_at")), "duration_s": inc.get("duration_s"),
                                 "reason": inc.get("reason"), "status": (inc.get("status") or "").lower() or None}
+    return out
+
+
+def official_uptime(up, ext, now=None):
+    """The 5.8 figure by the rule of 2026-10-15 (decisions.md; patentref ops/monitoring.md section 4): from the clock
+    start to OBSERVER_SWITCH the GitHub probe rule (uptime_figures), from the switch on UptimeRobot's incidents as the
+    box's mirror recorded them (an incident still open counts up to now while the reading is fresh, else up to the last
+    read). Until the box holds a reading of UptimeRobot's record, the GitHub rule counts after the switch too, and the
+    note says so."""
+    now = now or time.time()
+    start, switch = parse_iso(UPTIME_CLOCK_START), parse_iso(OBSERVER_SWITCH)
+    out = {"clock_start": UPTIME_CLOCK_START, "switch_at": OBSERVER_SWITCH, "observer_before": "GitHub probe",
+           "observer_after": "UptimeRobot", "elapsed_minutes": int((now - start) / 60), "down_minutes": None,
+           "down_minutes_before_switch": up.get("down_minutes_before_switch", 0.0), "down_minutes_after_switch": None,
+           "uptime_percent": None, "incidents_after_switch": [], "read_at": ext.get("read_at"), "note": ""}
+    read = parse_iso(ext.get("read_at") or "")
+    if not ext.get("configured") or read is None or now < switch:
+        out["observer_after"] = "GitHub probe"
+        out["down_minutes"] = up.get("down_minutes", 0.0)
+        out["down_minutes_after_switch"] = round(out["down_minutes"] - out["down_minutes_before_switch"], 1)
+        if now >= switch:
+            out["note"] = "UptimeRobot's record is not on the box yet; the GitHub probe counts until it is."
+    else:
+        after, rows = 0.0, []
+        for inc in ext.get("incidents") or []:
+            t0 = parse_iso(inc.get("started_at") or "")
+            if t0 is None or t0 < switch:
+                continue
+            d = inc.get("duration_s") if isinstance(inc.get("duration_s"), (int, float)) else 0
+            if inc.get("status") != "resolved":
+                end = now if ext.get("fresh") else read
+                d = max(d, end - t0)
+            after += d / 60.0
+            rows.append({"started_at": inc.get("started_at"), "minutes": round(d / 60.0, 1), "status": inc.get("status"), "reason": inc.get("reason")})
+        out["down_minutes_after_switch"] = round(after, 1)
+        out["down_minutes"] = round(out["down_minutes_before_switch"] + after, 1)
+        out["incidents_after_switch"] = rows[-10:]
+        if not ext.get("fresh"):
+            out["note"] = f"UptimeRobot's record was last read {ext.get('read_age_minutes')} minutes ago; the minutes since then are not observed yet."
+    if out["elapsed_minutes"] > 0:
+        out["uptime_percent"] = round(100.0 * (1 - out["down_minutes"] / out["elapsed_minutes"]), 4)
     return out
 
 
@@ -449,6 +510,7 @@ def collect():
                     "code_version": code_version(), "data_version": data_version},
         "uptime": uptime_figures(p["probe_history"], now),
         "external_check": external_check_figures(p["uptimerobot"], now),
+        "uptime_5_8": None,
         "requests_24h": request_figures(p["request_log"], now - 86400),
         "requests_30d": request_figures(p["request_log"], now - 30 * 86400),
         "refresh": refresh_figures(p),
@@ -457,6 +519,7 @@ def collect():
     }
     up = data["uptime"]
     ext = data["external_check"]
+    data["uptime_5_8"] = official_uptime(up, ext, now)
     if not ok:
         data["state"] = ("down", "The API is not answering health checks on the box.")
     elif up.get("outages") and up["outages"][-1].get("open"):
