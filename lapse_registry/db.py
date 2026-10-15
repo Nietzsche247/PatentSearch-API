@@ -1,7 +1,10 @@
 """One psycopg 3 connection per thread to the registry database, logged in as registry_api (REGISTRY_DATABASE_URL in
 the box's environment file; the password is never in the repo or a log). A broken connection is replaced once; when the
 database cannot be reached the views answer 503 (checklist 5.15: registry writes return 503 during a Supabase outage).
-prepare_threshold=None keeps it safe behind Supabase's transaction pooler."""
+prepare_threshold=None keeps it safe behind Supabase's transaction pooler. The connection is in autocommit mode, so
+every `with conn.transaction()` of patentref_registry.service is a real BEGIN and COMMIT: outside autocommit, a bare
+statement (the health ping) would leave a transaction open and every later transaction on the thread would become a
+savepoint inside it, never committed."""
 import logging
 import threading
 
@@ -22,7 +25,8 @@ def _connect():
     if not dsn:
         raise Unavailable("REGISTRY_DATABASE_URL is not set")
     try:
-        return psycopg.connect(dsn, prepare_threshold=None, connect_timeout=5, application_name="patentref-registry-api")
+        return psycopg.connect(dsn, autocommit=True, prepare_threshold=None, connect_timeout=5,
+                               application_name="patentref-registry-api")
     except psycopg.OperationalError as e:
         log.warning("registry database unreachable: %s", e.__class__.__name__)
         raise Unavailable("the registry database is unreachable") from e

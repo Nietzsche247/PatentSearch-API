@@ -70,6 +70,9 @@ def _env():
     if c is None:
         pytest.skip("no local Postgres for the registry tests")
     settings.REGISTRY_DATABASE_URL = c.api_dsn
+    import psycopg
+    with psycopg.connect(c.admin_dsn, autocommit=True) as con:   # a new account's lower cap is off for these tests
+        con.execute("update registry.limits set value = 0 where name = 'new_account_days'")
     yield c
     from lapse_registry import db
     db.reset()
@@ -127,9 +130,10 @@ def client():
 @pytest.fixture
 def submission():
     def _make(**kw):
-        p = {"title": "Pool heater bypass with a thermal fuse",
-             "abstract": "A bypass that opens when the heater outlet passes a set temperature.",
-             "body_text": "The fuse melts at 70 C. " * 30, "cpc_guess": ["F24H 9/20"],
+        from lapse_registry.tests.conftest_text import words   # distinct text per record, so the near-duplicate rule (10.10) stays out of the way
+
+        p = {"title": "Pool heater bypass with a thermal fuse", "abstract": words(30), "body_text": words(120),
+             "cpc_guess": ["F24H 9/20"],
              "inventors_as_entered": ["A. Example"], "inventor_consent": "inventor-consent-1"}
         p.update(kw)
         return p

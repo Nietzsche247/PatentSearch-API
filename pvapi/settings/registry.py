@@ -10,7 +10,8 @@ account for both; it does not load the API's routes, throttles or middleware.
 
 Env: REGISTRY_DATABASE_URL (registry_api's DSN; secret, only in the box's environment file), REGISTRY_PUBLIC_BASE
 (https://patentref.io), REGISTRY_MAX_BODY (25 MB), REGISTRY_FILE_MAX (20 MB), REGISTRY_READ_PER_MINUTE (120),
-REGISTRY_WRITE_PER_MINUTE (20), REGISTRY_RECEIPTS_ENABLED and REGISTRY_SEALED_ENABLED (0 until 10.3, 10.4 and 10.6),
+REGISTRY_WRITE_PER_MINUTE (20), REGISTRY_PUBLISH_PER_ADDRESS_DAY (30), REGISTRY_SCANNER (none or clamd, read
+by patentref_registry.scan), REGISTRY_RECEIPTS_ENABLED and REGISTRY_SEALED_ENABLED (0 until 10.3, 10.4 and 10.6),
 REGISTRY_CRYPTO_PATH (where registry_crypto lives when not in the patentref clone, gate 5.14), plus everything lapse_local reads.
 """
 import os
@@ -29,6 +30,7 @@ REGISTRY_MAX_BODY = int(os.environ.get("REGISTRY_MAX_BODY", str(25 * 1024 * 1024
 REGISTRY_FILE_MAX = int(os.environ.get("REGISTRY_FILE_MAX", str(20 * 1024 * 1024)))
 REGISTRY_READ_PER_MINUTE = int(os.environ.get("REGISTRY_READ_PER_MINUTE", "120"))
 REGISTRY_WRITE_PER_MINUTE = int(os.environ.get("REGISTRY_WRITE_PER_MINUTE", "20"))
+REGISTRY_PUBLISH_PER_ADDRESS_DAY = int(os.environ.get("REGISTRY_PUBLISH_PER_ADDRESS_DAY", "30"))
 REGISTRY_RECEIPTS_ENABLED = os.environ.get("REGISTRY_RECEIPTS_ENABLED", "0") == "1"
 REGISTRY_SEALED_ENABLED = os.environ.get("REGISTRY_SEALED_ENABLED", "0") == "1"
 # a JSON submission carries up to 1,000,000 characters of full text (about 4 MB as UTF-8); files are streamed to disk

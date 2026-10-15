@@ -15,6 +15,7 @@ urlpatterns = [
     re_path(rf"^registry/disclosures/{ID}/seal/?$", views.seal, name="registry-seal"),
     re_path(rf"^registry/disclosures/{ID}/sealed/?$", views.sealed_release, name="registry-sealed"),
     re_path(r"^registry/search/?$", views.search, name="registry-search"),
+    re_path(r"^registry/sitemap\.xml$", views.sitemap, name="registry-sitemap"),
     re_path(r"^registry/health/?$", views.health, name="registry-health"),
     re_path(rf"^r/{ID}\.json$", views.record, name="record-json"),
     re_path(rf"^r/{ID}/file$", views.record_file, name="record-file"),

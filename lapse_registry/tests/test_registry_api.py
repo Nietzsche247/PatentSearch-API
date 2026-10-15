@@ -186,6 +186,11 @@ def test_database_down_is_503_and_health(client, token, submission, monkeypatch)
     db.reset()
     assert client.get("/registry/health").json() == {"ok": True, "database": "ok", "keys": "absent",
                                                       "receipts_enabled": False, "sealed_enabled": False}
+    # the ping leaves no transaction open, so the next publish commits on its own (read back on a fresh connection)
+    assert db.connection().info.transaction_status == 0
+    rec = publish(client, token(), submission())
+    db.reset()
+    assert client.get(f"/r/{rec['id']}.json").status_code == 200
 
 
 def test_only_registry_routes_are_served(client):
@@ -193,3 +198,47 @@ def test_only_registry_routes_are_served(client):
         r = client.get(path)
         assert r.status_code == 404 and r.json()["code"] == "ERR_NOT_FOUND", path
     assert client.get("/r/01K7F2N9Q3A8B4C5D6E7F8G9H0.json").status_code == 404
+
+
+def test_abuse_rules_over_http(client, token, submission, monkeypatch):
+    """Checklist 10.10 through the HTTP layer: content rules, duplicates, disposable domains, the per-address day cap."""
+    t = token()
+    r = post_json(client, "/registry/disclosures", submission(body_text="Buy now at https://shop.example/x"), t)
+    assert r.status_code == 422 and r.json()["code"] == "ERR_SPAM" and r.json()["rule"] == "promotion"
+    pre = post_json(client, "/registry/disclosures/check", submission(title="See https://x.example/"), t).json()
+    assert pre["content_rules"]["ok"] is False and pre["content_rules"]["rule"] == "title_link"
+    first = publish(client, t, submission())
+    copy_ = {k: first["user_content"][k] for k in ("title", "abstract", "body_text")}
+    r = post_json(client, "/registry/disclosures", submission(**copy_), token())
+    assert r.status_code == 409 and r.json()["code"] == "ERR_DUPLICATE" and r.json()["duplicate_of"] == first["id"]
+    monkeypatch.setattr(settings, "REGISTRY_PUBLISH_PER_ADDRESS_DAY", 2)
+    ip = {"REMOTE_ADDR": "203.0.113." + str(uuid.uuid4().int % 250)}
+    codes = [post_json(client, "/registry/disclosures", submission(), token(), **ip).status_code for _ in range(3)]
+    assert codes == [201, 201, 429]
+    # a refused record does not use the address's allowance
+    ip2 = {"REMOTE_ADDR": "203.0.113." + str((uuid.uuid4().int % 250) + 1)}
+    for _ in range(3):
+        assert post_json(client, "/registry/disclosures", submission(title="http://x.example/"), token(), **ip2).status_code == 422
+    assert post_json(client, "/registry/disclosures", submission(), token(), **ip2).status_code == 201
+
+
+def test_disposable_email_domains_cannot_publish(client, keypair, submission):
+    import time
+
+    import jwt
+
+    from lapse_registry.tests.conftest import ISSUER
+    now = int(time.time())
+    sub = str(uuid.uuid4())
+    claims = {"iss": ISSUER, "sub": sub, "aud": "authenticated", "role": "authenticated", "email": "x@mailinator.com",
+              "iat": now, "exp": now + 600, "is_anonymous": False, "user_metadata": {"email_verified": True}}
+    t = jwt.encode(claims, keypair["private_pem"], algorithm="ES256", headers={"kid": "test-kid-1"})
+    r = post_json(client, "/registry/disclosures", submission(), t)
+    assert r.status_code == 403 and r.json()["code"] == "ERR_ACCOUNT"
+
+
+def test_sitemap_lists_no_new_record(client, token, submission):
+    rec = publish(client, token(), submission())
+    r = client.get("/registry/sitemap.xml")
+    assert r.status_code == 200 and r["Content-Type"].startswith("application/xml")
+    assert r.content.startswith(b'<?xml version="1.0" encoding="UTF-8"?>') and rec["id"].encode() not in r.content

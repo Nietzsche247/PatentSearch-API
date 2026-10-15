@@ -10,6 +10,7 @@ settings pvapi.settings.registry) behind the same Caddy and domain as the API; t
   POST /registry/disclosures/<id>/seal       hook for 10.4: 501 (a sealed record is published with visibility "sealed")
   GET  /registry/disclosures/<id>/sealed     Bearer, hook for 10.4: the owner's sealed bundle text, when sealing is on
   GET  /registry/search?q=                   public records matching q (basic; 10.5 adds the index and MCP tool)
+  GET  /registry/sitemap.xml                 the records a search engine may list (10.5, 10.10)
   GET  /registry/health                      database and keys state
   GET  /r/<id>.json                          the record (public), the machine twin of the page /r/<id>
   GET  /r/<id>/file                          the record's file, always as a download
@@ -73,17 +74,43 @@ def _limit(request, scope, per_minute):
         ratelimit.drop_old_windows(subject, window)
 
 
-def _user(request, required=True):
+def _claims(request, required=True):
     token = supabase_jwt.bearer_token(request)
     if not token:
         if required:
             raise HttpError(401, "ERR_AUTH", "Authorization: Bearer <Supabase access token> required")
         return None
     try:
-        claims = supabase_jwt.verify(token)
+        return supabase_jwt.verify(token)
     except supabase_jwt.TokenError as e:
         raise HttpError(401, "ERR_AUTH", e.reason)
+
+
+def _user(request, required=True):
+    claims = _claims(request, required)
+    return claims["sub"] if claims else None
+
+
+def _publisher(request):
+    """The signed-in user who may publish: not on a disposable email domain (checklist 10.10, the list of gate 5.10)."""
+    from lapse_accounts import views as account_views
+
+    claims = _claims(request)
+    domain = account_views.email_domain(claims.get("email"))
+    if account_views.is_disposable(domain):
+        raise HttpError(403, "ERR_ACCOUNT", f"Records from disposable email domains are not accepted ({domain}).")
     return claims["sub"]
+
+
+def _publish_day_limit(request):
+    """Records published per address per UTC day, all accounts together (checklist 10.10: many accounts, one sender)."""
+    limit = int(getattr(settings, "REGISTRY_PUBLISH_PER_ADDRESS_DAY", 30))
+    subject = "ip:" + abuse.client_ip(request)
+    window, wait = ratelimit.minute_window("registry_publish_day", 86400)
+    if ratelimit.bump(ratelimit.WINDOW_TABLE, subject, "win", window, limit) is None:
+        raise HttpError(429, "ERR_CAP", f"This address has published {limit} records today (UTC day); try again tomorrow.",
+                        headers={"Retry-After": str(wait)})
+    return subject, window
 
 
 def _base():
@@ -176,11 +203,16 @@ def disclosures(request):
         if request.method == "POST":
             _guard_body(request)
             _write_limit(request)
-            user = _user(request)
+            user = _publisher(request)
             payload, file = _payload(request)
-            rec = core.module("service").publish(
-                db.connection(), user_id=user, payload=payload, file=file, base_url=_base(),
-                sealed_enabled=bool(getattr(settings, "REGISTRY_SEALED_ENABLED", False)), keys=_keys_or_none())
+            subject, window = _publish_day_limit(request)
+            try:
+                rec = core.module("service").publish(
+                    db.connection(), user_id=user, payload=payload, file=file, base_url=_base(),
+                    sealed_enabled=bool(getattr(settings, "REGISTRY_SEALED_ENABLED", False)), keys=_keys_or_none())
+            except Exception:
+                ratelimit.refund(ratelimit.WINDOW_TABLE, subject, "win", window)   # only stored records count
+                raise
             resp = _json(rec, 201, private=True)
             resp["Location"] = rec["permalink"]
             return resp
@@ -256,6 +288,18 @@ def search(request):
     def run():
         _read_limit(request)
         return _json(core.module("service").search(db.connection(), request.GET.get("q", ""), _base()))
+    return _call(run)
+
+
+@require_GET
+def sitemap(request):
+    def run():
+        _read_limit(request)
+        xml = core.module("service").sitemap_xml(db.connection(), _base())
+        resp = HttpResponse(xml, content_type="application/xml; charset=utf-8")
+        resp["Cache-Control"] = "public, max-age=3600"
+        resp["X-Content-Type-Options"] = "nosniff"
+        return resp
     return _call(run)
 
 
