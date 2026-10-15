@@ -11,13 +11,18 @@ settings pvapi.settings.registry) behind the same Caddy and domain as the API; t
   GET  /registry/disclosures/<id>/sealed     Bearer, hook for 10.4: the owner's sealed bundle text, when sealing is on
   GET  /registry/search?q=                   public records matching q (basic; 10.5 adds the index and MCP tool)
   GET  /registry/sitemap.xml                 the records a search engine may list (10.5, 10.10)
-  GET  /registry/health                      database and keys state
+  GET  /registry/health                      database, keys and read-cache state
+  GET  /registry/.well-known/jwks.json       the receipt signing keys with their validity windows (checklist 5.14)
   GET  /r/<id>.json                          the record (public), the machine twin of the page /r/<id>
   GET  /r/<id>/file                          the record's file, always as a download
 
 The signed-in user is the `sub` of a Supabase access token verified by lapse_accounts.supabase_jwt (ES256 against the
 project's JWKS, email confirmed). Errors: {"error": true, "code", "reason", ...} with X-Status-Reason and
 X-Status-Reason-Code, like the account routes. User text comes back inside `user_content`, as entered.
+
+During a registry database (Supabase) outage (checklist 5.15) the public reads (a record, its proof and file, search,
+the sitemap) are answered from the local read cache (readcache.py) with X-Registry-Source: cache and an Age header;
+what the cache does not hold, and every write, answers 503 with Retry-After.
 """
 import json
 import logging
@@ -29,7 +34,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from lapse_accounts import abuse, ratelimit, supabase_jwt
-from lapse_registry import core, db
+from lapse_registry import core, db, readcache
 
 log = logging.getLogger("lapse_registry")
 
@@ -176,7 +181,7 @@ def _call(fn):
         try:
             import psycopg
             if isinstance(e, psycopg.OperationalError):
-                db.reset()
+                db.failed(e.__class__.__name__)
                 return _error_response(HttpError(503, "ERR_UNAVAILABLE", "The registry database is not reachable; try again shortly.",
                                                  headers={"Retry-After": "30"}))
         except ImportError:
@@ -192,6 +197,46 @@ def _write_limit(request):
 
 def _read_limit(request):
     _limit(request, "read", int(getattr(settings, "REGISTRY_READ_PER_MINUTE", 120)))
+
+
+def _db_down(e):
+    """Is this failure the registry database being unreachable (the outage case of checklist 5.15)?"""
+    if isinstance(e, db.Unavailable):
+        return True
+    try:
+        import psycopg
+    except ImportError:
+        return False
+    if isinstance(e, psycopg.OperationalError):
+        db.failed(e.__class__.__name__)
+        return True
+    return False
+
+
+OUTAGE = "The registry database is not reachable and this answer is not in the local copy; try again shortly."
+
+
+def _cached(body, ctype, age, status=200):
+    resp = HttpResponse(body, content_type=ctype, status=status)
+    resp["Cache-Control"] = "public, max-age=30"
+    resp["X-Content-Type-Options"] = "nosniff"
+    resp["X-Registry-Source"] = "cache"
+    resp["Age"] = str(age)
+    return resp
+
+
+def _live(fn, fallback):
+    """fn() against the database; on an outage, fallback() (an HttpResponse from the read cache, or None for 503)."""
+    try:
+        return fn()
+    except Exception as e:  # noqa: BLE001
+        if not _db_down(e):
+            raise
+        log.warning("registry database unreachable; answering from the read cache")
+        resp = fallback()
+        if resp is None:
+            raise HttpError(503, "ERR_UNAVAILABLE", OUTAGE, headers={"Retry-After": "30"})
+        return resp
 
 
 # ------------------------------------------------------------------ routes
@@ -239,13 +284,30 @@ def record(request, rid):
     def run():
         _read_limit(request)
         user = _user(request, required=False)
-        rec = core.module("service").get_record(db.connection(), rid, _base(), user_id=user)
-        if rec is None:
-            raise HttpError(404, "ERR_NOT_FOUND", "No visible record has this id.")
-        resp = _json(rec, private=bool(user))
-        if rec["noindex"]:
-            resp["X-Robots-Tag"] = "noindex"
-        return resp
+
+        def live():
+            rec = core.module("service").get_record(db.connection(), rid, _base(), user_id=user)
+            if rec is None:
+                if not user:
+                    readcache.drop_record(rid)
+                raise HttpError(404, "ERR_NOT_FOUND", "No visible record has this id.")
+            if not user:
+                readcache.put_record(rec)
+            resp = _json(rec, private=bool(user))
+            if rec["noindex"]:
+                resp["X-Robots-Tag"] = "noindex"
+            return resp
+
+        def cached():
+            got = readcache.record(rid)
+            if not got:
+                return None
+            rec, age = got
+            resp = _cached(json.dumps(rec, ensure_ascii=False, separators=(",", ":")), "application/json", age)
+            if rec.get("noindex"):
+                resp["X-Robots-Tag"] = "noindex"
+            return resp
+        return _live(live, cached)
     return _call(run)
 
 
@@ -253,10 +315,18 @@ def record(request, rid):
 def proof(request, rid):
     def run():
         _read_limit(request)
-        out = core.module("service").get_proof(db.connection(), rid)
-        if out is None:
-            raise HttpError(404, "ERR_NOT_FOUND", "No visible record has this id.")
-        return _json(out)
+
+        def live():
+            out = core.module("service").get_proof(db.connection(), rid)
+            if out is None:
+                raise HttpError(404, "ERR_NOT_FOUND", "No visible record has this id.")
+            readcache.put(f"proof:{rid}", json.dumps(out, ensure_ascii=False, separators=(",", ":")), "application/json")
+            return _json(out)
+
+        def cached():
+            got = readcache.get(f"proof:{rid}")
+            return _cached(got[0], got[1], got[2]) if got else None
+        return _live(live, cached)
     return _call(run)
 
 
@@ -265,7 +335,21 @@ def record_file(request, rid):
     def run():
         _read_limit(request)
         user = _user(request, required=False)
-        got = core.module("service").get_file(db.connection(), rid, user_id=user)
+        source = {}
+
+        def live():
+            got = core.module("service").get_file(db.connection(), rid, user_id=user)
+            if got is not None and not user:
+                readcache.put_file(rid, *got)
+            return got
+
+        def cached():
+            got = readcache.get_file(rid)
+            if got is None:
+                return None
+            source["cache"] = True
+            return got
+        got = _live(live, cached)
         if got is None:
             raise HttpError(404, "ERR_NOT_FOUND", "This record has no file, or no visible record has this id.")
         name, media_type, data = got
@@ -279,6 +363,8 @@ def record_file(request, rid):
         resp["Content-Security-Policy"] = "default-src 'none'; sandbox"
         resp["Cache-Control"] = "public, max-age=86400, immutable"
         resp["X-Robots-Tag"] = "noindex"
+        if source.get("cache"):
+            resp["X-Registry-Source"] = "cache"
         return resp
     return _call(run)
 
@@ -287,7 +373,13 @@ def record_file(request, rid):
 def search(request):
     def run():
         _read_limit(request)
-        return _json(core.module("service").search(db.connection(), request.GET.get("q", ""), _base()))
+        q = request.GET.get("q", "")
+
+        def cached():
+            recs = readcache.search(q, _base())
+            body = {"error": False, "q": (q or "").strip()[:200], "count": len(recs), "records": recs}
+            return _cached(json.dumps(body, ensure_ascii=False, separators=(",", ":")), "application/json", 0)
+        return _live(lambda: _json(core.module("service").search(db.connection(), q, _base())), cached)
     return _call(run)
 
 
@@ -295,11 +387,19 @@ def search(request):
 def sitemap(request):
     def run():
         _read_limit(request)
-        xml = core.module("service").sitemap_xml(db.connection(), _base())
-        resp = HttpResponse(xml, content_type="application/xml; charset=utf-8")
-        resp["Cache-Control"] = "public, max-age=3600"
-        resp["X-Content-Type-Options"] = "nosniff"
-        return resp
+
+        def live():
+            xml = core.module("service").sitemap_xml(db.connection(), _base())
+            readcache.put("sitemap", xml, "application/xml; charset=utf-8")
+            resp = HttpResponse(xml, content_type="application/xml; charset=utf-8")
+            resp["Cache-Control"] = "public, max-age=3600"
+            resp["X-Content-Type-Options"] = "nosniff"
+            return resp
+
+        def cached():
+            got = readcache.get("sitemap")
+            return _cached(got[0], got[1], got[2]) if got else None
+        return _live(live, cached)
     return _call(run)
 
 
@@ -341,19 +441,48 @@ def sealed_release(request, rid):
     return _call(run)
 
 
+def keys_state():
+    """absent: no registry_crypto package; uninitialized: the package but no signing key in service; present."""
+    try:
+        mod = core.module("keys").load()
+    except Exception:
+        return "absent"
+    try:
+        st = mod.status() if callable(getattr(mod, "status", None)) else {"signing_active": True}
+        return "present" if st.get("signing_active") else "uninitialized"
+    except Exception:
+        return "uninitialized"
+
+
 @require_GET
 def health(request):
     ok = db.ping()
-    try:
-        core.module("keys").load()
-        keys_state = "present"
-    except Exception:
-        keys_state = "absent"
-    body = {"ok": ok, "database": "ok" if ok else "unreachable", "keys": keys_state,
+    body = {"ok": ok, "database": "ok" if ok else "unreachable", "keys": keys_state(),
             "receipts_enabled": bool(getattr(settings, "REGISTRY_RECEIPTS_ENABLED", False)),
-            "sealed_enabled": bool(getattr(settings, "REGISTRY_SEALED_ENABLED", False))}
+            "sealed_enabled": bool(getattr(settings, "REGISTRY_SEALED_ENABLED", False)),
+            "read_cache": readcache.figures()}
     resp = _json(body, 200 if ok else 503, private=True)
     return resp
+
+
+@require_GET
+def jwks(request):
+    """The receipt signing keys (checklist 5.14): every key, retired ones included, with nbf, exp and retired_at
+    (seconds since 1970 UTC), so a receipt verifies for as long as this is published. No database involved."""
+    def run():
+        _read_limit(request)
+        k = core.module("keys")
+        try:
+            body = k.jwks(_keys())
+        except k.KeysUnavailable:
+            log.warning("registry_crypto has no keyring")
+            raise HttpError(501, "ERR_NOT_YET", "Signing is not available yet.")
+        resp = HttpResponse(json.dumps(body, separators=(",", ":"), sort_keys=True), content_type="application/jwk-set+json")
+        resp["Cache-Control"] = "public, max-age=300"
+        resp["Access-Control-Allow-Origin"] = "*"
+        resp["X-Content-Type-Options"] = "nosniff"
+        return resp
+    return _call(run)
 
 
 def _keys():

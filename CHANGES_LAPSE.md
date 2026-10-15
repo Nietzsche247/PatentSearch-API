@@ -879,3 +879,21 @@ cannot be reached answers 503 with `Retry-After: 30` (gate 5.15). Files are alwa
 `Content-Security-Policy: sandbox`). The receipt and sealed-copy routes answer 501 until gates 10.3, 10.4 and 5.14.
 Tests: `LAPSE_REPO_DIR=<patentref checkout> python -m pytest lapse_registry/tests -q -p no:cacheprovider` against a
 throwaway local Postgres 16 and a stand-in JWKS.
+
+## 2026-10-15 pending approval: the registry's keys route and its Supabase outage behavior (PatentRef checklist 5.14, 5.15)
+
+Not deployed; on branch `wave3-keys` on top of `wave3-registry`. Only the registry process (`pvapi.settings.registry`)
+changes; the API process loads none of it.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_registry/urls.py`, `views.py` | `GET /registry/.well-known/jwks.json`: the receipt signing keys of `registry_crypto` (the patentref repo), retired keys included, with `nbf`, `exp` and `retired_at`; `application/jwk-set+json`, `Cache-Control: public, max-age=300`, `Access-Control-Allow-Origin: *`; 501 "Signing is not available yet." while no keyring is set up | 5.14: a receipt verifies against the published keys for as long as they are published |
+| `lapse_registry/readcache.py` (new), `views.py` | a local read cache (SQLite, `REGISTRY_READ_CACHE`, `/data/registry/read_cache.sqlite3`): anonymous reads the database answers are written through; during an outage `/r/<id>.json`, `/registry/disclosures/<id>`, its proof and file, `/registry/search` (every word in the title and abstract) and the sitemap answer from it with `X-Registry-Source: cache` and `Age`; what it does not hold answers 503 with `Retry-After: 30`; a live 404 forgets the copy | 5.15: during a Supabase outage the registry serves reads from cache and writes return 503 |
+| `lapse_registry/management/commands/registry_cache_warm.py` (new) | copies every visible record, its proof, its file and the sitemap, and forgets records the database no longer shows (takedowns); run every 10 minutes by `patentref-registry-cache.timer` (patentref `ops/registry/`) | a record nobody read lately is still there in an outage |
+| `lapse_registry/db.py` | the first failure (a connect timeout, or an established connection that stops answering: `tcp_user_timeout` 5 s and keepalives) marks the database down for the process; every request then fails at once, and a background thread tries every `REGISTRY_DB_RETRY_SECONDS` (5) until it connects | no request waits on a database that does not answer |
+| `lapse_registry/views.py` | `/registry/health`: `keys` is `absent`, `uninitialized` or `present`; `read_cache` gives the records held and the newest copy's age | the watchdog's `registry_db` check and the operator |
+| `pvapi/settings/registry.py` | `REGISTRY_READ_CACHE`, `REGISTRY_READ_CACHE_FILE_MAX`, `REGISTRY_DB_RETRY_SECONDS`; documents `REGISTRY_KEYS_DIR` | |
+
+Tests: `lapse_registry/tests/test_registry_outage.py` (reads from the cache, writes 503, fail fast, the warm job,
+takedowns, the JWKS route); the namespace test of the drill is in the patentref repo (`tests/ops/test_supabase_drill.sh`).
+`test_registry_api.py`'s health test now clears the outage mark after its own outage and accepts `keys: uninitialized`.

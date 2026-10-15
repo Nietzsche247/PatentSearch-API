@@ -185,8 +185,12 @@ def test_database_down_is_503_and_health(client, token, submission, monkeypatch)
     assert h.status_code == 503 and h.json()["database"] == "unreachable"
     monkeypatch.setattr(settings, "REGISTRY_DATABASE_URL", good)
     db.reset()
-    assert client.get("/registry/health").json() == {"ok": True, "database": "ok", "keys": "absent",
-                                                      "receipts_enabled": False, "sealed_enabled": False}
+    db.clear_down()   # the failed connect above makes requests fail fast for REGISTRY_DB_RETRY_SECONDS (checklist 5.15)
+    h = client.get("/registry/health").json()
+    assert h.pop("read_cache")["records"] >= 0
+    # keys: "uninitialized" when registry_crypto (gate 5.14) is in the checkout but no keyring is set up here
+    assert h.pop("keys") in ("absent", "uninitialized")
+    assert h == {"ok": True, "database": "ok", "receipts_enabled": False, "sealed_enabled": False}
     # the ping leaves no transaction open, so the next publish commits on its own (read back on a fresh connection)
     assert db.connection().info.transaction_status == 0
     rec = publish(client, token(), submission())
