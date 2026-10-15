@@ -856,3 +856,26 @@ Independent audit 5 (the patentref repo's `ops/audits/2026-10-13_independent-aud
 - B17, for bundle 5 above: on 20261006.5 the API serves 1,053 term ends to another date and 1,020 to none, 1,034 unsettled
   with 207 unknown, and 70, 55, 81 and 55 for the moves the count above gave as 69, 54, 82 and 56. The count keyed the
   national stage dates by one spelling per row and missed US 8243876 and 8892399, which this lookup finds.
+
+## 2026-10-15 pending approval: the registry API process (PatentRef checklist 10.1, 10.2, 10.10, 10.11), app `lapse_registry/`
+
+Not deployed. A second gunicorn, `patentref-registry-api` (settings `pvapi.settings.registry`, 127.0.0.1:8767 and
+172.17.0.1:8767), serves `/registry/disclosures*`, `/registry/search`, `/registry/health`, `/r/<id>.json` and
+`/r/<id>/file` behind the same Caddy and domain. The API process does not load the app and its URLconf, throttles and
+middleware are unchanged, so no API answer changes and the API is not restarted.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_registry/` | new app: views, urls, db (one psycopg 3 connection per thread as `registry_api`), core (imports `patentref_registry` from the patentref clone, `LAPSE_REPO_DIR/registry/py`) | the registry's HTTP layer; the record, bundle, PII scan and database calls live once, in the patentref repo |
+| `pvapi/settings/registry.py` | new settings module: lapse_local plus the app as the only URLconf, its own body limits, `REGISTRY_*` variables | a separate process with its own app DB (`/data/registry/django.sqlite3`), so it never writes `/data/api` |
+| `requirements/registry.txt` | `-r lapse.txt` plus `psycopg[binary]` | the registry venv (`/data/registry/venv`); the API venv is not touched |
+
+Identity: the signed-in user is the `sub` of a Supabase access token checked by `lapse_accounts.supabase_jwt` (the
+JWKS of the project, ES256, email confirmed), the same check the account routes use since gate 5.10. Errors keep the
+account routes' shape (`{"error": true, "code", "reason"}` with `X-Status-Reason` and `X-Status-Reason-Code`). The
+database refusals of the triggers (daily cap, file size, version chain) map to 429, 413, 409 and 403. A database that
+cannot be reached answers 503 with `Retry-After: 30` (gate 5.15). Files are always served as downloads
+(`Content-Disposition: attachment`, `application/octet-stream` unless the type is on a short safe list, `nosniff`,
+`Content-Security-Policy: sandbox`). The receipt and sealed-copy routes answer 501 until gates 10.3, 10.4 and 5.14.
+Tests: `LAPSE_REPO_DIR=<patentref checkout> python -m pytest lapse_registry/tests -q -p no:cacheprovider` against a
+throwaway local Postgres 16 and a stand-in JWKS.

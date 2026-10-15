@@ -1,0 +1,4 @@
+# The registry API process (pvapi.settings.registry, PatentRef checklist phase 10): lapse.txt plus the Postgres driver
+# for the registry database. psycopg's binary wheel carries libpq, so the box needs no libpq-dev or postgresql-client.
+-r lapse.txt
+psycopg[binary]==3.2.10
