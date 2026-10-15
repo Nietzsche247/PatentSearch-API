@@ -125,6 +125,7 @@ def test_proof_search_and_hooks(client, token, submission):
     for path in (f"/registry/disclosures/{rec['id']}/receipt", f"/registry/disclosures/{rec['id']}/seal"):
         r = client.post(path, HTTP_AUTHORIZATION="Bearer " + t)
         assert r.status_code == 501 and r.json()["code"] == "ERR_NOT_YET", path
+        assert b"checklist" not in r.content and b"gate" not in r.content   # public text names no internal step
     r = client.get(f"/registry/disclosures/{rec['id']}/sealed", HTTP_AUTHORIZATION="Bearer " + t)
     assert r.status_code == 501
     r = post_json(client, "/registry/disclosures", submission(visibility="sealed"), t)

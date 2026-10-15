@@ -311,7 +311,7 @@ def receipt(request, rid):
         _write_limit(request)
         user = _user(request)
         if not getattr(settings, "REGISTRY_RECEIPTS_ENABLED", False):
-            raise HttpError(501, "ERR_NOT_YET", "Corpus receipts are not offered yet (checklist 10.3).")
+            raise HttpError(501, "ERR_NOT_YET", "Corpus receipts are not offered yet.")
         keys = _keys()
         from lapse_registry import receipt_search
         out = core.module("service").create_receipt(db.connection(), user_id=user, record_id=rid, base_url=_base(),
@@ -325,7 +325,7 @@ def receipt(request, rid):
 def seal(request, rid):
     """Hook for checklist 10.4: a record is sealed when it is published (visibility "sealed"), never afterwards."""
     return _error_response(HttpError(501, "ERR_NOT_YET", "Sealed copies are published with visibility sealed and are not "
-                                     "offered yet (checklist 10.4)."))
+                                     "offered yet."))
 
 
 @require_GET
@@ -335,7 +335,7 @@ def sealed_release(request, rid):
         _read_limit(request)
         user = _user(request)
         if not getattr(settings, "REGISTRY_SEALED_ENABLED", False):
-            raise HttpError(501, "ERR_NOT_YET", "Sealed copies are not offered yet (checklist 10.4).")
+            raise HttpError(501, "ERR_NOT_YET", "Sealed copies are not offered yet.")
         return _json(core.module("service").release_sealed(db.connection(), user_id=user, record_id=rid, keys=_keys()),
                      private=True)
     return _call(run)
@@ -360,8 +360,10 @@ def _keys():
     k = core.module("keys")
     try:
         return k.load()
-    except k.KeysUnavailable as e:
-        raise HttpError(501, "ERR_NOT_YET", f"{e} (checklist 5.14).")
+    except k.KeysUnavailable:
+        # public text names no internal gate; the log and /registry/health say which part is missing
+        log.warning("registry_crypto unavailable")
+        raise HttpError(501, "ERR_NOT_YET", "Signing is not available yet.")
 
 
 def _keys_or_none():
