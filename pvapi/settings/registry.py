@@ -19,7 +19,9 @@ import os
 from pvapi.settings.lapse_local import *  # noqa: F401,F403
 from pvapi.settings.lapse_local import INSTALLED_APPS
 
-INSTALLED_APPS = list(INSTALLED_APPS) + ["lapse_registry"]
+# The registry process serves no admin and no session pages, so the apps that need session middleware are left out
+# (Django's system checks would otherwise stop `manage.py migrate` on the missing middleware).
+INSTALLED_APPS = [a for a in INSTALLED_APPS if a not in ("django.contrib.admin", "django.contrib.messages")] + ["lapse_registry"]
 ROOT_URLCONF = "lapse_registry.urls"
 MIDDLEWARE = ["django.middleware.security.SecurityMiddleware"]
 APPEND_SLASH = False
