@@ -86,7 +86,7 @@
       <small>{{ state_text }} Code {{ d.service.code_version }}, data {{ d.service.data_version }}, health check on the box: {{ d.service.health_detail }}.</small>
     </div>
 
-    {% with u=d.uptime_5_8 r=d.requests_24h %}
+    {% with u=d.uptime_official r=d.requests_24h %}
     <div class="tiles">
       <div class="tile"><div class="n">{% if u.uptime_percent != None %}{{ u.uptime_percent|floatformat:3 }}%{% else %}n/a{% endif %}</div><div class="l">uptime since {{ u.clock_start|slice:":10" }}</div></div>
       <div class="tile"><div class="n">{{ u.down_minutes|floatformat:0 }}</div><div class="l">minutes down of {{ u.elapsed_minutes|intcomma }} elapsed</div></div>
@@ -100,7 +100,7 @@
       <h2>External check</h2>
       {% with x=d.external_check %}
       {% if x.configured and x.state %}
-      <p class="muted">UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network{% if x.regions %} (region {{ x.regions|join:", "|upper }}){% endif %} every {{ x.interval_minutes }} minutes and confirms a failure before it reports the API down. The box reads that record every 2 minutes. Since {{ d.uptime_5_8.switch_at|slice:":10" }} {{ d.uptime_5_8.switch_at|slice:"11:16" }} UTC its incidents are the down time of the uptime figure.</p>
+      <p class="muted">UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network{% if x.regions %} (region {{ x.regions|join:", "|upper }}){% endif %} every {{ x.interval_minutes }} minutes and confirms a failure before it reports the API down. The box reads that record every 2 minutes. Since {{ d.uptime_official.switch_at|slice:":10" }} {{ d.uptime_official.switch_at|slice:"11:16" }} UTC its incidents are the down time of the uptime figure.</p>
       <dl>
         <dt>State</dt><dd>{% if x.state == "up" %}<span class="pill ok">up</span>{% elif x.state == "down" %}<span class="pill err">down</span>{% else %}<span class="pill warn">{{ x.state }}</span>{% endif %}{% if x.state_since %} since {{ x.state_since }}{% endif %}</dd>
         <dt>Last check</dt><dd>{% if x.last_check_at %}{{ x.last_check_at }} ({{ x.last_check_age_minutes }} min ago){% if x.last_check_ms != None %}, answered in {{ x.last_check_ms }} ms{% endif %}{% else %}none yet{% endif %}</dd>

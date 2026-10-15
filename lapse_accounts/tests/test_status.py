@@ -209,7 +209,7 @@ def test_status_page_tile_uses_the_official_figure(client, monkeypatch, tmp_path
     (tmp_path / "reports").mkdir()
     _ur_mirror(tmp_path, 60)
     d = client.get("/api/v1/meta/status.json").json()
-    assert d["uptime_5_8"]["observer_after"] == "UptimeRobot" and d["uptime_5_8"]["switch_at"] == "2026-10-15T02:57:08Z"
+    assert d["uptime_official"]["observer_after"] == "UptimeRobot" and d["uptime_official"]["switch_at"] == "2026-10-15T02:57:08Z"
     html = client.get("/api/v1/meta/status/").content.decode()
     assert "the GitHub probe until 2026-10-15 02:57 UTC" in html and "then UptimeRobot" in html
     assert "its incidents are the down time of the uptime figure" in html

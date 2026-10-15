@@ -510,7 +510,7 @@ def collect():
                     "code_version": code_version(), "data_version": data_version},
         "uptime": uptime_figures(p["probe_history"], now),
         "external_check": external_check_figures(p["uptimerobot"], now),
-        "uptime_5_8": None,
+        "uptime_official": None,
         "requests_24h": request_figures(p["request_log"], now - 86400),
         "requests_30d": request_figures(p["request_log"], now - 30 * 86400),
         "refresh": refresh_figures(p),
@@ -519,7 +519,7 @@ def collect():
     }
     up = data["uptime"]
     ext = data["external_check"]
-    data["uptime_5_8"] = official_uptime(up, ext, now)
+    data["uptime_official"] = official_uptime(up, ext, now)
     if not ok:
         data["state"] = ("down", "The API is not answering health checks on the box.")
     elif up.get("outages") and up["outages"][-1].get("open"):
