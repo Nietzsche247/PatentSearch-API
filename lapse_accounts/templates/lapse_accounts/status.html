@@ -96,7 +96,25 @@
     {% endwith %}
 
     <section class="card">
-      <h2>External uptime probe</h2>
+      <h2>External check</h2>
+      {% with x=d.external_check %}
+      {% if x.configured and x.state %}
+      <p class="muted">UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network{% if x.regions %} (region {{ x.regions|join:", "|upper }}){% endif %} every {{ x.interval_minutes }} minutes and confirms a failure before it reports the API down. The box reads that record every 2 minutes.</p>
+      <dl>
+        <dt>State</dt><dd>{% if x.state == "up" %}<span class="pill ok">up</span>{% elif x.state == "down" %}<span class="pill err">down</span>{% else %}<span class="pill warn">{{ x.state }}</span>{% endif %}{% if x.state_since %} since {{ x.state_since }}{% endif %}</dd>
+        <dt>Last check</dt><dd>{% if x.last_check_at %}{{ x.last_check_at }} ({{ x.last_check_age_minutes }} min ago){% if x.last_check_ms != None %}, answered in {{ x.last_check_ms }} ms{% endif %}{% else %}none yet{% endif %}</dd>
+        {% if x.checks_24h != None %}<dt>Checks, last 24 h</dt><dd>{{ x.checks_24h }}</dd>{% endif %}
+        {% if x.last_incident %}<dt>Last incident</dt><dd>from {{ x.last_incident.started_at }} for {{ x.last_incident.duration_s }} s: {{ x.last_incident.reason }}{% if x.last_incident.status %} ({{ x.last_incident.status }}){% endif %}</dd>{% endif %}
+        <dt>Record read</dt><dd>{% if x.read_at %}{{ x.read_at }} ({{ x.read_age_minutes }} min ago){% if not x.fresh %} <span class="warn-t">stale</span>{% endif %}{% else %}not yet{% endif %}{% if x.note %}; {{ x.note }}{% endif %}</dd>
+      </dl>
+      {% else %}
+      <p class="muted">UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network; its record is {{ x.note|default:"not shown yet" }}.</p>
+      {% endif %}
+      {% endwith %}
+    </section>
+
+    <section class="card">
+      <h2>External uptime probe (GitHub)</h2>
       {% with u=d.uptime %}
       <p class="muted">GitHub Actions runs a probe every {{ u.cadence_minutes }} minutes from GitHub's network against <code>/api/v1/meta/health/</code> and one keyed query. The span between two consecutive failed probes counts as down; one failed probe between two passes counts as nothing. GitHub's scheduler can run a probe several minutes late or skip one under load, so the probe count varies. The history is a public commit log, mirrored to the box every few minutes.</p>
       {% if u.last_probe %}

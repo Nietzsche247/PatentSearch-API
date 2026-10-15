@@ -20,6 +20,72 @@ def test_health_no_key(client):
     assert r["X-Data-Version"] == body["data_version"]
 
 
+def test_health_answers_head_without_a_body(client, monkeypatch):
+    """UptimeRobot's HTTP check sends HEAD first; until 2026-10-15 the route answered 405 and every check fell back to GET."""
+    r = client.head("/api/v1/meta/health/")
+    assert r.status_code == 200 and r.content == b""
+    assert r["Cache-Control"] == "no-store" and r["X-Data-Version"]
+    monkeypatch.setitem(settings.LAPSE_SQLITE, "path", "/nonexistent/none.db")
+    assert client.head("/api/v1/meta/health/").status_code == 503
+    assert client.post("/api/v1/meta/health/").status_code == 405
+
+
+def _ur_mirror(tmp_path, read_ago_s, state="up", fetch_ok=True):
+    t = time.time()
+    doc = {"source": "UptimeRobot", "fetched_at": status.iso(t - read_ago_s), "fetch_ok": fetch_ok, "error": None if fetch_ok else "HTTP 401",
+           "last_ok_at": status.iso(t - read_ago_s),
+           "monitor": {"url": "https://patentref.io/api/v1/meta/health/", "state": state, "status_raw": state.upper(), "interval_s": 300,
+                       "state_since": status.iso(t - 3600), "last_check_at": status.iso(t - read_ago_s - 120), "last_check_ms": 108,
+                       "checks_24h": 288, "regions": ["eu"],
+                       "last_incident": {"started_at": "2026-10-15T02:52:31.361Z", "duration_s": 276, "reason": "404 Not Found", "status": "Resolved"}}}
+    d = tmp_path / "status_mirror"
+    d.mkdir(exist_ok=True)
+    (d / "uptimerobot.json").write_text(json.dumps(doc))
+    return str(d / "uptimerobot.json")
+
+
+def test_external_check_figures(tmp_path):
+    x = status.external_check_figures(str(tmp_path / "missing.json"))
+    assert x["configured"] is False and x["state"] is None and x["note"] == "not set up yet"
+    x = status.external_check_figures(_ur_mirror(tmp_path, 60))
+    assert x["configured"] and x["fresh"] and x["state"] == "up" and x["interval_minutes"] == 5 and x["last_check_age_minutes"] == 3
+    assert x["last_incident"] == {"started_at": "2026-10-15T02:52:31Z", "duration_s": 276, "reason": "404 Not Found", "status": "resolved"}
+    assert x["regions"] == ["eu"] and x["checks_24h"] == 288 and x["note"] == ""
+    x = status.external_check_figures(_ur_mirror(tmp_path, 20 * 60, fetch_ok=False))
+    assert x["fresh"] is False and x["note"] == "the last read of the UptimeRobot record failed"
+
+
+def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
+                                                         "backup_journal": str(tmp_path / "bj.jsonl")})
+    (tmp_path / "reports").mkdir()
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert "External check" in html and "its record is not set up yet" in html
+    _ur_mirror(tmp_path, 60)
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert "UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network (region EU) every 5 minutes" in html
+    assert '<span class="pill ok">up</span>' in html and "answered in 108 ms" in html and "stale" not in html
+    d = client.get("/api/v1/meta/status.json").json()
+    assert d["external_check"]["state"] == "up" and d["external_check"]["fresh"] is True and d["state"][0] == "ok"
+    text = client.get("/api/v1/meta/status.json").content.decode()
+    for banned in (str(tmp_path), "apiKey", "status_mirror"):
+        assert banned not in text, banned
+    low = html.lower()
+    for banned in ("gate 5", "desk", "checklist", "ops/"):
+        assert banned not in low, banned
+    _ur_mirror(tmp_path, 60, state="down")
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    d = client.get("/api/v1/meta/status.json").json()
+    assert d["state"] == ["degraded", "UptimeRobot reports the API down from its network; the box itself answers."]
+    _ur_mirror(tmp_path, 30 * 60, state="down")  # an old reading never changes the state line
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    d = client.get("/api/v1/meta/status.json").json()
+    assert d["state"][0] == "ok" and d["external_check"]["fresh"] is False
+    assert "stale" in client.get("/api/v1/meta/status/").content.decode()
+
+
 def test_health_503_when_db_missing(client, monkeypatch):
     monkeypatch.setitem(settings.LAPSE_SQLITE, "path", "/nonexistent/none.db")
     r = client.get("/api/v1/meta/health/")
