@@ -48,6 +48,11 @@
     a { color: var(--accent); }
     a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .user { border-left: 3px solid var(--border); padding-left: var(--s-3); color: var(--muted); }
+    .pr-scroll { overflow-x: auto; margin-bottom: var(--s-3); }
+    table.fam { border-collapse: collapse; font-size: var(--t-sm); min-width: 100%; }
+    table.fam th, table.fam td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+    table.fam th { color: var(--muted); font-weight: 600; }
+    .credit { color: var(--muted); font-size: var(--t-sm); }
     @media (max-width: 420px) { dl { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -74,6 +79,21 @@
       </dl>
     </div>
     {% if rec.status == "expired_fee_nonpayment" %}<p>A petition under 37 CFR 1.378 has no fixed time limit; the record does not show whether one would be granted.</p>{% endif %}
+    {% if family %}
+    <h2 id="family">Family outside the US</h2>
+    {% if family.members %}
+    <p>Publications outside the US that Google Patents Public Datasets lists in the same patent family as US {{ pid }}{% if family.retrieved_at %} (read {{ family.retrieved_at }}){% endif %}. Their legal status is not shown here.</p>
+    <div class="pr-scroll"><table class="fam">
+      <thead><tr><th scope="col">Office</th><th scope="col">Number</th><th scope="col">Kind</th><th scope="col">Published</th></tr></thead>
+      <tbody>{% for m in family.members %}<tr><td>{{ m.office }}</td><td>{{ m.number }}</td><td>{{ m.kind }}</td><td>{{ m.published|default:"" }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if family.more %}<p>The first 200 are shown.</p>{% endif %}
+    {% else %}
+    <p>Google Patents Public Datasets lists no publication outside the US in this patent's family{% if family.retrieved_at %} (read {{ family.retrieved_at }}){% endif %}.</p>
+    {% endif %}
+    {% if family.global_dossier_url %}<p><a href="{{ family.global_dossier_url }}">This patent's family on USPTO Global Dossier</a></p>{% endif %}
+    <p class="credit">{{ family.credit }}</p>
+    {% endif %}
     <h2>Links</h2>
     <ul>
       <li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (key required)</li>

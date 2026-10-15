@@ -226,9 +226,15 @@ class RecordPage(APIView):
             title = row[0] if row else None
         except Exception:
             title = None
+        from API import lapse_family
+
+        fam = lapse_family.family_for(con, pid)
+        lines = footer_lines()
+        if fam and fam["credit"] not in lines:
+            lines = list(lines) + [fam["credit"]]  # the Google credit on every page with a family block (LICENSES.md section 3)
         html = render_to_string("lapse_accounts/record.html", {
             "rec": rec, "pid": pid, "title": title, "superseded": sup, "data_version": data_version,
-            "as_of": rec.get("as_of"), "footer_lines": footer_lines(),
+            "as_of": rec.get("as_of"), "footer_lines": lines, "family": fam,
             "basis_text": lapse_wording.basis_text(rec.get("basis"), engine_rec),
             "term_end_text": lapse_wording.term_end_text(engine_rec),
             "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1),
