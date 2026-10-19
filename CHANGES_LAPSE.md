@@ -897,3 +897,20 @@ changes; the API process loads none of it.
 Tests: `lapse_registry/tests/test_registry_outage.py` (reads from the cache, writes 503, fail fast, the warm job,
 takedowns, the JWKS route); the namespace test of the drill is in the patentref repo (`tests/ops/test_supabase_drill.sh`).
 `test_registry_api.py`'s health test now clears the outage mark after its own outage and accepts `keys: uninitialized`.
+
+## 2026-10-19 pending approval: bundle 9, the status figures without the documented 501s and the service's own checks (independent audit 7, B22); the record page's family block (PatentRef checklist 1.9)
+
+Not deployed; on branch `wave3-bundle9` (sqlite-backend 3f15075, then wave3-ops8-family 5c60759, then this). No migration, no
+new setting the box must set.
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_errors.py` | `DEFERRED_ROUTES` (the first path segments under `/api/v1/` whose views read an index of `DEFERRED_INDICES`: publication, the four pg_* text routes, cpc_class, cpc_subclass, uspc_mainclass, wipo, nber_category, nber_subcategory) and `is_deferred_route(path)` | a 501 there is the documented answer, not a fault |
+| `lapse_accounts/status.py` | `request_figures`: a 501 on a deferred route counts as `not_served`, not in `server_errors`; the rows sent with the service's own key are left out of every API figure (counts, rates, latency) and counted as `own_requests`. `own_key_prefixes()`: the prefix of the key in the file `LAPSE_API_KEY_FILE` names in the API's environment (`/data/api/test_api_key.txt` on the box, the key of the daily contract run, the deploy's live checks and the operator's suites), read once per 10 minutes per worker, the key itself not kept; `settings.LAPSE_OWN_KEY_FILES` overrides the files | independent audit 7 found the 24-hour 5xx figure at 7.05 percent (38 of 539), every one of the 38 the documented 501s of the deferred endpoints or the contract run's deliberate 500s (prefix and wildcard operators on numeric fields answer 500 ERR_ES as upstream did), all sent with that key |
+| `lapse_accounts/templates/lapse_accounts/status.html` | the table gains "Not served (documented 501)" and "The service's own checks (not in the figures above)"; the sentence above it says what each means, in public words | |
+| `API/lapse_family.py`, `API/lapse_views.py`, `record.html` (5c60759) | the record page `/p/<id>` shows the patent's family outside the US from the catalog's tables family_us, family_pub and family_meta when the catalog in service has them, with the Global Dossier link and the credit line; none before the first refresh build that carries them | checklist 1.9 |
+
+The request log is unchanged (no new column): the key prefix it already keeps identifies the service's own requests. The
+user agent the contract runner sends (`lapse-contract-runner`) is in upstream's usage_log only, so it is not used.
+Tests: `lapse_accounts/tests/test_status.py` (the two counts apart, the key file read, the route list against
+`API/urls.py`, the page and status.json without a key prefix), `lapse_accounts/tests/test_family.py`.

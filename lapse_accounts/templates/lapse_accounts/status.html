@@ -139,7 +139,7 @@
 
     <section class="card">
       <h2>Requests, errors, latency</h2>
-      <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account, health and status endpoints). Client errors are 4xx other than 403 and 429; rejected is 403 (no or bad key) and 429 (a limit); latency is measured over admitted requests, inside the app, without the network.</p>
+      <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account, health and status endpoints). Client errors are 4xx other than 403 and 429; rejected is 403 (no or bad key) and 429 (a limit); latency is measured over admitted requests, inside the app, without the network. Not served is the documented 501 of an endpoint whose data set is not in this release (<a href="/api/v1/meta/">/api/v1/meta/</a> lists them under deferred): it is not counted as a server error. Requests the service sends to check itself are not in these figures; they are counted on the last row.</p>
       <div class="wrap"><table>
         <tr><th></th><th class="num">last 24 h</th><th class="num">last 30 days</th></tr>
         {% with a=d.requests_24h b=d.requests_30d %}
@@ -148,6 +148,7 @@
         <tr><td>Client errors (4xx)</td><td class="num">{{ a.client_errors|intcomma }}</td><td class="num">{{ b.client_errors|intcomma }}</td></tr>
         <tr><td>Rejected (403, 429)</td><td class="num">{{ a.rejected|intcomma }}</td><td class="num">{{ b.rejected|intcomma }}</td></tr>
         <tr><td>Server errors (5xx)</td><td class="num">{{ a.server_errors|intcomma }}</td><td class="num">{{ b.server_errors|intcomma }}</td></tr>
+        <tr><td>Not served (documented 501)</td><td class="num">{{ a.not_served|intcomma }}</td><td class="num">{{ b.not_served|intcomma }}</td></tr>
         <tr><td>Error rate (4xx plus 5xx, of all)</td><td class="num">{% if a.error_rate != None %}{{ a.error_rate }}%{% else %}n/a{% endif %}</td><td class="num">{% if b.error_rate != None %}{{ b.error_rate }}%{% else %}n/a{% endif %}</td></tr>
         <tr><td>5xx rate</td><td class="num">{% if a.server_error_rate != None %}{{ a.server_error_rate }}%{% else %}n/a{% endif %}</td><td class="num">{% if b.server_error_rate != None %}{{ b.server_error_rate }}%{% else %}n/a{% endif %}</td></tr>
         <tr><td>p50 latency</td><td class="num">{% if a.p50_ms != None %}{{ a.p50_ms }} ms{% else %}n/a{% endif %}</td><td class="num">{% if b.p50_ms != None %}{{ b.p50_ms }} ms{% else %}n/a{% endif %}</td></tr>
@@ -155,6 +156,7 @@
         <tr><td>Slowest</td><td class="num">{% if a.max_ms != None %}{{ a.max_ms }} ms{% else %}n/a{% endif %}</td><td class="num">{% if b.max_ms != None %}{{ b.max_ms }} ms{% else %}n/a{% endif %}</td></tr>
         <tr><td>Account, health and status requests</td><td class="num">{{ a.meta_requests|intcomma }}</td><td class="num">{{ b.meta_requests|intcomma }}</td></tr>
         <tr><td>Other paths (scanners, the root redirect)</td><td class="num">{{ a.other_requests|intcomma }}</td><td class="num">{{ b.other_requests|intcomma }}</td></tr>
+        <tr><td>The service's own checks (not in the figures above)</td><td class="num">{{ a.own_requests|intcomma }}</td><td class="num">{{ b.own_requests|intcomma }}</td></tr>
         {% endwith %}
       </table></div>
       {% if d.requests_30d.error %}<p class="warn-t">Request log unreadable: {{ d.requests_30d.error }}.</p>{% endif %}

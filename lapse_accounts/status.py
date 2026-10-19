@@ -179,25 +179,78 @@ def pct(sorted_values, q):
     return sorted_values[k]
 
 
-def request_figures(path, since, api_prefix="/api/v1/", meta_prefix="/api/v1/meta/"):
+OWN_KEY_SECONDS = 600  # how long a worker keeps the prefixes of the service's own keys before it reads the files again
+_own_cache = {"at": 0.0, "prefixes": frozenset()}
+
+
+def own_key_prefixes():
+    """The key prefixes of the service's own requests: the operator key in the file that LAPSE_API_KEY_FILE names in the
+    API's environment (/data/api/test_api_key.txt on the box, ops/deploy.md), which the daily contract run, the deploy's
+    live checks and the operator's test suites send; settings.LAPSE_OWN_KEY_FILES overrides the list of files. The
+    request log keeps a key's prefix (the part before the dot, the same characters the usage endpoint shows), so the
+    prefix is what is compared; the key itself is read inside this function and not kept. A file that is missing or
+    unreadable gives no prefix, and every request then counts."""
+    now = time.time()
+    with _lock:
+        if now - _own_cache["at"] < OWN_KEY_SECONDS:
+            return _own_cache["prefixes"]
+    files = getattr(settings, "LAPSE_OWN_KEY_FILES", None)
+    if files is None:
+        files = [f for f in (os.environ.get("LAPSE_API_KEY_FILE"),) if f]
+    out = set()
+    for f in files:
+        try:
+            with open(f, encoding="utf-8") as fh:
+                key = fh.readline().strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "." in key:  # the form keys have here (prefix.secret); anything else is not compared
+            out.add(key.split(".", 1)[0][:16])
+    with _lock:
+        _own_cache["at"], _own_cache["prefixes"] = now, frozenset(out)
+    return _own_cache["prefixes"]
+
+
+def request_figures(path, since, api_prefix="/api/v1/", meta_prefix="/api/v1/meta/", own=None):
     """Counts and latency over request_log rows newer than `since` (epoch). API figures cover the data
     paths (under /api/v1/ but not /api/v1/meta/); the meta paths (sign-up, keys, usage, health, this page)
     and everything else (scanners asking for wp-admin, the root redirect) are counted apart so probes and
-    noise do not pad the numbers."""
+    noise do not pad the numbers.
+
+    Two kinds of answer are not server errors here (independent audit 7, B22): a 501 on a route whose data set is
+    documented as not served (API/lapse_errors.py DEFERRED_ROUTES) counts as not_served, and the service's own
+    requests (the keys of own_key_prefixes(): the contract run, which asks for a few documented 500s on purpose, the
+    deploy's checks, the operator's tests) are left out of every API figure and counted as own_requests. So
+    server_errors and the rates count the 5xx answers other clients got, other than the documented 501s."""
+    from API.lapse_errors import is_deferred_route
+
     out = {"requests": 0, "meta_requests": 0, "other_requests": 0, "ok": 0, "client_errors": 0, "rejected": 0, "server_errors": 0,
-           "admitted": 0, "p50_ms": None, "p95_ms": None, "max_ms": None, "error_rate": None, "server_error_rate": None}
+           "not_served": 0, "admitted": 0, "p50_ms": None, "p95_ms": None, "max_ms": None, "error_rate": None,
+           "server_error_rate": None, "own_requests": 0}
     if not path or not os.path.exists(path):
         return out
-    api_where = "ts >= ? AND path LIKE ? AND path NOT LIKE ?"
-    api_args = (since, api_prefix + "%", meta_prefix + "%")
+    own = sorted(own_key_prefixes() if own is None else own)
+    base_where = "ts >= ? AND path LIKE ? AND path NOT LIKE ?"
+    base_args = (since, api_prefix + "%", meta_prefix + "%")
+    if own:
+        marks = ",".join("?" * len(own))
+        api_where = base_where + f" AND COALESCE(prefix, '') NOT IN ({marks})"
+        own_where = base_where + f" AND prefix IN ({marks})"
+    else:
+        api_where, own_where = base_where, None
+    api_args = base_args + tuple(own)
     try:
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
         if not con.execute("SELECT 1 FROM sqlite_master WHERE name='request_log'").fetchone():
             con.close()
             return out
         rows = con.execute(f"SELECT status, COUNT(*) FROM request_log WHERE {api_where} GROUP BY status", api_args).fetchall()
+        deferred = sum(c for p, c in con.execute(f"SELECT path, COUNT(*) FROM request_log WHERE {api_where} AND status = 501 GROUP BY path",
+                                                  api_args) if is_deferred_route(p, api_prefix))
         out["meta_requests"] = con.execute("SELECT COUNT(*) FROM request_log WHERE ts >= ? AND path LIKE ?", (since, meta_prefix + "%")).fetchone()[0]
         out["other_requests"] = con.execute("SELECT COUNT(*) FROM request_log WHERE ts >= ? AND path NOT LIKE ?", (since, api_prefix + "%")).fetchone()[0]
+        if own_where:
+            out["own_requests"] = con.execute(f"SELECT COUNT(*) FROM request_log WHERE {own_where}", api_args).fetchone()[0]
         total = sum(c for _, c in rows)
         out["requests"] = total
         for status, c in rows:
@@ -209,6 +262,8 @@ def request_figures(path, since, api_prefix="/api/v1/", meta_prefix="/api/v1/met
                 out["client_errors"] += c
             else:
                 out["ok"] += c
+        out["server_errors"] -= deferred
+        out["not_served"] = deferred
         if total:
             # latency over admitted requests (not the 403/429 refusals, which answer in microseconds)
             n = con.execute(f"SELECT COUNT(*) FROM request_log WHERE {api_where} AND status NOT IN (403, 429)", api_args).fetchone()[0]

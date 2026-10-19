@@ -37,6 +37,22 @@ DEFERRED_INDICES = {
     "nber_subcategories": "a dead route upstream, with no data set behind it",
 }
 
+# The routes under /api/v1/ whose views read one of the data sets above (API/urls.py), by their first path segment:
+# publication/ also holds publication/<id>/ and publication/rel_app_text/. A 501 on one of them is the documented
+# answer, not a fault of the service, so the status page counts those answers apart from its server errors
+# (lapse_accounts/status.py). lapse_accounts/tests/test_status.py keeps this list equal to the URL patterns whose
+# view reads an index of DEFERRED_INDICES.
+DEFERRED_ROUTES = ("publication", "pg_claim", "pg_brf_sum_text", "pg_detail_desc_text", "pg_draw_desc_text", "cpc_class",
+                   "cpc_subclass", "uspc_mainclass", "wipo", "nber_category", "nber_subcategory")
+
+
+def is_deferred_route(path, base="/api/v1/"):
+    """True for a request path on one of DEFERRED_ROUTES (with or without the trailing slash, any id below it)."""
+    if not path or not path.startswith(base):
+        return False
+    return path[len(base):].split("/", 1)[0] in DEFERRED_ROUTES
+
+
 _pending = threading.local()
 
 

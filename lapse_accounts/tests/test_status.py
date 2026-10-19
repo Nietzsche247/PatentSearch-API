@@ -116,6 +116,108 @@ def test_request_log_rows(tmp_path, monkeypatch):
     assert f["server_error_rate"] == pytest.approx(33.333, abs=0.01)
 
 
+def _log_rows(path, rows):
+    con = requestlog.connect(path)
+    con.executemany("INSERT INTO request_log VALUES (?,?,?,?,?,?)", rows)
+    con.commit()
+    con.close()
+
+
+def test_request_figures_count_documented_501s_and_own_requests_apart(tmp_path):
+    """Independent audit 7, B22: the 24-hour 5xx figure read 7 percent on the box, all of it the documented 501s of the
+    deferred endpoints and the contract run's deliberate 500s. Those are not server errors of the service."""
+    path = str(tmp_path / "usage_b22.sqlite3")
+    t = time.time()
+    _log_rows(path, [
+        (t, 200, 10.0, "userkey1", "/api/v1/patent/", "GET"),
+        (t, 501, 2.0, "userkey1", "/api/v1/publication/", "GET"),           # documented: not served
+        (t, 501, 2.0, "userkey1", "/api/v1/publication/rel_app_text/", "GET"),
+        (t, 501, 2.0, "userkey1", "/api/v1/wipo", "GET"),
+        (t, 501, 2.0, "userkey1", "/api/v1/nber_subcategory/12/", "GET"),
+        (t, 500, 30.0, "userkey1", "/api/v1/patent/", "GET"),               # a server error another client got
+        (t, 501, 3.0, "userkey1", "/api/v1/patent/", "GET"),                # a 501 on a served route is one too
+        (t, 403, 0.2, "", "/api/v1/patent/", "GET"),
+        (t, 500, 4.0, "ownkey01", "/api/v1/patent/", "GET"),                # the contract run's deliberate 500
+        (t, 501, 1.0, "ownkey01", "/api/v1/cpc_class/", "GET"),
+        (t, 200, 900.0, "ownkey01", "/api/v1/patent/", "GET"),              # the service's own latency is not shown either
+        (t, 200, 1.0, "ownkey01", "/api/v1/meta/usage/", "GET"),            # meta and other paths are counted as before
+        (t - 7200, 500, 1.0, "userkey1", "/api/v1/patent/", "GET"),         # outside the window
+    ])
+    f = status.request_figures(path, t - 60, own={"ownkey01"})
+    assert f["requests"] == 8 and f["own_requests"] == 3 and f["meta_requests"] == 1
+    assert f["ok"] == 1 and f["rejected"] == 1 and f["client_errors"] == 0
+    assert f["not_served"] == 4 and f["server_errors"] == 2
+    assert f["server_error_rate"] == pytest.approx(25.0) and f["error_rate"] == pytest.approx(25.0)
+    assert f["max_ms"] == 30.0  # the own 900 ms request is not in the latency figures
+    f = status.request_figures(path, t - 60, own=set())  # without the operator key everything counts, the 501s still apart
+    assert f["requests"] == 11 and f["own_requests"] == 0 and f["not_served"] == 5 and f["server_errors"] == 3
+
+
+def test_own_key_prefixes_from_the_operator_key_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
+    k = tmp_path / "test_api_key.txt"
+    k.write_text("abcd1234.notarealsecretvalue\n")
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEY_FILES", None, raising=False)
+    monkeypatch.setenv("LAPSE_API_KEY_FILE", str(k))
+    assert status.own_key_prefixes() == {"abcd1234"}
+    k.write_text("rotated9.another\n")  # read again only after OWN_KEY_SECONDS
+    assert status.own_key_prefixes() == {"abcd1234"}
+    monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
+    assert status.own_key_prefixes() == {"rotated9"}
+    for files, want in (([str(tmp_path / "missing.txt")], set()), ([str(k)], {"rotated9"})):
+        monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
+        monkeypatch.setattr(settings, "LAPSE_OWN_KEY_FILES", files, raising=False)
+        assert status.own_key_prefixes() == want
+    k.write_text("nodotinthisline\n")  # never compare a whole key
+    monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
+    assert status.own_key_prefixes() == set()
+
+
+def test_deferred_routes_are_the_routes_of_the_deferred_data_sets():
+    """DEFERRED_ROUTES names exactly the first path segments of API/urls.py whose view reads an index of
+    DEFERRED_INDICES, and no route of a served data set shares one."""
+    import re
+
+    from API import urls
+    from API.lapse_errors import DEFERRED_INDICES, DEFERRED_ROUTES, is_deferred_route
+
+    deferred, served = set(), set()
+    for p in urls.urlpatterns:
+        cls = getattr(p.callback, "view_class", None) or getattr(p.callback, "cls", None)
+        try:
+            index = getattr(cls(), "index", None)
+        except Exception:  # noqa: BLE001 - a view that needs arguments to build reads no index
+            index = None
+        seg = re.split(r"[/?<$]", str(p.pattern).lstrip("^"))[0]
+        if index is None:
+            continue
+        (deferred if index in DEFERRED_INDICES else served).add(seg)
+    assert deferred == set(DEFERRED_ROUTES)
+    assert not deferred & served
+    assert is_deferred_route("/api/v1/publication/rel_app_text/") and is_deferred_route("/api/v1/wipo")
+    assert not is_deferred_route("/api/v1/patent/rel_app_text/") and not is_deferred_route("/api/v1/g_claim/")
+    assert not is_deferred_route("/api/v1/meta/") and not is_deferred_route("/registry/publication/")
+
+
+def test_status_page_shows_not_served_and_own_checks(client, monkeypatch, tmp_path):
+    path = str(tmp_path / "usage_page.sqlite3")
+    t = time.time()
+    _log_rows(path, [(t, 501, 2.0, "userkey1", "/api/v1/publication/", "GET"), (t, 500, 4.0, "ownkey01", "/api/v1/patent/", "GET")])
+    monkeypatch.setattr(settings, "USAGE_LOG_SQLITE_PATH", path)
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(status, "_own_cache", {"at": time.time(), "prefixes": frozenset({"ownkey01"})})
+    d = client.get("/api/v1/meta/status.json").json()["requests_24h"]
+    assert d["requests"] == 1 and d["not_served"] == 1 and d["server_errors"] == 0 and d["own_requests"] == 1
+    assert d["server_error_rate"] == 0.0
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert "Not served (documented 501)" in html and "own checks (not in the figures above)" in html
+    text = client.get("/api/v1/meta/status.json").content.decode()
+    assert "ownkey01" not in text and "ownkey01" not in html  # no key prefix reaches a reader
+    low = html.lower()
+    for banned in ("contract", "deploy", "audit", "gate ", "bundle", "test_api_key", "operator key"):
+        assert banned not in low, banned
+
+
 def test_request_log_middleware_records(client, monkeypatch, tmp_path):
     path = str(tmp_path / "usage2.sqlite3")
     monkeypatch.setattr(settings, "USAGE_LOG_SQLITE_PATH", path)
