@@ -190,7 +190,9 @@ def test_database_down_is_503_and_health(client, token, submission, monkeypatch)
     assert h.pop("read_cache")["records"] >= 0
     # keys: "uninitialized" when registry_crypto (gate 5.14) is in the checkout but no keyring is set up here
     assert h.pop("keys") in ("absent", "uninitialized")
-    assert h == {"ok": True, "database": "ok", "receipts_enabled": False, "sealed_enabled": False}
+    assert h.pop("terms_version")
+    assert h == {"ok": True, "database": "ok", "receipts_enabled": False, "sealed_enabled": False,
+                 "monitoring_enabled": False, "contribution_logs_enabled": False}
     # the ping leaves no transaction open, so the next publish commits on its own (read back on a fresh connection)
     assert db.connection().info.transaction_status == 0
     rec = publish(client, token(), submission())

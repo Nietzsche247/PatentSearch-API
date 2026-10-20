@@ -102,7 +102,7 @@ def test_the_warm_job_copies_records_nobody_read_and_forgets_hidden_ones(client,
     assert json.loads(out.getvalue())["ok"] is False
 
 
-def test_a_live_404_forgets_the_copy(client, token, submission, _env):
+def test_a_hidden_record_forgets_the_copy(client, token, submission, _env):
     from lapse_registry import readcache
 
     rec = publish(client, token(), submission(title="Read once then hidden"))
@@ -110,7 +110,11 @@ def test_a_live_404_forgets_the_copy(client, token, submission, _env):
     import psycopg
     with psycopg.connect(_env.admin_dsn, autocommit=True) as con:
         con.execute("update registry.disclosures set hidden = true, hidden_reason = 'test takedown' where id = %s", (rec["id"],))
-    assert client.get(f"/r/{rec['id']}.json").status_code == 404 and readcache.record(rec["id"]) is None
+    # registry 2 (checklist 10.9): a hidden record answers its stub (the hash, never the content), 410, and leaves the copy
+    r = client.get(f"/r/{rec['id']}.json")
+    assert r.status_code == 410 and r.json()["hidden"] is True and r.json()["user_content"] == {}
+    assert r.json()["bundle_hash"] == rec["bundle_hash"] and readcache.record(rec["id"]) is None
+    assert client.get(f"/r/{'0' * 26}.json").status_code == 404
 
 
 def test_the_jwks_route(client, monkeypatch, tmp_path):

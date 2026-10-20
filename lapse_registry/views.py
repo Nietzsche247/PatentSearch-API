@@ -9,7 +9,17 @@ settings pvapi.settings.registry) behind the same Caddy and domain as the API; t
   POST /registry/disclosures/<id>/receipt    Bearer, hook for 10.3: 501 until receipts are offered
   POST /registry/disclosures/<id>/seal       hook for 10.4: 501 (a sealed record is published with visibility "sealed")
   GET  /registry/disclosures/<id>/sealed     Bearer, hook for 10.4: the owner's sealed bundle text, when sealing is on
-  GET  /registry/search?q=                   public records matching q (basic; 10.5 adds the index and MCP tool)
+  GET  /registry/disclosures/terms           Bearer: whether the account accepted the current terms (5.11), and the links
+  GET  /registry/disclosures/account/export  Bearer: everything the registry holds for the account (5.12)
+  POST /registry/disclosures/account/erase   Bearer, {"confirm": "ERASE"}: the account's records become tombstones (5.12)
+  POST /registry/disclosures/<id>/monitor    Bearer, {"on": true|false}: monitoring of the record (10.7), when offered
+  POST /registry/disclosures/<id>/contribution-log   Bearer: the owner's contribution log (10.4), when offered
+  GET  /registry/disclosures/<id>/contribution-log.zip   the log with its C2PA manifest (10.4)
+  POST /registry/disclosures/<id>/claim      Bearer: an ownership claim on a record (10.9), when offered
+  POST /registry/disclosures/notices         a copyright notice (10.9), when offered; agents also take notices by email
+  GET  /registry/disclosures/notices/<case>  the case's kind, state and dates
+  POST /registry/disclosures/notices/<case>/counter  Bearer, the record's owner: the counter-notice (10.9)
+  GET  /registry/search?q=                   public records matching q (the MCP tool search_disclosures calls it, 10.5)
   GET  /registry/sitemap.xml                 the records a search engine may list (10.5, 10.10)
   GET  /registry/health                      database, keys and read-cache state
   GET  /registry/.well-known/jwks.json       the receipt signing keys with their validity windows (checklist 5.14)
@@ -97,14 +107,15 @@ def _user(request, required=True):
 
 
 def _publisher(request):
-    """The signed-in user who may publish: not on a disposable email domain (checklist 10.10, the list of gate 5.10)."""
+    """The signed-in user who may publish: not on a disposable email domain (checklist 10.10, the list of gate 5.10).
+    Returns the verified claims (their user metadata may carry the terms version accepted at sign-up: 5.11)."""
     from lapse_accounts import views as account_views
 
     claims = _claims(request)
     domain = account_views.email_domain(claims.get("email"))
     if account_views.is_disposable(domain):
         raise HttpError(403, "ERR_ACCOUNT", f"Records from disposable email domains are not accepted ({domain}).")
-    return claims["sub"]
+    return claims
 
 
 def _publish_day_limit(request):
@@ -148,7 +159,8 @@ def _payload(request):
         return payload, None
     if ctype in ("multipart/form-data", "application/x-www-form-urlencoded"):
         p = request.POST
-        payload = {k: p.get(k) for k in ("title", "abstract", "body_text", "visibility", "prev_version_id", "inventor_consent")}
+        payload = {k: p.get(k) for k in ("title", "abstract", "body_text", "visibility", "prev_version_id", "inventor_consent",
+                                         "terms_version")}
         payload["cpc_guess"] = p.get("cpc_guess") or ""
         payload["inventors_as_entered"] = p.get("inventors_as_entered") or ""
         payload["pii_acknowledged"] = (p.get("pii_acknowledged") or "").lower() in TRUE
@@ -248,13 +260,15 @@ def disclosures(request):
         if request.method == "POST":
             _guard_body(request)
             _write_limit(request)
-            user = _publisher(request)
+            claims = _publisher(request)
+            user = claims["sub"]
             payload, file = _payload(request)
             subject, window = _publish_day_limit(request)
             try:
                 rec = core.module("service").publish(
                     db.connection(), user_id=user, payload=payload, file=file, base_url=_base(),
-                    sealed_enabled=bool(getattr(settings, "REGISTRY_SEALED_ENABLED", False)), keys=_keys_or_none())
+                    sealed_enabled=bool(getattr(settings, "REGISTRY_SEALED_ENABLED", False)), keys=_keys_or_none(),
+                    claims=claims, contact_email=claims.get("email"))
             except Exception:
                 ratelimit.refund(ratelimit.WINDOW_TABLE, subject, "win", window)   # only stored records count
                 raise
@@ -291,6 +305,12 @@ def record(request, rid):
                 if not user:
                     readcache.drop_record(rid)
                 raise HttpError(404, "ERR_NOT_FOUND", "No visible record has this id.")
+            if rec.get("hidden") and "owner" not in rec:
+                # the content is hidden (checklist 10.9): the hash and the proof stay public; never from the cache
+                readcache.drop_record(rid)
+                resp = _json(rec, 451 if rec.get("hidden_reason") == "dmca" else 410)
+                resp["X-Robots-Tag"] = "noindex"
+                return resp
             if not user:
                 readcache.put_record(rec)
             resp = _json(rec, private=bool(user))
@@ -414,9 +434,194 @@ def receipt(request, rid):
             raise HttpError(501, "ERR_NOT_YET", "Corpus receipts are not offered yet.")
         keys = _keys()
         from lapse_registry import receipt_search
+        payment = _paid(request, user, rid, "receipt")
         out = core.module("service").create_receipt(db.connection(), user_id=user, record_id=rid, base_url=_base(),
-                                                     similar=receipt_search.similar, keys=keys)
+                                                     similar=receipt_search.similar, keys=keys, payment=payment,
+                                                     refunds=core.module("payments").provider())
         return _json(out, 201, private=True)
+    return _call(run)
+
+
+def _paid(request, user, rid, kind):
+    """The confirmed payment a priced request names (payment_ref in the JSON body), or None while prices are off
+    (REGISTRY_PAYMENTS_REQUIRED, checklist 10.6: the provider is not wired yet)."""
+    ref = None
+    if (request.content_type or "").lower() == "application/json" and request.body:
+        try:
+            ref = (json.loads(request.body.decode("utf-8")) or {}).get("payment_ref")
+        except (ValueError, UnicodeDecodeError, AttributeError):
+            ref = None
+    if not ref:
+        if getattr(settings, "REGISTRY_PAYMENTS_REQUIRED", False):
+            raise HttpError(402, "ERR_PAYMENT", "This service is paid; pay for it first.")
+        return None
+    service = core.module("service")
+    with service.transaction(db.connection(), "registry_member", user) as cur:
+        cur.execute("select * from registry.payments where provider_ref = %s and record_id = %s and kind = %s "
+                    "and status = 'paid' and owner_user_id = registry.uid()", (str(ref), rid, kind))
+        row = cur.fetchone()
+    if not row:
+        raise HttpError(402, "ERR_PAYMENT", "No confirmed payment of this account has that reference for this record.")
+    return row
+
+
+def _body_json(request):
+    if (request.content_type or "").lower() != "application/json":
+        raise HttpError(415, "ERR_INPUT", "Send application/json.")
+    try:
+        out = json.loads(request.body.decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        raise HttpError(400, "ERR_INPUT", "The body is not valid JSON.")
+    if not isinstance(out, dict):
+        raise HttpError(400, "ERR_INPUT", "The body must be a JSON object.")
+    return out
+
+
+def _offered(setting, what):
+    if not getattr(settings, setting, False):
+        raise HttpError(501, "ERR_NOT_YET", f"{what} is not offered yet.")
+
+
+@require_GET
+def terms_status(request):
+    """Checklist 5.11: has this account accepted the current terms (at sign-up or at a publish), and what to accept."""
+    def run():
+        _read_limit(request)
+        claims = _claims(request)
+        return _json(core.module("service").terms_status(db.connection(), claims["sub"], claims, _base()), private=True)
+    return _call(run)
+
+
+@require_GET
+def account_export(request):
+    """Checklist 5.12: everything the registry holds for the signed-in account, as one JSON download."""
+    def run():
+        _read_limit(request)
+        user = _user(request)
+        out = core.module("account").export(db.connection(), user, _base(), keys=_keys_or_none())
+        resp = _json(out, private=True)
+        resp["Content-Disposition"] = 'attachment; filename="patentref-registry-export.json"'
+        return resp
+    return _call(run)
+
+
+@csrf_exempt
+@require_POST
+def account_erase(request):
+    """Checklist 5.12: the account's records become tombstones (hash and proof kept; content, files, sealed copies gone)."""
+    def run():
+        _write_limit(request)
+        user = _user(request)
+        out = core.module("account").erase(db.connection(), user, _body_json(request).get("confirm"))
+        for rid in out["erased"]:
+            readcache.drop_record(rid)   # the next warm run caches the tombstone
+        return _json(out, private=True)
+    return _call(run)
+
+
+@csrf_exempt
+@require_POST
+def monitor(request, rid):
+    """Checklist 10.7: monitoring on or off for one of the account's records (REGISTRY_MONITORING_ENABLED; priced, 10.6)."""
+    def run():
+        _write_limit(request)
+        claims = _claims(request)
+        on = _body_json(request).get("on", True)
+        m = core.module("monitor")
+        if on:
+            _offered("REGISTRY_MONITORING_ENABLED", "Monitoring")
+            return _json(m.opt_in(db.connection(), claims["sub"], rid, claims.get("email")), private=True)
+        return _json(m.opt_out(db.connection(), claims["sub"], rid), private=True)
+    return _call(run)
+
+
+@csrf_exempt
+@require_POST
+def contribution_log(request, rid):
+    """Checklist 10.4: the owner's contribution log, countersigned now; its C2PA manifest follows from the proof worker."""
+    def run():
+        _guard_body(request)
+        _write_limit(request)
+        user = _user(request)
+        _offered("REGISTRY_CONTRIBUTION_LOGS_ENABLED", "Contribution logs")
+        out = core.module("service").submit_contribution_log(db.connection(), user_id=user, record_id=rid,
+                                                             log=_body_json(request), keys=_keys(), base_url=_base())
+        return _json(out, 201, private=True)
+    return _call(run)
+
+
+@require_GET
+def contribution_zip(request, rid):
+    """Checklist 10.4: the contribution log with its C2PA manifest, always as a download."""
+    def run():
+        _read_limit(request)
+        user = _user(request, required=False)
+        got = core.module("service").get_contribution_asset(db.connection(), rid, user_id=user)
+        if got is None:
+            raise HttpError(404, "ERR_NOT_FOUND", "No contribution log with a C2PA manifest for this record.")
+        resp = HttpResponse(got[1], content_type="application/zip")
+        resp["Content-Disposition"] = f'attachment; filename="contribution_log_{rid}.zip"'
+        resp["X-Content-Type-Options"] = "nosniff"
+        resp["Content-Security-Policy"] = "default-src 'none'; sandbox"
+        resp["Cache-Control"] = "public, max-age=86400, immutable"
+        resp["X-Robots-Tag"] = "noindex"
+        return resp
+    return _call(run)
+
+
+@csrf_exempt
+@require_POST
+def claim(request, rid):
+    """Checklist 10.9: a signed-in account says it owns a record; the record freezes until USPTO assignment records
+    decide (an agent closes the case). REGISTRY_CLAIMS_ENABLED."""
+    def run():
+        _write_limit(request)
+        user = _user(request)
+        _offered("REGISTRY_CLAIMS_ENABLED", "Ownership claims")
+        return _json(core.module("cases").public_case(
+            db.connection(), core.module("cases").open_claim(db.connection(), user, rid, _body_json(request))["id"]),
+            202, private=True)
+    return _call(run)
+
+
+@csrf_exempt
+@require_POST
+def notice(request):
+    """Checklist 10.9: a copyright notice (REGISTRY_NOTICES_ENABLED; 5 per address per UTC day). Agents also open cases
+    from notices that reach the designated agent by email (python3 -m patentref_registry.cases notice)."""
+    def run():
+        _write_limit(request)
+        _offered("REGISTRY_NOTICES_ENABLED", "The notice form")
+        subject = "ip:" + abuse.client_ip(request)
+        window, wait = ratelimit.minute_window("registry_notice_day", 86400)
+        if ratelimit.bump(ratelimit.WINDOW_TABLE, subject, "win", window, 5) is None:
+            raise HttpError(429, "ERR_RATE", "Too many notices from this address today.", headers={"Retry-After": str(wait)})
+        c = core.module("cases").open_notice(db.connection(), _body_json(request))
+        return _json(core.module("cases").public_case(db.connection(), c["id"]), 202, private=True)
+    return _call(run)
+
+
+@require_GET
+def notice_status(request, cid):
+    def run():
+        _read_limit(request)
+        c = core.module("cases").public_case(db.connection(), cid)
+        if c is None:
+            raise HttpError(404, "ERR_NOT_FOUND", "No case has this id.")
+        return _json(c, private=True)
+    return _call(run)
+
+
+@csrf_exempt
+@require_POST
+def counter_notice(request, cid):
+    """Checklist 10.9: the record owner's counter-notice to a copyright notice."""
+    def run():
+        _write_limit(request)
+        user = _user(request)
+        cases = core.module("cases")
+        c = cases.counter_notice(db.connection(), user, cid, _body_json(request))
+        return _json(cases.public_case(db.connection(), c["id"]), 202, private=True)
     return _call(run)
 
 
@@ -460,6 +665,9 @@ def health(request):
     body = {"ok": ok, "database": "ok" if ok else "unreachable", "keys": keys_state(),
             "receipts_enabled": bool(getattr(settings, "REGISTRY_RECEIPTS_ENABLED", False)),
             "sealed_enabled": bool(getattr(settings, "REGISTRY_SEALED_ENABLED", False)),
+            "monitoring_enabled": bool(getattr(settings, "REGISTRY_MONITORING_ENABLED", False)),
+            "contribution_logs_enabled": bool(getattr(settings, "REGISTRY_CONTRIBUTION_LOGS_ENABLED", False)),
+            "terms_version": _module_attr("terms", "VERSION"),
             "read_cache": readcache.figures()}
     resp = _json(body, 200 if ok else 503, private=True)
     return resp
@@ -483,6 +691,13 @@ def jwks(request):
         resp["X-Content-Type-Options"] = "nosniff"
         return resp
     return _call(run)
+
+
+def _module_attr(name, attr):
+    try:
+        return getattr(core.module(name), attr)
+    except Exception:  # noqa: BLE001  (health never fails on this)
+        return None
 
 
 def _keys():

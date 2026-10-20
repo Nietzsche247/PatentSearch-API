@@ -104,7 +104,7 @@ def static_jwks(keypair):
     supabase_jwt.reset_cache()
 
 
-def make_token(keypair, sub=None, email_verified=True, exp_in=3600):
+def make_token(keypair, sub=None, email_verified=True, exp_in=3600, metadata=None):
     import jwt
 
     now = int(time.time())
@@ -112,7 +112,7 @@ def make_token(keypair, sub=None, email_verified=True, exp_in=3600):
     claims = {"iss": ISSUER, "sub": sub, "aud": "authenticated", "role": "authenticated", "email": f"{sub[:8]}@example.test",
               "iat": now, "exp": now + exp_in, "session_id": str(uuid.uuid4()), "is_anonymous": False,
               "app_metadata": {"provider": "email", "providers": ["email"]},
-              "user_metadata": {"email": f"{sub[:8]}@example.test", "email_verified": email_verified}}
+              "user_metadata": dict({"email": f"{sub[:8]}@example.test", "email_verified": email_verified}, **(metadata or {}))}
     return jwt.encode(claims, keypair["private_pem"], algorithm="ES256", headers={"kid": "test-kid-1"})
 
 
@@ -133,9 +133,12 @@ def submission():
     def _make(**kw):
         from lapse_registry.tests.conftest_text import words   # distinct text per record, so the near-duplicate rule (10.10) stays out of the way
 
+        from patentref_registry import terms
+
         p = {"title": "Pool heater bypass with a thermal fuse", "abstract": words(30), "body_text": words(120),
              "cpc_guess": ["F24H 9/20"],
-             "inventors_as_entered": ["A. Example"], "inventor_consent": "inventor-consent-1"}
+             "inventors_as_entered": ["A. Example"], "inventor_consent": "inventor-consent-1",
+             "terms_version": terms.VERSION}   # the publish form's terms box (checklist 5.11); the gate's tests drop it
         p.update(kw)
         return p
     return _make

@@ -12,6 +12,8 @@ Env: REGISTRY_DATABASE_URL (registry_api's DSN; secret, only in the box's enviro
 (https://patentref.io), REGISTRY_MAX_BODY (25 MB), REGISTRY_FILE_MAX (20 MB), REGISTRY_READ_PER_MINUTE (120),
 REGISTRY_WRITE_PER_MINUTE (20), REGISTRY_PUBLISH_PER_ADDRESS_DAY (30), REGISTRY_SCANNER (none or clamd, read
 by patentref_registry.scan), REGISTRY_RECEIPTS_ENABLED and REGISTRY_SEALED_ENABLED (0 until 10.3, 10.4 and 10.6),
+REGISTRY_MONITORING_ENABLED, REGISTRY_CONTRIBUTION_LOGS_ENABLED, REGISTRY_CLAIMS_ENABLED, REGISTRY_NOTICES_ENABLED and
+REGISTRY_PAYMENTS_REQUIRED (registry 2: 0 until the owner offers them),
 REGISTRY_CRYPTO_PATH (where registry_crypto lives when not in the patentref clone, gate 5.14), REGISTRY_KEYS_DIR (its
 keyring, /data/registry/keys), REGISTRY_READ_CACHE (the local read cache of checklist 5.15, default
 <LAPSE_DATA_DIR>/read_cache.sqlite3), REGISTRY_READ_CACHE_FILE_MAX (20 MB), REGISTRY_DB_RETRY_SECONDS (5: how often a
@@ -38,6 +40,12 @@ REGISTRY_WRITE_PER_MINUTE = int(os.environ.get("REGISTRY_WRITE_PER_MINUTE", "20"
 REGISTRY_PUBLISH_PER_ADDRESS_DAY = int(os.environ.get("REGISTRY_PUBLISH_PER_ADDRESS_DAY", "30"))
 REGISTRY_RECEIPTS_ENABLED = os.environ.get("REGISTRY_RECEIPTS_ENABLED", "0") == "1"
 REGISTRY_SEALED_ENABLED = os.environ.get("REGISTRY_SEALED_ENABLED", "0") == "1"
+# registry 2: each offered when the owner decides (prices, checklist 10.6; the open forms of 10.9); off by default
+REGISTRY_MONITORING_ENABLED = os.environ.get("REGISTRY_MONITORING_ENABLED", "0") == "1"
+REGISTRY_CONTRIBUTION_LOGS_ENABLED = os.environ.get("REGISTRY_CONTRIBUTION_LOGS_ENABLED", "0") == "1"
+REGISTRY_CLAIMS_ENABLED = os.environ.get("REGISTRY_CLAIMS_ENABLED", "0") == "1"
+REGISTRY_NOTICES_ENABLED = os.environ.get("REGISTRY_NOTICES_ENABLED", "0") == "1"
+REGISTRY_PAYMENTS_REQUIRED = os.environ.get("REGISTRY_PAYMENTS_REQUIRED", "0") == "1"
 REGISTRY_READ_CACHE = os.environ.get("REGISTRY_READ_CACHE", os.path.join(os.environ.get("LAPSE_DATA_DIR", "/data/registry"),
                                                                           "read_cache.sqlite3"))
 REGISTRY_READ_CACHE_FILE_MAX = int(os.environ.get("REGISTRY_READ_CACHE_FILE_MAX", str(20 * 1024 * 1024)))

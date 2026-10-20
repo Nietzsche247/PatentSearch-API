@@ -107,17 +107,21 @@ def get(key):
 
 
 def put_record(rec, force=False):
-    """A record's public JSON (record_json without the owner block), and its title and abstract for search."""
+    """A record's public JSON (record_json without the owner block), and its title and abstract for search. A hidden
+    record (checklist 10.9) is never kept: it is forgotten instead. An erased one is kept as its tombstone, out of search."""
     if not isinstance(rec, dict) or "owner" in rec or not rec.get("id"):
         return False
     rid = rec["id"]
+    if rec.get("hidden"):
+        drop_record(rid)
+        return False
     body = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
     changed = put(f"record:{rid}", body, "application/json", force=force)
     uc = rec.get("user_content") or {}
 
     def run():
         con = _conn()
-        if rec.get("visibility") == "public":
+        if rec.get("visibility") == "public" and not rec.get("erased"):
             con.execute("insert into records (id, created, title, abstract, stored) values (?, ?, ?, ?, ?) on conflict (id) "
                         "do update set created = excluded.created, title = excluded.title, abstract = excluded.abstract, "
                         "stored = excluded.stored", (rid, rec.get("server_time") or "", uc.get("title") or "",

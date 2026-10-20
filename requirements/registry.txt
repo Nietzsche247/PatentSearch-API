@@ -2,3 +2,5 @@
 # for the registry database. psycopg's binary wheel carries libpq, so the box needs no libpq-dev or postgresql-client.
 -r lapse.txt
 psycopg[binary]==3.2.10
+# the C2PA manifest of a contribution log (PatentRef checklist 10.4): the CAI's c2pa-rs through its Python binding
+c2pa-python==0.38.0
