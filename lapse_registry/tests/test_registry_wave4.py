@@ -40,11 +40,12 @@ def test_publishing_waits_for_the_terms(client, token, submission):
     body.pop("terms_version")
     st = client.get("/registry/disclosures/terms", **auth(t)).json()
     assert st["accepted"] is False and st["version"] == terms.VERSION
-    assert st["links"] == {"terms": "https://patentref.io/terms", "privacy": "https://patentref.io/privacy",
-                           "acceptable_use": "https://patentref.io/acceptable-use", "dmca": "https://patentref.io/dmca"}
+    assert st["links"] == {"terms": "https://patentref.io/docs/legal/terms", "privacy": "https://patentref.io/docs/legal/privacy",
+                           "acceptable_use": "https://patentref.io/docs/legal/acceptable-use",
+                           "dmca": "https://patentref.io/docs/legal/dmca"}
     r = post_json(client, "/registry/disclosures", body, t)
     assert r.status_code == 403 and r.json()["code"] == "ERR_TERMS" and r["X-Status-Reason-Code"] == "ERR_TERMS"
-    assert r.json()["terms"]["links"]["terms"].endswith("/terms")
+    assert r.json()["terms"]["links"]["terms"].endswith("/docs/legal/terms")
     # accepted at sign-up: the token's user metadata carries the version
     t2 = token(metadata={"terms_version": terms.VERSION})
     assert client.get("/registry/disclosures/terms", **auth(t2)).json()["accepted"] is True
