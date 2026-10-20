@@ -1,0 +1,21 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}Unsubscribe{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block css %}
+    button { font: inherit; padding: var(--s-2) var(--s-3); border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+{% endblock %}
+{% block body %}
+    <h1>Unsubscribe</h1>
+    {% if state == "unknown" %}
+    <p>This unsubscribe link is not known. It may have been copied in part. Write to privacy@patentref.io (until that mailbox is live: aaron@omnipoolbuilders.com) and we will stop the mail by hand.</p>
+    {% elif state == "done" %}
+    <p role="status">Done. {{ address }} gets no more {{ kind }} from PatentRef.{% if security %} Mail needed to keep the account secure, such as a sign-in link you ask for, still arrives.{% endif %}</p>
+    {% else %}
+    <p>Stop {{ kind }} to {{ address }}?{% if security %} Mail needed to keep the account secure, such as a sign-in link you ask for, still arrives.{% endif %}</p>
+    <form method="post" action="/u/{{ token }}">
+      <input type="hidden" name="List-Unsubscribe" value="One-Click">
+      <input type="hidden" name="from_page" value="1">
+      <button type="submit">Unsubscribe</button>
+    </form>
+    {% endif %}
+{% endblock %}

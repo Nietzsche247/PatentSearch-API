@@ -1,51 +1,16 @@
-{% load humanize %}<!doctype html>
-<html lang="en" data-theme="">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Status | PatentRef</title>
-  <meta name="description" content="PatentRef API status: external uptime, request counts, error rates, latency, refresh and box health.">
+{% extends "lapse_accounts/base.html" %}{% load humanize %}
+{% block title %}Status{% endblock %}
+{% block home %}/api/v1/meta/status/{% endblock %}
+{% block head %}<meta name="description" content="PatentRef API status: external uptime, request counts, error rates, latency, refresh and box health.">
   <meta name="robots" content="noindex">
   <link rel="alternate" type="application/json" href="{{ json_url }}">
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"PatentRef status","url":"https://patentref.io/api/v1/meta/status/","dateModified":"{{ d.generated_at }}"}</script>
-  <style>
-    :root {
-      --bg: #ffffff; --surface: #f6f7f9; --fg: #16181d; --muted: #555b66; --border: #d8dce3;
-      --accent: #1f5fbf; --accent-fg: #ffffff; --warn-bg: #fff4d6; --warn-fg: #5c4300; --focus: #1f5fbf;
-      --ok-bg: #e3f3e6; --ok-fg: #14532d; --err-bg: #fde8e8; --err-fg: #7f1d1d;
-      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      --t-sm: 14px; --t-base: 16px; --t-lg: 20px; --t-xl: 28px; --lh: 1.5;
-      --s-1: 4px; --s-2: 8px; --s-3: 16px; --s-4: 24px; --s-5: 40px;
-      --radius: 4px; --maxw: 72ch; color-scheme: light;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
-        --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
-        --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
-      }
-    }
-    :root[data-theme="dark"] {
-      --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
-      --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
-      --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
-    }
-    * { box-sizing: border-box; }
-    body { background: var(--bg); color: var(--fg); font: var(--t-base)/var(--lh) var(--font); margin: 0; }
-    .pr-header, .pr-main, .pr-footer { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--s-3); }
-    .pr-header { padding-top: var(--s-4); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: baseline; }
-    .pr-name { font-size: var(--t-lg); font-weight: 600; color: var(--fg); text-decoration: none; }
-    .pr-asof { margin: 0; color: var(--muted); font-size: var(--t-sm); }
-    .pr-main { padding-top: var(--s-4); padding-bottom: var(--s-5); }
-    .pr-footer { border-top: 1px solid var(--border); padding-top: var(--s-3); padding-bottom: var(--s-4); color: var(--muted); font-size: var(--t-sm); }
-    .pr-footer p { margin: 0 0 var(--s-2); }
-    .pr-footer nav a { margin-right: var(--s-3); }
-    h1 { font-size: var(--t-xl); line-height: 1.2; margin: 0 0 var(--s-2); }
-    h2 { font-size: var(--t-lg); margin: 0 0 var(--s-2); }
-    p { margin: 0 0 var(--s-3); }
-    .lead { color: var(--muted); }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin-bottom: var(--s-4); }
+{% endblock %}
+{% block css %}
+    /* the status page's own rules; the ok and err colors are this page's, as before the shared template */
+    :root { --ok-bg: #e3f3e6; --ok-fg: #14532d; --err-bg: #fde8e8; --err-fg: #7f1d1d; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; } }
+    :root[data-theme="dark"] { --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; }
     .state { padding: var(--s-3); border-radius: var(--radius); margin-bottom: var(--s-4); font-weight: 600; }
     .state.ok { background: var(--ok-bg); color: var(--ok-fg); }
     .state.degraded { background: var(--warn-bg); color: var(--warn-fg); }
@@ -59,25 +24,16 @@
     th, td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border); vertical-align: top; }
     th { color: var(--muted); font-weight: 500; }
     td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
-    code { font-family: var(--mono); font-size: var(--t-sm); }
     .ok-t { color: var(--ok-fg); } .err-t { color: var(--err-fg); } .warn-t { color: var(--warn-fg); }
     .pill { display: inline-block; padding: 0 var(--s-2); border-radius: var(--radius); font-size: var(--t-sm); }
     .pill.ok { background: var(--ok-bg); color: var(--ok-fg); } .pill.err { background: var(--err-bg); color: var(--err-fg); } .pill.warn { background: var(--warn-bg); color: var(--warn-fg); }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-3); }
     dt { color: var(--muted); font-size: var(--t-sm); }
     dd { margin: 0; overflow-wrap: anywhere; }
-    a { color: var(--accent); }
-    .muted { color: var(--muted); font-size: var(--t-sm); }
     .wrap { overflow-x: auto; }
     @media (max-width: 420px) { dl { grid-template-columns: 1fr; } .tile .n { font-size: var(--t-lg); } }
-  </style>
-</head>
-<body>
-  <header class="pr-header">
-    <a class="pr-name" href="/api/v1/meta/status/">PatentRef</a>
-    <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
-  </header>
-  <main class="pr-main">
+{% endblock %}
+{% block body %}
     <h1>Status</h1>
     <p class="lead">The PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Figures refresh once a minute; this page was generated at {{ d.generated_at }}. Machine-readable twin: <a href="{{ json_url }}">status.json</a>.</p>
 
@@ -126,7 +82,7 @@
         <dt>Mirror age</dt><dd>{{ u.mirror_age_minutes }} min</dd>
       </dl>
       {% if u.outages %}
-      <div class="wrap"><table>
+      <div class="wrap" tabindex="0" role="region" aria-label="Outages"><table>
         <tr><th>Outage from</th><th>to</th><th class="num">minutes</th></tr>
         {% for o in u.outages %}<tr><td>{{ o.from }}</td><td>{{ o.to }}{% if o.open %} (open){% endif %}</td><td class="num">{{ o.minutes }}</td></tr>{% endfor %}
       </table></div>
@@ -140,8 +96,8 @@
     <section class="card">
       <h2>Requests, errors, latency</h2>
       <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account, health and status endpoints). Client errors are 4xx other than 403 and 429; rejected is 403 (no or bad key) and 429 (a limit); latency is measured over admitted requests, inside the app, without the network. Not served is the documented 501 of an endpoint whose data set is not in this release (<a href="/api/v1/meta/">/api/v1/meta/</a> lists them under deferred): it is not counted as a server error. Requests the service sends to check itself are not in these figures; they are counted on the last row.</p>
-      <div class="wrap"><table>
-        <tr><th></th><th class="num">last 24 h</th><th class="num">last 30 days</th></tr>
+      <div class="wrap" tabindex="0" role="region" aria-label="Requests, errors, latency"><table>
+        <tr><th scope="col">Figure</th><th class="num">last 24 h</th><th class="num">last 30 days</th></tr>
         {% with a=d.requests_24h b=d.requests_30d %}
         <tr><td>Requests</td><td class="num">{{ a.requests|intcomma }}</td><td class="num">{{ b.requests|intcomma }}</td></tr>
         <tr><td>Answered 2xx or 3xx</td><td class="num">{{ a.ok|intcomma }}</td><td class="num">{{ b.ok|intcomma }}</td></tr>
@@ -178,7 +134,7 @@
     <section class="card">
       <h2>Box</h2>
       {% with b=d.box %}
-      <div class="wrap"><table>
+      <div class="wrap" tabindex="0" role="region" aria-label="Box resources"><table>
         <tr><th>Resource</th><th class="num">free</th><th class="num">threshold</th></tr>
         {% for disk in b.disks %}<tr><td>Disk, {{ disk.name }}</td><td class="num">{% if disk.error %}{{ disk.error }}{% else %}{{ disk.free_percent }}%{% endif %}</td><td class="num">{% if disk.ok == None %}n/a{% elif disk.ok %}<span class="ok-t">ok</span>{% else %}<span class="err-t">low</span>{% endif %}</td></tr>{% endfor %}
         {% if b.memory %}<tr><td>Memory available</td><td class="num">{{ b.memory.available_percent }}%</td><td class="num">{% if b.memory.ok == None %}n/a{% elif b.memory.ok %}<span class="ok-t">ok</span>{% else %}<span class="err-t">low</span>{% endif %}</td></tr>{% endif %}
@@ -193,17 +149,12 @@
     <section class="card">
       <h2>Alerts</h2>
       {% if d.alerts.open %}
-      <div class="wrap"><table>
+      <div class="wrap" tabindex="0" role="region" aria-label="Open alerts"><table>
         <tr><th>Check</th><th>Since</th><th>State</th></tr>
         {% for a in d.alerts.open %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.time }}</td><td>{{ a.state }}</td></tr>{% endfor %}
       </table></div>
       {% else %}<p class="muted">No open alerts. {% if d.alerts.recent %}Most recent line: {{ d.alerts.recent.0.time }} <code>{{ d.alerts.recent.0.check }}</code> {{ d.alerts.recent.0.state }}.{% endif %}</p>{% endif %}
       <p class="muted">The on-box watchdog runs every 2 minutes: API and public health, disk and memory headroom, the refresh and backup timers. A breach alerts the operator (once per 24 hours per check) and adds a line here.</p>
     </section>
-  </main>
-  <footer class="pr-footer">
-    {% for line in footer_lines %}<p>{{ line }}</p>{% endfor %}<p><a href="/LICENSES.md">License register</a> <a href="/llms.txt">llms.txt</a> <a href="/openapi.json">OpenAPI</a> <a href="/api/v1/meta/">Build facts</a></p>
-    <nav><a href="/api/v1/meta/status/">Status</a> <a href="/api/v1/meta/signup/">Free key</a> <a href="{{ json_url }}">JSON</a></nav>
-  </footer>
-</body>
-</html>
+{% endblock %}
+{% block nav_extra %} <a href="{{ json_url }}">JSON</a>{% endblock %}

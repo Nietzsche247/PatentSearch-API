@@ -1,0 +1,13 @@
+{
+  "name": "patentref-a11y-check",
+  "private": true,
+  "description": "The accessibility check of PatentRef checklist 7.6: axe-core on the rendered pages (see axe_check.js).",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "check": "node axe_check.js"
+  },
+  "dependencies": {
+    "axe-core": "4.10.3",
+    "puppeteer": "24.43.1"
+  }
+}

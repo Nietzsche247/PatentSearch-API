@@ -67,6 +67,13 @@ LAPSE_CATALOG_PATH = os.environ.get("LAPSE_CATALOG_PATH", "/data/lapse/snapshot_
 # as `txt` beside the search snapshot; a missing file means the four text endpoints answer the documented 501
 LAPSE_TEXT_PATH = os.environ.get("LAPSE_TEXT_PATH", "/data/api/text_current.db")
 LAPSE_LICENSES_PATH = os.environ.get("LAPSE_LICENSES_PATH", "/srv/lapse/LICENSES.md")
+# The legal pages at /docs/legal/ (PatentRef 5.11 and 5.12, lapse_accounts/legal.py): the Markdown in the patentref clone
+LAPSE_LEGAL_DIR = os.environ.get("LAPSE_LEGAL_DIR", str(Path(LAPSE_REPO_DIR) / "docs" / "legal"))
+# Outbound mail rules (PatentRef 5.16, lapse_accounts/mail.py): the suppression and unsubscribe state, the public base of
+# the unsubscribe URLs, and the file holding Resend's webhook signing secret (read on every request; absent: 503)
+LAPSE_EMAIL_DB = os.environ.get("LAPSE_EMAIL_DB", str(_DATA / "email.sqlite3"))
+LAPSE_PUBLIC_BASE = os.environ.get("LAPSE_PUBLIC_BASE", "https://patentref.io")
+LAPSE_RESEND_WEBHOOK_SECRET_FILE = os.environ.get("LAPSE_RESEND_WEBHOOK_SECRET_FILE", "/data/lapse/secrets/resend_webhook_secret.txt")
 
 # Search backend seam (API/search.py:get_searcher)
 LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")

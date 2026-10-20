@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="{% block lang %}en{% endblock %}" data-theme="">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PatentRef{% endblock %} | PatentRef</title>
+  {% block head %}{% endblock %}
+  <style>
+{% include "lapse_accounts/_tokens.css" %}
+{% include "lapse_accounts/_base.css" %}
+{% block css %}{% endblock %}
+  </style>
+</head>
+<body>
+  {% comment %}The one skeleton every PatentRef page served by this app extends (patentref skill page-template, checklist 7.6):
+  header with the name, data version and as-of; the page's blocks in main; the footer with the attribution lines of
+  LICENSES.md and the same links on every page. Tokens come from _tokens.css, a byte copy of the registry's
+  src/app/tokens.css (skill css-tokens).{% endcomment %}
+  <header class="pr-header">
+    <a class="pr-name" href="{% block home %}/api/v1/meta/signup/{% endblock %}">PatentRef</a>
+    <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
+  </header>
+  <main class="pr-main" id="main">
+{% block body %}{% endblock %}
+  </main>
+  <footer class="pr-footer">
+    {% for line in footer_lines %}<p>{{ line }}</p>{% endfor %}<p><a href="/LICENSES.md">License register</a> <a href="/llms.txt">llms.txt</a> <a href="/openapi.json">OpenAPI</a> <a href="/api/v1/meta/">Build facts</a></p>
+    <nav aria-label="Site"><a href="/api/v1/meta/status/">Status</a> <a href="/api/v1/meta/signup/">Free key</a> <a href="/docs/legal/terms">Terms</a> <a href="/docs/legal/privacy">Privacy</a> <a href="/docs/legal/acceptable-use">Acceptable use</a> <a href="/docs/legal/dmca">Copyright (DMCA)</a>{% block nav_extra %}{% endblock %}</nav>
+    {% block footer_extra %}{% endblock %}
+  </footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>

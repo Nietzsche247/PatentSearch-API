@@ -1,51 +1,14 @@
-<!doctype html>
-<html lang="en" data-theme="">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Free API key | PatentRef</title>
-  <meta name="description" content="Create a PatentRef account and mint a Free API key: {{ monthly_limit }} requests a month, {{ per_minute_limit }} a minute.">
-  <meta name="robots" content="noindex">
-  <style>
-    :root {
-      --bg: #ffffff; --surface: #f6f7f9; --fg: #16181d; --muted: #555b66; --border: #d8dce3;
-      --accent: #1f5fbf; --accent-fg: #ffffff; --warn-bg: #fff4d6; --warn-fg: #5c4300; --focus: #1f5fbf;
-      --ok-bg: #e3f3e6; --ok-fg: #14532d; --err-bg: #fde8e8; --err-fg: #7f1d1d;
-      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      --t-sm: 14px; --t-base: 16px; --t-lg: 20px; --t-xl: 28px; --lh: 1.5;
-      --s-1: 4px; --s-2: 8px; --s-3: 16px; --s-4: 24px; --s-5: 40px;
-      --radius: 4px; --maxw: 72ch; color-scheme: light;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
-        --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
-        --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
-      }
-    }
-    :root[data-theme="dark"] {
-      --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
-      --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0;
-      --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; color-scheme: dark;
-    }
-    * { box-sizing: border-box; }
-    body { background: var(--bg); color: var(--fg); font: var(--t-base)/var(--lh) var(--font); margin: 0; }
-    .pr-header, .pr-main, .pr-footer { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--s-3); }
-    .pr-header { padding-top: var(--s-4); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: baseline; }
-    .pr-name { font-size: var(--t-lg); font-weight: 600; color: var(--fg); text-decoration: none; }
-    .pr-asof { margin: 0; color: var(--muted); font-size: var(--t-sm); }
-    .pr-main { padding-top: var(--s-4); padding-bottom: var(--s-5); }
-    .pr-footer { border-top: 1px solid var(--border); padding-top: var(--s-3); padding-bottom: var(--s-4); color: var(--muted); font-size: var(--t-sm); }
-    .pr-footer p { margin: 0 0 var(--s-2); }
-    h1 { font-size: var(--t-xl); line-height: 1.2; margin: 0 0 var(--s-2); }
-    h2 { font-size: var(--t-lg); margin: 0 0 var(--s-2); }
-    p { margin: 0 0 var(--s-3); }
-    .lead { color: var(--muted); }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin-bottom: var(--s-4); }
+{% extends "lapse_accounts/base.html" %}
+{% block title %}Free API key{% endblock %}
+{% block head %}<meta name="description" content="Create a PatentRef account and mint a Free API key: {{ monthly_limit }} requests a month, {{ per_minute_limit }} a minute.">
+  <meta name="robots" content="noindex">{% endblock %}
+{% block css %}
+    /* the sign-up page's own rules; the ok and err colors are this page's, as before the shared template */
+    :root { --ok-bg: #e3f3e6; --ok-fg: #14532d; --err-bg: #fde8e8; --err-fg: #7f1d1d; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; } }
+    :root[data-theme="dark"] { --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; }
     label { display: block; font-size: var(--t-sm); margin-bottom: var(--s-1); }
     input[type=email], input[type=password] { width: 100%; font: inherit; padding: var(--s-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--fg); margin-bottom: var(--s-3); }
-    input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     button { font: inherit; padding: var(--s-2) var(--s-3); border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; margin-right: var(--s-2); margin-bottom: var(--s-2); }
     button.secondary { background: transparent; color: var(--fg); border-color: var(--border); }
     button[disabled] { opacity: .6; cursor: default; }
@@ -54,7 +17,6 @@
     .msg.err { background: var(--err-bg); color: var(--err-fg); }
     .msg.warn { background: var(--warn-bg); color: var(--warn-fg); }
     .msg:empty { display: none; }
-    code, pre { font-family: var(--mono); font-size: var(--t-sm); }
     pre { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-2) var(--s-3); overflow-x: auto; margin: 0 0 var(--s-3); white-space: pre-wrap; word-break: break-all; }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-3); }
     dt { color: var(--muted); font-size: var(--t-sm); }
@@ -63,17 +25,9 @@
     .tabs { display: flex; gap: var(--s-2); margin-bottom: var(--s-3); }
     .tabs button { margin: 0; }
     .tabs button[aria-selected=true] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-    ul { padding-left: var(--s-4); margin: 0 0 var(--s-3); }
-    a { color: var(--accent); }
     @media (max-width: 420px) { dl { grid-template-columns: 1fr; } button { width: 100%; margin-right: 0; } }
-  </style>
-</head>
-<body>
-  <header class="pr-header">
-    <a class="pr-name" href="/api/v1/meta/signup/">PatentRef</a>
-    <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
-  </header>
-  <main class="pr-main">
+{% endblock %}
+{% block body %}
     <h1>Free API key</h1>
     <p class="lead">A Free key allows {{ monthly_limit }} requests a month and {{ per_minute_limit }} a minute on the PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Create an account, confirm your email, sign in, mint the key.</p>
 
@@ -84,22 +38,22 @@
       </div>
       <div id="auth-msg" class="msg" role="status" aria-live="polite"></div>
 
-      <form id="panel-signup" role="tabpanel" aria-labelledby="tab-signup">
+      <div id="panel-signup" role="tabpanel" aria-labelledby="tab-signup"><form id="form-signup">
         <label for="su-email">Email</label>
         <input id="su-email" type="email" autocomplete="email" required>
         <label for="su-password">Password (at least 8 characters)</label>
         <input id="su-password" type="password" autocomplete="new-password" minlength="8" required>
         <button type="submit" id="su-btn">Create account</button>
         <p class="lead">You will get one email with a confirmation link. Open it, then sign in here.</p>
-      </form>
+      </form></div>
 
-      <form id="panel-signin" role="tabpanel" aria-labelledby="tab-signin" class="hidden">
+      <div id="panel-signin" role="tabpanel" aria-labelledby="tab-signin" class="hidden"><form id="form-signin">
         <label for="si-email">Email</label>
         <input id="si-email" type="email" autocomplete="email" required>
         <label for="si-password">Password</label>
         <input id="si-password" type="password" autocomplete="current-password" required>
         <button type="submit" id="si-btn">Sign in</button>
-      </form>
+      </form></div>
     </div>
 
     <div id="account" class="card hidden">
@@ -149,12 +103,9 @@
         <li>Over {{ per_minute_limit }} requests in a minute the API answers 429 for the rest of that minute, as PatentsView did.</li>
       </ul>
     </div>
-  </main>
-  <footer class="pr-footer">
-    {% for line in footer_lines %}<p>{{ line }}</p>{% endfor %}<p><a href="/LICENSES.md">License register</a> <a href="/llms.txt">llms.txt</a> <a href="/openapi.json">OpenAPI</a> <a href="/api/v1/meta/">Build facts</a></p>
-    <p>Sign-in is handled by Supabase Auth. PatentRef stores your email, your key records and your request counts; it never stores your password.</p>
-  </footer>
-
+{% endblock %}
+{% block footer_extra %}    <p>Sign-in is handled by Supabase Auth. PatentRef stores your email, your key records and your request counts; it never stores your password.</p>{% endblock %}
+{% block scripts %}
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
   <script>
   (function () {
@@ -185,7 +136,7 @@
     $("tab-signup").onclick = function () { showTab("signup"); };
     $("tab-signin").onclick = function () { showTab("signin"); };
 
-    $("panel-signup").onsubmit = function (ev) {
+    $("form-signup").onsubmit = function (ev) {
       ev.preventDefault();
       var email = $("su-email").value.trim(), password = $("su-password").value;
       busy($("su-btn"), true); say(authMsg, "warn", "Creating the account...");
@@ -203,7 +154,7 @@
       });
     };
 
-    $("panel-signin").onsubmit = function (ev) {
+    $("form-signin").onsubmit = function (ev) {
       ev.preventDefault();
       var email = $("si-email").value.trim(), password = $("si-password").value;
       busy($("si-btn"), true); say(authMsg, "warn", "Signing in...");
@@ -300,5 +251,4 @@
     });
   })();
   </script>
-</body>
-</html>
+{% endblock %}

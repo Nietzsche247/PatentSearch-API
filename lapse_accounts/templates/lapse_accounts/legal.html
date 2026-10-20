@@ -1,0 +1,20 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}{{ short_title }}{% endblock %}
+{% block head %}<meta name="description" content="PatentRef {{ short_title }}{% if version %}, version {{ version }}{% endif %}{% if effective %}, effective {{ effective }}{% endif %}.">
+  <link rel="canonical" href="https://patentref.io/docs/legal/{{ name }}">
+  <link rel="alternate" type="text/markdown" href="{{ md_url }}">{% endblock %}
+{% block css %}
+    /* a legal document: the converted Markdown of docs/legal/ in the patentref repo */
+    .doc { overflow-wrap: anywhere; }  /* long addresses wrap at phone width */
+    .doc h2 { margin: var(--s-5) 0 var(--s-2); }
+    .doc h3 { font-size: var(--t-base); margin: var(--s-4) 0 var(--s-2); }
+    .doc li { margin-bottom: var(--s-1); }
+    .doc-nav { margin: 0 0 var(--s-4); font-size: var(--t-sm); }
+{% endblock %}
+{% block body %}
+    <p class="doc-nav"><a href="/docs/legal/">All legal documents</a></p>
+    <article class="doc">
+{{ body|safe }}
+    </article>
+    <p class="muted">This page is generated from <a href="{{ md_url }}">{{ name }}.md</a>, the document's text as published.</p>
+{% endblock %}

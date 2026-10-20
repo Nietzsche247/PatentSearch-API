@@ -931,3 +931,23 @@ Errors keep the upstream shape: 400 `{"error": true}` with `X-Status-Reason` and
 parameter; 503 ERR_ES when the engine or the dataset cannot be read; 500 ERR_ES when a row fails the wording check. Tests:
 `lapse_accounts/tests/test_rules.py` (every route against the repo's `rules/response.schema.json` and `rules/schema.json`, the
 banned strings, the refusals, problem details, 503, the meta field, the monthly count).
+
+## 2026-10-20 pending approval: the legal pages, one page skeleton, one-click unsubscribe and bounce suppression (PatentRef checklist 5.11, 5.12, 5.16, 7.6)
+
+Not deployed; on branch `wave4-trust` (from wave4-rules 5a2789e, which deploys first). It goes live only through `C:\anitw\trust_deploy.ps1`
+after the owner approves the legal documents. No migration. New settings, all with defaults that fit the box:
+`LAPSE_LEGAL_DIR` (`<LAPSE_REPO_DIR>/docs/legal`), `LAPSE_EMAIL_DB` (`<LAPSE_DATA_DIR>/email.sqlite3`, created on first use),
+`LAPSE_PUBLIC_BASE` (`https://patentref.io`), `LAPSE_RESEND_WEBHOOK_SECRET_FILE` (`/data/lapse/secrets/resend_webhook_secret.txt`,
+read on every request; absent until the owner installs it, and the webhook answers 503 until then).
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/templates/lapse_accounts/base.html`, `_base.css`, `_tokens.css` | new: the one skeleton (header with the data version and as-of, main, the footer from LICENSES.md with the same links on every page, Terms, Privacy, Acceptable use and DMCA among them); `_tokens.css` is a byte copy of the patentref registry's `src/app/tokens.css` | skill page-template and css-tokens; checklist 7.6 asks for every page template to pass axe |
+| `signup.html`, `status.html`, `record.html` | extend `base.html`; their own rules stay in their css block. Fixes from the axe check: the scrolling tables are focusable regions with a name, the status table's corner cell is a header, the sign-up tab panels are divs around the forms (a form cannot carry role tabpanel), footer links are at least 24 px high | WCAG 2.2 AA |
+| `lapse_accounts/legal.py`, `legal.html`, `legal_index.html` | new: `/docs/legal/`, `/docs/legal/<name>` and `/docs/legal/<name>.md` for terms, privacy, acceptable-use, dmca and processors, read on every request from the patentref clone's `docs/legal/`; a small Markdown converter that changes markup only (a test checks every character of the text survives) | checklist 5.11 and 5.12 |
+| `lapse_accounts/mail.py`, `unsubscribe.html` | new: `prepare()` (refuses suppressed and unsubscribed addresses, adds List-Unsubscribe and List-Unsubscribe-Post), `GET /u/<token>` (a page with one button), `POST /u/<token>` (RFC 8058 one-click, no login), `POST /api/v1/meta/email/events/` (Resend's Svix-signed webhook: hard bounces and complaints suppress at once, 3 soft bounces in 7 days suppress, suppression.added mirrors Resend's list) | checklist 5.16 |
+| `lapse_accounts/root_urls.py`, `urls.py`, `pvapi/settings/lapse_local.py` | the routes and the four settings | |
+| `lapse_tools/a11y/` | `render_pages.py` (every page template rendered to files with the test settings) and `axe_check.js` (axe-core 4.10.3 in headless Chrome, WCAG 2.0 to 2.2 A and AA plus best practices, light and dark, 1280 and 320 px, no sideways scroll) | the 7.6 exit check, repeatable |
+
+Today nothing in the stack calls `prepare()`: the only mail is Supabase Auth's, through Resend's SMTP relay, and Resend's
+own suppression list covers it. Tests: `lapse_accounts/tests/test_legal_pages.py`, `lapse_accounts/tests/test_mail.py`.

@@ -1,0 +1,12 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}Legal documents{% endblock %}
+{% block head %}<meta name="description" content="PatentRef's terms of service, privacy policy, acceptable use policy, copyright (DMCA) page and processor register.">
+  <link rel="canonical" href="https://patentref.io/docs/legal/">{% endblock %}
+{% block body %}
+    <h1>Legal documents</h1>
+    <p class="lead">The documents that govern the PatentRef service during the free beta. Each one is also published as Markdown at the same address with <code>.md</code> added.</p>
+    <ul>
+      {% for d in docs %}<li><a href="{{ d.url }}">{{ d.title }}</a>{% if d.version %}, version {{ d.version }}{% endif %}{% if d.effective %}, effective {{ d.effective }}{% endif %}</li>
+      {% empty %}<li>No document is published yet.</li>{% endfor %}
+    </ul>
+{% endblock %}

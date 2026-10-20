@@ -1,0 +1,24 @@
+    /* the rules every page shares (base.html); a page adds its own in its css block, with tokens only */
+    * { box-sizing: border-box; }
+    .pr-header, .pr-main, .pr-footer { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--s-3); }
+    .pr-header { padding-top: var(--s-4); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: baseline; }
+    .pr-name { font-size: var(--t-lg); font-weight: 600; color: var(--fg); text-decoration: none; }
+    .pr-asof { margin: 0; color: var(--muted); font-size: var(--t-sm); }
+    .pr-main { padding-top: var(--s-4); padding-bottom: var(--s-5); }
+    .pr-footer { border-top: 1px solid var(--border); padding-top: var(--s-3); padding-bottom: var(--s-4); color: var(--muted); font-size: var(--t-sm); }
+    .pr-footer p { margin: 0 0 var(--s-2); }
+    .pr-footer nav { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-2); }
+    .pr-footer a { display: inline-block; padding: var(--s-1) 0; margin-right: var(--s-2); }  /* targets at least 24px high (WCAG 2.5.8) */
+    .pr-footer nav a { margin-right: 0; }
+    h1 { font-size: var(--t-xl); line-height: 1.2; margin: 0 0 var(--s-2); }
+    h2 { font-size: var(--t-lg); margin: 0 0 var(--s-2); }
+    p { margin: 0 0 var(--s-3); }
+    a { color: var(--accent); }
+    a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    code, pre { font-family: var(--mono); font-size: var(--t-sm); }
+    ul, ol { padding-left: var(--s-4); margin: 0 0 var(--s-3); }
+    .lead { color: var(--muted); }
+    .muted { color: var(--muted); font-size: var(--t-sm); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin-bottom: var(--s-4); }
+    .pr-scroll { overflow-x: auto; margin-bottom: var(--s-3); }
+    .pr-scroll:focus-visible, [role=region][tabindex]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

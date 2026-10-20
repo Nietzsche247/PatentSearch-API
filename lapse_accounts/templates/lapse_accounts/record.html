@@ -1,67 +1,25 @@
-<!doctype html>
-<html lang="en" data-theme="">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>US {{ pid }} record | PatentRef</title>
-  <meta name="description" content="The USPTO record for US {{ pid }} as of {{ as_of }}: status, basis and maintenance-fee facts (data version {{ data_version }}).">
-  <link rel="canonical" href="{{ rec.permalink }}">
-  <style>
-    :root {
-      --bg: #ffffff; --surface: #f6f7f9; --fg: #16181d; --muted: #555b66; --border: #d8dce3;
-      --accent: #1f5fbf; --accent-fg: #ffffff; --warn-bg: #fff4d6; --warn-fg: #5c4300; --focus: #1f5fbf;
-      --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      --t-sm: 14px; --t-base: 16px; --t-lg: 20px; --t-xl: 28px; --lh: 1.5;
-      --s-1: 4px; --s-2: 8px; --s-3: 16px; --s-4: 24px; --s-5: 40px;
-      --radius: 4px; --maxw: 72ch; color-scheme: light;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
-        --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0; color-scheme: dark;
-      }
-    }
-    :root[data-theme="dark"] {
-      --bg: #111317; --surface: #1a1d23; --fg: #e8eaee; --muted: #a3a9b4; --border: #2e333c;
-      --accent: #7aa8f0; --accent-fg: #0b1220; --warn-bg: #3a2f10; --warn-fg: #f3dc9a; --focus: #7aa8f0; color-scheme: dark;
-    }
-    * { box-sizing: border-box; }
-    body { background: var(--bg); color: var(--fg); font: var(--t-base)/var(--lh) var(--font); margin: 0; }
-    .pr-header, .pr-main, .pr-footer { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--s-3); }
-    .pr-header { padding-top: var(--s-4); padding-bottom: var(--s-3); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: baseline; }
-    .pr-name { font-size: var(--t-lg); font-weight: 600; color: var(--fg); text-decoration: none; }
-    .pr-asof { margin: 0; color: var(--muted); font-size: var(--t-sm); }
-    .pr-main { padding-top: var(--s-4); padding-bottom: var(--s-5); }
-    .pr-footer { border-top: 1px solid var(--border); padding-top: var(--s-3); padding-bottom: var(--s-4); color: var(--muted); font-size: var(--t-sm); }
-    .pr-footer p { margin: 0 0 var(--s-2); }
-    h1 { font-size: var(--t-xl); margin: 0 0 var(--s-2); }
-    h2 { font-size: var(--t-lg); margin: var(--s-4) 0 var(--s-2); }
+{% extends "lapse_accounts/base.html" %}
+{% block title %}US {{ pid }} record{% endblock %}
+{% block head %}<meta name="description" content="The USPTO record for US {{ pid }} as of {{ as_of }}: status, basis and maintenance-fee facts (data version {{ data_version }}).">
+  <link rel="canonical" href="{{ rec.permalink }}">{% endblock %}
+{% block css %}
+    /* the record page's own rules */
+    h2 { margin: var(--s-4) 0 var(--s-2); }
+    .card { margin-bottom: var(--s-3); }
     .banner { background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); }
     .status { font-size: var(--t-lg); margin: 0 0 var(--s-3); }
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin-bottom: var(--s-3); }
     dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0; }
     dt { color: var(--muted); font-size: var(--t-sm); }
     dd { margin: 0; }
-    code, pre { font-family: var(--mono); font-size: var(--t-sm); }
     pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); overflow-x: auto; }
-    a { color: var(--accent); }
-    a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
     .user { border-left: 3px solid var(--border); padding-left: var(--s-3); color: var(--muted); }
-    .pr-scroll { overflow-x: auto; margin-bottom: var(--s-3); }
     table.fam { border-collapse: collapse; font-size: var(--t-sm); min-width: 100%; }
     table.fam th, table.fam td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
     table.fam th { color: var(--muted); font-weight: 600; }
     .credit { color: var(--muted); font-size: var(--t-sm); }
     @media (max-width: 420px) { dl { grid-template-columns: 1fr; } }
-  </style>
-</head>
-<body>
-  <header class="pr-header">
-    <a class="pr-name" href="/api/v1/meta/signup/">PatentRef</a>
-    <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
-  </header>
-  <main class="pr-main">
+{% endblock %}
+{% block body %}
     {% if superseded %}<div class="banner" role="status">You asked for data version {{ superseded.requested }}, which has been superseded. This page shows the current version, {{ superseded.current }}. Older snapshot files are listed in the <a href="/LICENSES.md">license register</a>.</div>{% endif %}
     <h1>US {{ pid }}</h1>
     {% if title %}<p class="user"><span data-user-content="true">{{ title }}</span></p>{% endif %}
@@ -83,7 +41,7 @@
     <h2 id="family">Family outside the US</h2>
     {% if family.members %}
     <p>Publications outside the US that Google Patents Public Datasets lists in the same patent family as US {{ pid }}{% if family.retrieved_at %} (read {{ family.retrieved_at }}){% endif %}. Their legal status is not shown here.</p>
-    <div class="pr-scroll"><table class="fam">
+    <div class="pr-scroll" tabindex="0" role="region" aria-label="Family members outside the US"><table class="fam">
       <thead><tr><th scope="col">Office</th><th scope="col">Number</th><th scope="col">Kind</th><th scope="col">Published</th></tr></thead>
       <tbody>{% for m in family.members %}<tr><td>{{ m.office }}</td><td>{{ m.number }}</td><td>{{ m.kind }}</td><td>{{ m.published|default:"" }}</td></tr>{% endfor %}</tbody>
     </table></div>
@@ -103,10 +61,5 @@
     </ul>
     <h2>Record</h2>
     <pre>{{ status_json }}</pre>
-  </main>
-  <footer class="pr-footer">
-    {% for line in footer_lines %}<p>{{ line }}</p>{% endfor %}<p><a href="/LICENSES.md">License register</a> <a href="/llms.txt">llms.txt</a> <a href="/openapi.json">OpenAPI</a> <a href="/api/v1/meta/">Build facts</a></p>
-    <p>This page states what the USPTO record shows as of the date above, and the term end computed from the dates in it. It is not advice.</p>
-  </footer>
-</body>
-</html>
+{% endblock %}
+{% block footer_extra %}    <p>This page states what the USPTO record shows as of the date above, and the term end computed from the dates in it. It is not advice.</p>{% endblock %}

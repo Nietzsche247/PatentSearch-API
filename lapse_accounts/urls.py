@@ -1,7 +1,7 @@
 """Routes under /api/v1/meta/ (included by `lapse_accounts.root_urls`)."""
 from django.urls import re_path
 
-from lapse_accounts import public, status, views
+from lapse_accounts import mail, public, status, views
 
 urlpatterns = [
     re_path(r"^$", public.meta_index, name="meta-index"),
@@ -11,4 +11,6 @@ urlpatterns = [
     re_path(r"^health/?$", status.health, name="meta-health"),
     re_path(r"^status/?$", status.status_page, name="meta-status"),
     re_path(r"^status\.json$", status.status_json, name="meta-status-json"),
+    # Resend's webhook: bounces and complaints into the suppression list (gate 5.16)
+    re_path(r"^email/events/?$", mail.resend_events, name="meta-email-events"),
 ]
