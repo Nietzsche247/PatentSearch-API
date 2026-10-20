@@ -11,9 +11,10 @@
       Build facts of the snapshot in service: data_version (one per build), as_of (the newest
       release date among the build inputs), refreshed_at (when the build went into service),
       built_at, snapshot_sha256, previous_version, superseded_versions, the table delta the build
-      recorded (counts current against next) and the fee value delta, attribution and the license
-      register URL. Read from the served file's _lapse_build rows and the runner's sidecars
-      (/data/api/snapshot_current.json, /data/lapse/refresh_versions.json). No key needed.
+      recorded (counts current against next) and the fee value delta, the rules dataset version
+      (rules_version), attribution and the license register URL. Read from the served file's
+      _lapse_build rows and the runner's sidecars (/data/api/snapshot_current.json,
+      /data/lapse/refresh_versions.json). No key needed.
 
 The page footers of the sign-up and status pages are generated from LICENSES.md (checklist 1.11):
 `footer_lines()` returns the lines of its "Attribution lines" section ("## 5. Attribution lines" in the
@@ -287,6 +288,16 @@ def deferred_sets(present=None):
     return [text for idx, text in DEFERRABLE_SETS if present is None or idx not in present]
 
 
+def _rules_version():
+    """The rules dataset version in service (PatentRef 11.4), from the patentref clone; None when it cannot be read."""
+    try:
+        from API.lapse_rules import rules_version
+
+        return rules_version()
+    except Exception:
+        return None
+
+
 def meta_facts():
     p = getattr(settings, "LAPSE_STATUS_PATHS", {})
     api_dir = p.get("api_dir", "/data/api")
@@ -329,6 +340,7 @@ def meta_facts():
         "fee": side.get("fee") or None,
         "weekly_grants": weekly,
         "deferred": deferred_sets(served_indices()),
+        "rules_version": _rules_version(),
         "attribution": footer_lines()[0],
         "licenses_url": "https://patentref.io/LICENSES.md",
         "guide": "https://patentref.io/llms-full.txt", "openapi": "https://patentref.io/openapi.json",

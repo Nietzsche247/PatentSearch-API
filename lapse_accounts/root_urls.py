@@ -2,7 +2,7 @@
 unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream settings keep theirs."""
 from django.urls import URLResolver, include, path, re_path
 
-from API import lapse_views
+from API import lapse_rules, lapse_views
 from lapse_accounts import public
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
@@ -21,6 +21,11 @@ urlpatterns = [
     re_path(r"^api/v1/lapse/status/(?P<pk>[^/]+)/?$", lapse_views.StatusView.as_view(), name="lapse-status"),
     re_path(r"^api/v1/status/(?P<pk>[^/]+)/?$", lapse_views.StatusView.as_view(), name="status"),
     re_path(r"^api/v1/lapse/similar/?$", lapse_views.SimilarView.as_view(), name="lapse-similar"),
+] + [
+    # the rules layer (PatentRef 11.3): one route per tool, keyed and throttled like the paths above
+    re_path(rf"^api/v1/rules/{p + '/?' if p else ''}$", lapse_rules.RulesView.as_view(tool=tool), name=f"rules-{tool}")
+    for p, tool in lapse_rules.ROUTES
+] + [
     # the human page behind the versioned permalink; no key
     re_path(r"^p/(?P<pk>[A-Za-z0-9]+)/?$", lapse_views.RecordPage.as_view(), name="record-page"),
     # agent plumbing at the root (gate 2.11): served by Django so the shared Caddy needs no change

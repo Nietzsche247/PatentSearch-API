@@ -914,3 +914,20 @@ The request log is unchanged (no new column): the key prefix it already keeps id
 user agent the contract runner sends (`lapse-contract-runner`) is in upstream's usage_log only, so it is not used.
 Tests: `lapse_accounts/tests/test_status.py` (the two counts apart, the key file read, the route list against
 `API/urls.py`, the page and status.json without a key prefix), `lapse_accounts/tests/test_family.py`.
+
+## 2026-10-20 pending approval: the rules layer on REST (PatentRef checklist 11.3), `rules_version` in the build facts
+
+Not deployed; on branch `wave4-rules` (sqlite-backend d8faf60, then this). No migration, no new setting the box must set: the
+rows and the engine come from the patentref clone (LAPSE_REPO_DIR, /srv/lapse on the box), which needs `lapse/rules.py` and
+`rules/` (patentref branch `wave4-rules`).
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_rules.py` | `RulesView`, one route per tool: `GET /api/v1/rules/` (rules_index), `rep_required`, `fee_schedule`, `route_windows`, `pph_routes`, `ai_use_statement_required`, `grace_period`, `changelog` under `/api/v1/rules/`; the answer is `lapse.rules.call(tool, query)` from the patentref clone, with `X-Rules-Version` and max-age 300 | the engine checks the parameters (an application number, a patent number or a priority date is refused by name), runs the wording check and serves the MCP tools too, so the two cannot drift |
+| `lapse_accounts/root_urls.py` | the eight routes, before upstream's; keyed and throttled like `/api/v1/lapse/*` and counted toward the monthly allowance | a rules call is a data call (gate 11.6 counts metered rules calls) |
+| `lapse_accounts/public.py` | `GET /api/v1/meta/` gains `rules_version` (null when the dataset cannot be read) | the scaffold's build facts name the rules version |
+
+Errors keep the upstream shape: 400 `{"error": true}` with `X-Status-Reason` and `X-Status-Reason-Code: ERR_Q` for a refused
+parameter; 503 ERR_ES when the engine or the dataset cannot be read; 500 ERR_ES when a row fails the wording check. Tests:
+`lapse_accounts/tests/test_rules.py` (every route against the repo's `rules/response.schema.json` and `rules/schema.json`, the
+banned strings, the refusals, problem details, 503, the meta field, the monthly count).
