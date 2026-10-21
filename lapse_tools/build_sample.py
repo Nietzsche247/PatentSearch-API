@@ -9,7 +9,8 @@ g_us_patent_citation, g_wipo_technology, g_figures, g_us_term_of_grant, g_botani
 g_pct_data, g_foreign_priority, and since the second full build g_attorney_disambiguated, g_us_application_citation,
 g_foreign_citation, g_other_reference, g_rel_app_text, g_cpc_at_issue, g_cpc_title, g_ipc_at_issue, g_uspc_at_issue,
 g_us_rel_doc, g_examiner_not_disambiguated, g_applicant_not_disambiguated, g_persistent_inventor,
-g_persistent_assignee). Missing optional files are skipped.
+g_persistent_assignee; since PatentRef 1.10.0 g_assignee_not_disambiguated, the assignee names as printed on the
+grant, joined to g_assignee_disambiguated by patent_id and assignee_sequence). Missing optional files are skipped.
 
 Layout (read by API/search_sqlite.py):
   <index>                      one row per ES document, columns named like the API fields
@@ -202,6 +203,17 @@ def build_stage(bulk, stage_path, mod):
         log("  asg rows", n)
         st.execute("create index asg_pid on asg(patent_id)")
         st.execute("create index asg_aid on asg(assignee_id)")
+    if "asr" not in have:
+        # the names as printed on the grant (PatentRef 1.10.0): one row per (patent_id, assignee_sequence), the key
+        # of g_assignee_disambiguated (the release of 2026-04-10: 8,751,310 rows in each file, every key in both, none
+        # repeated); a repeated key keeps its first row, so the join below never adds an assignee row
+        log("stage g_assignee_not_disambiguated")
+        st.execute("create table asr(patent_id text, seq int, first text, last text, org text, primary key(patent_id, seq))")
+        n = batched_insert(st, "insert or ignore into asr values (?,?,?,?,?)", (
+            (r["patent_id"], to_int(r["assignee_sequence"]), nz(r["raw_assignee_individual_name_first"]),
+             nz(r["raw_assignee_individual_name_last"]), nz(r["raw_assignee_organization"]))
+            for r in rows(bulk, "g_assignee_not_disambiguated")))
+        log("  asr rows", n)
     if "att" not in have:
         log("stage g_attorney_disambiguated")
         st.execute("create table att(patent_id text, seq int, attorney_id text, first text, last text, org text,"
@@ -284,7 +296,10 @@ SCHEMA = {
     "patents__assignees": [("assignee_id", T), ("assignee_type", T), ("assignee_individual_name_first", T),
                            ("assignee_individual_name_last", T), ("assignee_organization", T),
                            ("assignee_location_id", T), ("assignee_city", T), ("assignee_state", T),
-                           ("assignee_country", T), ("assignee_sequence", I)],
+                           ("assignee_country", T), ("assignee_sequence", I),
+                           # PatentRef 1.10.0, after the upstream columns: the names as printed on the grant
+                           ("raw_assignee_individual_name_first", T), ("raw_assignee_individual_name_last", T),
+                           ("raw_assignee_organization", T)],
     "patents__cpc_current": [("cpc_sequence", I), ("cpc_section", T), ("cpc_class", T), ("cpc_class_id", T),
                              ("cpc_subclass", T), ("cpc_subclass_id", T), ("cpc_group", T), ("cpc_group_id", T),
                              ("cpc_type", T)],
@@ -315,7 +330,10 @@ SCHEMA = {
                   ("assignee_lastknown_latitude", R), ("assignee_lastknown_longitude", R),
                   ("assignee_lastknown_location", T), ("assignee_first_seen_date", T),
                   ("assignee_last_seen_date", T), ("assignee_num_inventors", I), ("assignee_num_patents", I),
-                  ("assignee_years_active", I)],
+                  ("assignee_years_active", I),
+                  # PatentRef 1.10.0: the names as printed on the assignee's most recent patent
+                  ("raw_assignee_individual_name_first", T), ("raw_assignee_individual_name_last", T),
+                  ("raw_assignee_organization", T)],
     "assignees__assignee_years": [("year", I), ("num_patents", I)],
     "locations": [("location_id", T), ("location_name", T), ("location_county", T), ("location_county_fips", T),
                   ("location_state", T), ("location_state_fips", T), ("location_country", T),
@@ -555,8 +573,9 @@ def fill_children(out, st, pos, bulk):
     ins(out, "patents__assignees", (
         (r[0], k, *r[2:]) for k, r in enumerate(st.execute(
             "select a.patent_id, a.seq, a.assignee_id, a.atype, a.first, a.last, a.org, a.location_id, l.city,"
-            " l.state, l.country, a.seq from asg a join temp.s using(patent_id)"
-            " left join loc l on l.location_id=a.location_id order by a.patent_id, a.seq"))))
+            " l.state, l.country, a.seq, r.first, r.last, r.org from asg a join temp.s using(patent_id)"
+            " left join loc l on l.location_id=a.location_id"
+            " left join asr r on r.patent_id=a.patent_id and r.seq=a.seq order by a.patent_id, a.seq"))))
 
     def stream(name, table, fn):
         log(name)
@@ -731,8 +750,10 @@ def fill_entity(out, st, kind):
              " order by x.inventor_id, p.patent_date, x.patent_id")
     else:
         q = ("select x.assignee_id, x.patent_id, p.patent_date, x.first, x.last, x.org, x.atype, x.location_id,"
-             " l.city, l.state, l.country, l.lat, l.lon from asg x join temp.e_assignee e on e.id=x.assignee_id"
+             " l.city, l.state, l.country, l.lat, l.lon, r.first, r.last, r.org from asg x"
+             " join temp.e_assignee e on e.id=x.assignee_id"
              " join p on p.patent_id=x.patent_id left join loc l on l.location_id=x.location_id"
+             " left join asr r on r.patent_id=x.patent_id and r.seq=x.seq"
              " order by x.assignee_id, p.patent_date, x.patent_id")
     # one ordered scan feeds both tables; each entity is written as soon as its group is complete
     ents = Batcher(out, ins_sql(f"{kind}s"))
@@ -758,7 +779,7 @@ def fill_entity(out, st, kind):
         else:
             ents.add((cur, last[3], last[4], last[5], last[6], last[8], last[9], last[10], last[11], last[12],
                       last[7], min(dates) if dates else None, max(dates) if dates else None,
-                      others.get(cur, 0), len(pats), len(yc)))
+                      others.get(cur, 0), len(pats), len(yc), last[13], last[14], last[15]))
         for k, (y, c) in enumerate(sorted(yc.items())):
             years.add((cur, k, y, c))
 
@@ -831,6 +852,8 @@ SCHEMA_FILES = {"patents": "granted/patents_fields.json", "inventors": "granted/
                 "rel_app_text": "granted/rel_app_text_fields.json", "cpc_groups": "granted/cpc_groups_fields.json",
                 "uspc_subclasses": "granted/uspc_subclasses_fields.json", "ipcr": "granted/ipcr_fields.json"}
 FTS_TOKENIZE = "unicode61 remove_diacritics 0 tokenchars '_'"
+# the PatentRef columns of the printed names (API/search_sqlite.py PRINTED_FIELDS): no FTS, trigram, index or stats
+PRINTED = ("raw_assignee_individual_name_first", "raw_assignee_individual_name_last", "raw_assignee_organization")
 
 
 def fill_meta_and_fts(out, esdl):
@@ -854,6 +877,11 @@ def fill_meta_and_fts(out, esdl):
                             (idx, "", k, v.get("type"), 1 if "keyword" in v.get("fields", {}) else 0))
                 if v.get("type") == "text":
                     text_cols.setdefault(idx, []).append(k)
+    # PatentRef additions the es-data-load schemas do not carry: the printed names (1.10.0), keyword like the
+    # upstream name fields' .keyword; the API returns them with f only
+    for idx, path in (("patents", "assignees"), ("assignees", "")):
+        for c in PRINTED:
+            out.execute("INSERT INTO _lapse_fields VALUES (?,?,?,?,?)", (idx, path, c, "keyword", 0))
     out.commit()
     for t, cols in text_cols.items():
         if t not in SCHEMA:

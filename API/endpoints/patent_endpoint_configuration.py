@@ -31,6 +31,12 @@ class AssigneeNestedSerializer(PVAPIDocumentSerializer):
     # assignee_id yet), true on PatentsView rows; present only when f names it, then on every row of the group
     # (API/search_sqlite.py _wanted), so a whole group keeps upstream's keys
     disambiguated = generate_serializer(serializers.BooleanField)
+    # PatentRef addition (1.10.0): the assignee's name as printed on the grant (PatentsView g_assignee_not_disambiguated,
+    # the weekly grant XML for weeks no release covers yet), beside the disambiguated names above; present only when f
+    # names it, like `disambiguated`; null where the file in service predates it; f only (q and s answer 400)
+    raw_assignee_individual_name_first = generate_serializer(serializers.CharField, max_length=128)
+    raw_assignee_individual_name_last = generate_serializer(serializers.CharField, max_length=128)
+    raw_assignee_organization = generate_serializer(serializers.CharField, max_length=256)
 
 
 class InventorNestedSerializer(PVAPIDocumentSerializer):

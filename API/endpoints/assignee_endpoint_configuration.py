@@ -29,6 +29,12 @@ class AssigneeSerializer(PVAPIDocumentSerializer):
     assignee_num_patents = NumericField(required=False)
     assignee_years_active = NumericField(required=False)
     assignee_years = serializers.ListField(child=YearSerializer(), required=False)
+    # PatentRef addition (1.10.0): the names as printed on the assignee's most recent patent (the patent the names above
+    # come from), from PatentsView g_assignee_not_disambiguated; returned only when f names them, never in the default
+    # f; null where the file in service predates them; f only (q and s answer 400)
+    raw_assignee_individual_name_first = serializers.CharField(max_length=128, required=False)
+    raw_assignee_individual_name_last = serializers.CharField(max_length=128, required=False)
+    raw_assignee_organization = serializers.CharField(max_length=256, required=False)
 
 
 # Defines the wrapper for a list of assignee documents

@@ -951,3 +951,25 @@ read on every request; absent until the owner installs it, and the webhook answe
 
 Today nothing in the stack calls `prepare()`: the only mail is Supabase Auth's, through Resend's SMTP relay, and Resend's
 own suppression list covers it. Tests: `lapse_accounts/tests/test_legal_pages.py`, `lapse_accounts/tests/test_mail.py`.
+
+## 2026-10-20 pending approval: the assignee name as printed on the grant (PatentRef 1.10.0, the finding of gate 1.2)
+
+Not deployed; on branch `wave4-assignee` (from wave4-registry2 af677bb, which deploys first). It goes live only through
+`C:\anitw\assignee_deploy.ps1` (reloads only, no migration). The owner's hand check of 50 random patents against Google
+Patents found 47 matches; the three others (7437596, 6859933, D665494) carry PatentsView's disambiguated organization, one
+label for a whole cluster (SAMSUNG DISPLAY CO., LTD. names 174,536 patents back to 1984), where the grant prints another
+name (Siemens Building Technologies, Inc.; Samsung Electronics, Co., Ltd.; ResMed Limited, each read on the USPTO grant
+PDF, field 73). The disambiguated fields stay exactly as they are; the names as printed come beside them.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_tools/build_sample.py` | stages `g_assignee_not_disambiguated` (table `asr`, key `(patent_id, assignee_sequence)`, a repeated key keeps its first row) and joins it into `patents__assignees` and the `assignees` records as `raw_assignee_individual_name_first`, `raw_assignee_individual_name_last`, `raw_assignee_organization`, after the upstream columns; the record takes the names printed on its most recent patent, the patent its other names come from; `_lapse_fields` types them keyword; no index, trigram table or value stats; row counts unchanged | the release of 2026-04-10: 8,751,310 rows in each assignee file, every key in both, none repeated, the same assignee_id on every joined row; the printed organization differs in text from the disambiguated one on 4,006,974 rows (mostly case and punctuation) |
+| `API/search_sqlite.py` | `PRINTED_FIELDS`, `ADDED_FIELDS`: a whole group (`assignees`, `assignees.*`) leaves them out like `disambiguated`; f naming one returns it on every row; on a file built before them the keys come back null (`IndexMeta.absent`, selected as NULL); q or s on one answers 400 ERR_Q "Invalid field: <field> is returned with f only; it cannot be queried or sorted in this version" | the default answers and the contract stay upstream's; nothing indexes the new columns |
+| `API/endpoints/patent_endpoint_configuration.py`, `assignee_endpoint_configuration.py` | the three CharFields on the assignee nested serializer and on the assignee record, not in any default f | |
+| `lapse_tools/compat/run_contract.py` | three extra checks: the printed name with f only, a whole group without it, q on it answers 400 | they hold on a file with or without the columns |
+
+The names come from the bulk file the refresh runner fetches from the USPTO Open Data Portal (PVGPATDIS); the patentref
+side adds it to the build inputs and its header to the format tripwire, and the weekly grant overlay copies a week's names
+as printed into the same columns. The first build after the deploy loads it; until then f naming them answers null.
+Tests: `lapse_tools/tests/test_printed_names.py` (a build from five small zips), `lapse_accounts/tests/test_printed_names.py`
+(both endpoints, on a file with and without the columns).

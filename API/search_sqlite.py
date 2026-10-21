@@ -43,6 +43,15 @@ logger = logging.getLogger("API")
 KEYWORD_IGNORE_ABOVE = 256
 # PatentRef 4.7: the flag on inventor, assignee and attorney rows (lapse/grants.py in the patentref repo adds it)
 FLAG_FIELD = "disambiguated"
+# PatentRef 1.10.0: the assignee's name as printed on the grant, beside PatentsView's disambiguated name. Columns named as
+# in PatentsView's g_assignee_not_disambiguated (lapse_tools/build_sample.py loads it; the weekly grant XML fills them for
+# the weeks no release covers yet). They sit in the assignees group of /api/v1/patent/ and on /api/v1/assignee/ records,
+# are returned only when f names them (then on every row, null where the file in service has no such column yet) and
+# answer 400 ERR_Q in q or s: no index serves them.
+PRINTED_FIELDS = ("raw_assignee_individual_name_first", "raw_assignee_individual_name_last", "raw_assignee_organization")
+PRINTED_AT = {"patents": "assignees", "assignees": None}  # index -> the group that holds them (None: the record itself)
+# PatentRef additions a whole group (f names "assignees" or "assignees.*") leaves out, so it answers upstream's keys
+ADDED_FIELDS = (FLAG_FIELD,) + PRINTED_FIELDS
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 # a character no token holds (tokens are runs of \w); in a wildcard pattern * and ? are the operators, not text
 _NON_TOKEN_RE = re.compile(r"[^\w*?]", re.UNICODE)
@@ -310,6 +319,16 @@ class IndexMeta:
                 self.nested[path] = t
                 self.child_columns[path] = [r[1] for r in con.execute(f'PRAGMA {sch}.table_info("{t}")')
                                             if r[1] not in ("_pid", "_ord")]
+        # the printed names (PatentRef 1.10.0) on a file built before them: listed as columns so f can name them, and
+        # selected as NULL (search below), so a request answers the same keys on every data version
+        self.absent = set()  # (path or None, column) listed here but not in the file
+        if idx in PRINTED_AT:
+            at = PRINTED_AT[idx]
+            have = self.columns if at is None else self.child_columns.get(at)
+            for c in PRINTED_FIELDS if have is not None else ():
+                if c not in have:
+                    have.append(c)
+                    self.absent.add((at, c))
         # virtual nested groups (PatentRef 2.9): served from the attached catalog, not from a child table;
         # they appear in f like any group and are refused in q and s (Translator.q_nested, _sort_spec)
         self.virtual = {}
@@ -471,6 +490,10 @@ class Translator:
         keyword = False
         if name.endswith(".keyword"):
             name, keyword = name[:-8], True
+        if name in PRINTED_FIELDS:
+            from API.lapse_errors import LapseBadRequest
+
+            raise LapseBadRequest(f"Invalid field: {path + '.' if path else ''}{name} is returned with f only; it cannot be queried or sorted in this version")
         cols = self.meta.columns_of(path)
         if name not in cols:
             return None  # unmapped field: ES term-level queries on it match nothing
@@ -1387,6 +1410,10 @@ class LapseSQLiteSearch:
                 from API.lapse_errors import LapseBadRequest
 
                 raise LapseBadRequest(f"Invalid field: the '{name.split('.', 1)[0]}' group is returned with f only; it cannot be queried or sorted in this version")
+            if name in PRINTED_FIELDS:
+                from API.lapse_errors import LapseBadRequest
+
+                raise LapseBadRequest(f"Invalid field: {name} is returned with f only; it cannot be queried or sorted in this version")
             if name not in meta.columns or (keyword and not meta.type_of(None, name)[1]):
                 # ES: No mapping found for [x] in order to sort on (query_shard_exception, surfaced as 500)
                 raise es_error("query_shard_exception", f"No mapping found for [{field}] in order to sort on")
@@ -1475,17 +1502,19 @@ class LapseSQLiteSearch:
         PatentRef 4.7 and 2.7: a whole group (f names `inventors`, or `inventors.*`) carries the upstream columns
         only; the `disambiguated` flag column is added only when f names it as a subfield. Which keys a row of a
         group carries then depends on the request alone, never on the row, so every row of a group has the same
-        keys (the R package binds the rows of a group into one table and stops on a second key set)."""
+        keys (the R package binds the rows of a group into one table and stops on a second key set). The printed
+        names (PatentRef 1.10.0) follow the same rule, and on a record (/api/v1/assignee/) a pattern never picks
+        them: f names them one by one."""
         top, nested = [], {}
         pats = list(fields) if fields else ["*"]
         for c in meta.columns:
-            if any(p == c or fnmatch.fnmatchcase(c, p) for p in pats):
+            if any(p == c or (c not in ADDED_FIELDS and fnmatch.fnmatchcase(c, p)) for p in pats):
                 top.append(c)
         for path, cols in meta.child_columns.items():
             subs = [c for c in cols if any(p.startswith(path + ".") and p != path + ".*"
                                            and fnmatch.fnmatchcase(path + "." + c, p) for p in pats)]
             if any(p == path or fnmatch.fnmatchcase(path, p) or p == path + ".*" for p in pats):
-                nested[path] = [c for c in cols if c != FLAG_FIELD or c in subs]
+                nested[path] = [c for c in cols if c not in ADDED_FIELDS or c in subs]
                 continue
             if subs:
                 nested[path] = subs
@@ -1574,7 +1603,8 @@ class LapseSQLiteSearch:
             ix = (meta.lead_index if meta.wide else meta.single_index).get(sort_spec[0][0].column)
             if ix:
                 hint = f' INDEXED BY "{ix}"'
-        sql = (f'SELECT {", ".join(chr(34) + c + chr(34) for c in select_cols)} FROM "{meta.table}" m{hint} '
+        sel = ", ".join("NULL" if (None, c) in meta.absent else chr(34) + c + chr(34) for c in select_cols)
+        sql = (f'SELECT {sel} FROM "{meta.table}" m{hint} '
                f"WHERE {where} ORDER BY {', '.join(order)} LIMIT {size}")
         try:
             rows = self._run(sql, params)
@@ -1599,7 +1629,8 @@ class LapseSQLiteSearch:
                 # PatentRef 4.7: `disambiguated` (0 on names taken as printed from the weekly grant XML, 1 by the
                 # column default on every PatentsView row) is in `cols` only when f names it (_wanted), and then
                 # on every row, true or false; a whole-group request answers upstream's keys on every row
-                q = (f'SELECT "_pid", {", ".join(chr(34) + c + chr(34) for c in cols)} FROM "{child}" '
+                sel = ", ".join("NULL" if (path, c) in meta.absent else chr(34) + c + chr(34) for c in cols)
+                q = (f'SELECT "_pid", {sel} FROM "{child}" '
                      f'WHERE "_pid" IN ({marks}) ORDER BY "_pid", "_ord"')
                 for rec in con.execute(q, ids):
                     obj = {c: self._convert(meta, path, c, v) for c, v in zip(cols, rec[1:])}
