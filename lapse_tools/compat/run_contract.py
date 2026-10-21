@@ -277,6 +277,29 @@ def run_example(base, key, ex):
     return reasons, notes, js
 
 
+def printed_name_checks(base, key, rec, call=call):
+    """PatentRef 1.10.0: the assignee name as printed on the grant comes only when f names it, beside the disambiguated
+    name and on every row of the group (null on a file built before it); a whole group keeps upstream's keys; the
+    assignee record carries it with f only; q on it answers 400. Each result goes to rec(name, ok, detail)."""
+    P = "/api/v1/patent/"
+    raw = "raw_assignee_organization"
+    page = {"q": {"_gte": {"patent_date": "2020-01-07"}}, "s": [{"patent_id": "asc"}], "o": {"size": 25}}
+    s, h, j, _ = call(base, key, "GET", P, params=dict(page, f=["patent_id", "assignees.assignee_organization", "assignees." + raw]))
+    keys = {tuple(sorted(a)) for p in (j or {}).get("patents") or [] for a in p.get("assignees") or []}
+    rec("printed assignee name with f only", s == 200 and keys == {("assignee_organization", raw)}, f"status {s}, key sets {sorted(keys)}")
+    s, h, j, _ = call(base, key, "GET", P, params=dict(page, f=["patent_id", "assignees"]))
+    keys = {k for p in (j or {}).get("patents") or [] for a in p.get("assignees") or [] for k in a}
+    rec("whole assignees group without the printed names", s == 200 and bool(keys) and not any(k.startswith("raw_") for k in keys),
+        f"status {s}, keys {sorted(keys)}")
+    s, h, j, _ = call(base, key, "GET", P, params={"q": {"assignees." + raw: "ResMed Limited"}, "f": ["patent_id"]})
+    rec("q on the printed assignee name -> 400", s == 400 and h.get("X-Status-Reason-Code") == "ERR_Q" and j == {"error": True}
+        and "is returned with f only" in (h.get("X-Status-Reason") or ""), f"status {s}, X-Status-Reason={h.get('X-Status-Reason')!r}")
+    s, h, j, _ = call(base, key, "GET", "/api/v1/assignee/", params={"q": {"_begins": {"assignee_organization": "Samsung"}},
+                                                                    "f": ["assignee_id", raw], "o": {"size": 5}})
+    keys = {tuple(sorted(a)) for a in (j or {}).get("assignees") or []}
+    rec("assignee record with the printed name, f only", s == 200 and keys == {("assignee_id", raw)}, f"status {s}, key sets {sorted(keys)}")
+
+
 def extra_checks(base, key, db_path):
     out = []
 
@@ -312,20 +335,7 @@ def extra_checks(base, key, db_path):
         f"status {s}, {h.get('X-Status-Reason')!r}")
     s, h, j, _ = call(base, key, "GET", "/api/v1/patent/NOTAPATENT/")
     rec("detail miss -> 404", s == 404, f"status {s}")
-    # PatentRef 1.10.0: the assignee name as printed on the grant comes only when f names it, beside the disambiguated
-    # name and on every row of the group (null on a file built before it); a whole group keeps upstream's keys; q on it is 400
-    raw = "raw_assignee_organization"
-    page = {"q": {"_gte": {"patent_date": "2020-01-07"}}, "s": [{"patent_id": "asc"}], "o": {"size": 25}}
-    s, h, j, _ = call(base, key, "GET", P, params=dict(page, f=["patent_id", "assignees.assignee_organization", "assignees." + raw]))
-    keys = {tuple(sorted(a)) for p in (j or {}).get("patents") or [] for a in p.get("assignees") or []}
-    rec("printed assignee name with f only", s == 200 and keys == {("assignee_organization", raw)}, f"status {s}, key sets {sorted(keys)}")
-    s, h, j, _ = call(base, key, "GET", P, params=dict(page, f=["patent_id", "assignees"]))
-    keys = {k for p in (j or {}).get("patents") or [] for a in p.get("assignees") or [] for k in a}
-    rec("whole assignees group without the printed names", s == 200 and bool(keys) and not any(k.startswith("raw_") for k in keys),
-        f"status {s}, keys {sorted(keys)}")
-    s, h, j, _ = call(base, key, "GET", P, params={"q": {"assignees." + raw: "ResMed Limited"}, "f": ["patent_id"]})
-    rec("q on the printed assignee name -> 400", s == 400 and h.get("X-Status-Reason-Code") == "ERR_Q" and j == {"error": True}
-        and "is returned with f only" in (h.get("X-Status-Reason") or ""), f"status {s}, X-Status-Reason={h.get('X-Status-Reason')!r}")
+    printed_name_checks(base, key, rec)
     s, h, j, _ = call(base, key, "GET", P, params={"q": {"_gte": {"patent_date": "1976-01-01"}}, "o": {"size": 1001}})
     rec("o.size 1001 capped at 1000", s == 200 and j["count"] == 1000 and j["total_hits"] > 1000,
         f"status {s}, count {j and j.get('count')}, total_hits {j and j.get('total_hits')}")

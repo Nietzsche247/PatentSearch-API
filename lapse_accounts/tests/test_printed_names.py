@@ -66,7 +66,8 @@ def build_db(path, printed=True):
         con.execute(f"INSERT INTO patents__assignees VALUES ({','.join('?' * len(v))})", v)
     ents = [("a-siemens", None, None, "SIEMENS BUILDING TECHNOLOGIES AG", 812, None, None, "Siemens Building Technologies, Inc."),
             ("a-sdc", None, None, "SAMSUNG DISPLAY CO., LTD.", 174536, None, None, "Samsung Display Co., Ltd"),
-            ("a-wolf-d", "Diana F.", "Wolf", None, 1, "Diana F.", "Wolf", None)]
+            ("a-wolf-d", "Diana F.", "Wolf", None, 1, "Diana F.", "Wolf", None),
+            ("a-sec", None, None, "Samsung Electronics Co., Ltd.", 200000, None, None, "SAMSUNG ELECTRONICS CO., LTD.")]
     for e in ents:
         v = e if printed else e[:5]
         con.execute(f"INSERT INTO assignees VALUES ({','.join('?' * len(v))})", v)
@@ -192,3 +193,29 @@ def test_every_row_of_the_group_has_one_key_set(client, user_key, env):
         got = by_id(get(client, key, "/api/v1/patent/", ALL, f))
         keys = {tuple(sorted(row)) for p in got.values() for row in p.get("assignees", [])}
         assert len(keys) == 1, (f, keys)
+
+
+def test_contract_runner_checks_pass(client, user_key, env):
+    """The four checks lapse_tools/compat/run_contract.py adds for the printed names (every build's contract run and the
+    daily probe read them) pass on both files, run through this server."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("run_contract_t", Path(__file__).resolve().parents[2] / "lapse_tools" / "compat" / "run_contract.py")
+    rc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rc)
+    _, key, _ = user_key
+
+    def call(base, k, method, path, params=None, **kw):
+        r = client.get(path, {a: (v if isinstance(v, str) else json.dumps(v)) for a, v in (params or {}).items()}, HTTP_X_API_KEY=k)
+        try:
+            js = r.json()
+        except ValueError:
+            js = None
+        return r.status_code, dict(r.headers), js, 0.0
+
+    out = []
+    rc.printed_name_checks("http://test", key, lambda name, ok, detail: out.append((name, ok, detail)), call=call)
+    assert [n for n, _, _ in out] == ["printed assignee name with f only", "whole assignees group without the printed names",
+                                      "q on the printed assignee name -> 400", "assignee record with the printed name, f only"]
+    assert all(ok for _, ok, _ in out), out
