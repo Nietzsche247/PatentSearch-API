@@ -63,6 +63,11 @@ ERROR_CODES = {
                            "(the classifications come with each patent on /api/v1/patent/). A 501 does not count toward the monthly allowance.",
     "ERR_AUTH": "401 Unauthorized. The account endpoints need Authorization: Bearer <Supabase access token>; the token is missing, expired or not from the PatentRef project.",
     "ERR_SIGNUP_LIMIT": "429 Too Many Requests. More than the daily number of new accounts from one email domain; try after the Retry-After seconds.",
+    "ERR_TERMS": "403 Forbidden. POST /api/v1/meta/keys/ mints or rotates a key only once the PatentRef Terms of Service, Privacy Policy "
+                 "and Acceptable Use Policy are accepted (https://patentref.io/docs/legal/terms, /docs/legal/privacy, /docs/legal/acceptable-use). "
+                 "Read them, then send {\"terms_version\": \"<version>\"} in the body; the body of the 403 names the current version and the links, "
+                 "and the box on the sign-up page sends it. An account that accepted the current version at sign-up or with its last key needs "
+                 "nothing more. Keys minted before the terms were asked keep working.",
     "THROTTLED": "429 Too Many Requests. Over the per-minute allowance (45 for a Free key, a fixed UTC clock minute) or the monthly allowance (1,000). "
                  "Retry-After says when the window resets; the body is DRF's 'Request was throttled. Expected available in N seconds.' "
                  "What counts toward the month: keyed requests to data paths answered below 500 other than 403 and 429 (400 and 404 count); "
@@ -75,7 +80,7 @@ ERROR_CODES = {
 # Which codes the X-Status-Reason-Code header carries, and which appear only as the problem details code. Kept in step with
 # openapi.json components.headers.X-Status-Reason-Code and llms-full.txt section 5 (patentref tools/gen_openapi.py).
 ERROR_INDEX_NOTE = ("The X-Status-Reason-Code header carries ERR_Q, ERR_ES and ERR_NOT_IMPLEMENTED on the data endpoints; NOT_FOUND on "
-                    "/api/v1/lapse/status/ for a v that never existed; ERR_KEY, ERR_AUTH and ERR_SIGNUP_LIMIT on the account endpoints under "
+                    "/api/v1/lapse/status/ for a v that never existed; ERR_KEY, ERR_AUTH, ERR_SIGNUP_LIMIT and ERR_TERMS on the account endpoints under "
                     "/api/v1/meta/. A data endpoint's 403 and 429 and a detail route's 404 carry no code header, as upstream; the problem "
                     "details body names them ERR_KEY, THROTTLED and NOT_FOUND.")
 

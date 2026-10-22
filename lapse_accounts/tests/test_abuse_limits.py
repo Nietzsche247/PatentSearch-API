@@ -354,8 +354,9 @@ def test_request_budget_interrupts(client, free_key, monkeypatch):
 
 
 # ---- 8. sign-ups per email domain
-def _mint(client, token):
-    return client.post("/api/v1/meta/keys/", data="{}", content_type="application/json", HTTP_AUTHORIZATION="Bearer " + token)
+def _mint(client, token):   # with the terms accepted (PatentRef 5.11; the gate itself is tested in test_terms_gate.py)
+    return client.post("/api/v1/meta/keys/", data=json.dumps({"terms_version": settings.LAPSE_TERMS_VERSION}), content_type="application/json",
+                       HTTP_AUTHORIZATION="Bearer " + token)
 
 
 def test_disposable_domains_refused(client, token_factory):

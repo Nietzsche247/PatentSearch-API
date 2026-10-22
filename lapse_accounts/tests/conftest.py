@@ -132,7 +132,8 @@ def user_key(client, token_factory):
     """A fresh Supabase user (token) with a freshly minted Free key: (token, key value, prefix)."""
     sub = str(uuid.uuid4())
     token = token_factory(sub=sub, email=f"user-{sub[:8]}@example.test")
-    r = client.post("/api/v1/meta/keys/", data="{}", content_type="application/json", HTTP_AUTHORIZATION="Bearer " + token)
+    r = client.post("/api/v1/meta/keys/", data=json.dumps({"terms_version": settings.LAPSE_TERMS_VERSION}), content_type="application/json",
+                    HTTP_AUTHORIZATION="Bearer " + token)
     assert r.status_code == 201, r.content
     body = r.json()
     return token, body["api_key"], body["prefix"]

@@ -20,6 +20,10 @@ class AccountKey(models.Model):
     plan = models.CharField(max_length=32, choices=PLANS, default=PLAN_FREE)
     created_at = models.DateTimeField(auto_now_add=True)
     rotated_from = models.CharField(max_length=16, blank=True, default="", help_text="prefix of the key this one replaced")
+    # the terms gate (PatentRef 5.11): the terms version the account accepted when this key was minted, and when; null on the
+    # keys minted before the gate (they keep working; the next mint or rotation asks for the terms)
+    terms_version = models.CharField(max_length=40, null=True, blank=True)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=["supabase_user_id", "plan"])]

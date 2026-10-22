@@ -23,13 +23,16 @@
     dd { margin: 0; }
     .hidden { display: none; }
     .tabs { display: flex; gap: var(--s-2); margin-bottom: var(--s-3); }
+    .terms-box { display: flex; gap: var(--s-2); align-items: flex-start; margin: 0 0 var(--s-3); }
+    .terms-box input { flex: none; width: var(--s-4); height: var(--s-4); margin: 0; }
+    .terms-box label { margin: 0; font-size: var(--t-sm); }
     .tabs button { margin: 0; }
     .tabs button[aria-selected=true] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
     @media (max-width: 420px) { dl { grid-template-columns: 1fr; } button { width: 100%; margin-right: 0; } }
 {% endblock %}
 {% block body %}
     <h1>Free API key</h1>
-    <p class="lead">A Free key allows {{ monthly_limit }} requests a month and {{ per_minute_limit }} a minute on the PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Create an account, confirm your email, sign in, mint the key.</p>
+    <p class="lead">A Free key allows {{ monthly_limit }} requests a month and {{ per_minute_limit }} a minute on the PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Create an account, confirm your email, sign in, accept the terms, mint the key.</p>
 
     <div id="auth" class="card">
       <div class="tabs" role="tablist">
@@ -43,6 +46,7 @@
         <input id="su-email" type="email" autocomplete="email" required>
         <label for="su-password">Password (at least 8 characters)</label>
         <input id="su-password" type="password" autocomplete="new-password" minlength="8" required>
+        <div class="terms-box"><input id="su-terms" type="checkbox" required><label for="su-terms">I have read and accept the PatentRef <a href="/docs/legal/terms">Terms of Service</a>, <a href="/docs/legal/privacy">Privacy Policy</a> and <a href="/docs/legal/acceptable-use">Acceptable Use Policy</a> (version {{ terms_version }}).</label></div>
         <button type="submit" id="su-btn">Create account</button>
         <p class="lead">You will get one email with a confirmation link. Open it, then sign in here.</p>
       </form></div>
@@ -63,6 +67,7 @@
         <dt>Plan</dt><dd>Free: {{ monthly_limit }} requests a month, {{ per_minute_limit }} a minute</dd>
       </dl>
       <div id="key-msg" class="msg" role="status" aria-live="polite"></div>
+      <div class="terms-box"><input id="key-terms" type="checkbox" required><label for="key-terms">I have read and accept the PatentRef <a href="/docs/legal/terms">Terms of Service</a>, <a href="/docs/legal/privacy">Privacy Policy</a> and <a href="/docs/legal/acceptable-use">Acceptable Use Policy</a> (version {{ terms_version }}). A key is minted or rotated only with this box ticked.</label></div>
       <div id="key-none">
         <p>No key yet.</p>
         <button type="button" id="key-create">Create my Free key</button>
@@ -112,6 +117,7 @@
     var SUPABASE_URL = "{{ supabase_url|escapejs }}";
     var SUPABASE_ANON_KEY = "{{ supabase_anon_key|escapejs }}";
     var PAGE_URL = "{{ page_url|escapejs }}";
+    var TERMS_VERSION = "{{ terms_version|escapejs }}";
     var $ = function (id) { return document.getElementById(id); };
     var authMsg = $("auth-msg"), keyMsg = $("key-msg");
 
@@ -139,8 +145,10 @@
     $("form-signup").onsubmit = function (ev) {
       ev.preventDefault();
       var email = $("su-email").value.trim(), password = $("su-password").value;
+      if (!$("su-terms").checked) { say(authMsg, "err", "Tick the box to accept the terms first."); $("su-terms").focus(); return; }
       busy($("su-btn"), true); say(authMsg, "warn", "Creating the account...");
-      client.auth.signUp({ email: email, password: password, options: { emailRedirectTo: PAGE_URL } }).then(function (res) {
+      client.auth.signUp({ email: email, password: password, options: { emailRedirectTo: PAGE_URL,
+        data: { terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() } } }).then(function (res) {
         busy($("su-btn"), false);
         if (res.error) { say(authMsg, "err", res.error.message); return; }
         var u = res.data && res.data.user;
@@ -204,8 +212,9 @@
     }
 
     function mint(action) {
+      if (!$("key-terms").checked) { say(keyMsg, "err", "Tick the box to accept the terms first: a key is minted only after the terms are accepted."); $("key-terms").focus(); return; }
       say(keyMsg, "warn", action === "rotate" ? "Rotating the key..." : "Creating the key...");
-      api("POST", "/api/v1/meta/keys/", token(), { action: action }).then(function (j) {
+      api("POST", "/api/v1/meta/keys/", token(), { action: action, terms_version: TERMS_VERSION }).then(function (j) {
         if (j._status !== 200 && j._status !== 201) { say(keyMsg, "err", j._reason || ("Request failed (HTTP " + j._status + ")")); return; }
         if (j.api_key) {
           $("key-value").textContent = j.api_key;

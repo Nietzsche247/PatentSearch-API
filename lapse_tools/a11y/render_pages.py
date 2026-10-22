@@ -4,8 +4,8 @@
   node lapse_tools/a11y/axe_check.js <out dir>
 
 Uses the test settings of lapse_accounts/tests/conftest.py (a temporary Django database and a three-row search file), the
-legal documents of the patentref checkout (default: the sibling directory named patentref, lapse, pr or trust), and
-sample contexts for the record page (with the family block and the superseded banner) and the unsubscribe page. Each page
+legal documents of the patentref checkout (default: the sibling directory named patentref, lapse, pr or trust), the
+sign-up page also as a signed-in account sees it (the terms box and the key buttons; with a key shown), and sample contexts for the record page (with the family block and the superseded banner) and the unsubscribe page. Each page
 is written as it is served; nothing outside <out dir> and a temporary directory is touched.
 """
 import sys
@@ -48,6 +48,19 @@ def main(out, repo=None):
         r = c.get(path)
         assert r.status_code == 200, (path, r.status_code)
         (out / f"{name}.html").write_bytes(r.content)
+    # the sign-up page as a signed-in account sees it: the key box and the key buttons (the script shows them after sign-in)
+    signup = (out / "signup.html").read_text(encoding="utf-8")
+    swaps = [('<div id="auth" class="card">', '<div id="auth" class="card hidden">'),
+             ('<div id="account" class="card hidden">', '<div id="account" class="card">')]
+    for a, b in swaps:
+        assert signup.count(a) == 1, a
+        signup = signup.replace(a, b)
+    (out / "signup_account.html").write_text(signup, encoding="utf-8")
+    for a, b in [('<div id="key-none">', '<div id="key-none" class="hidden">'), ('<div id="key-have" class="hidden">', '<div id="key-have">'),
+                 ('<div id="key-show" class="hidden">', '<div id="key-show">')]:
+        assert signup.count(a) == 1, a
+        signup = signup.replace(a, b)
+    (out / "signup_key.html").write_text(signup, encoding="utf-8")
     r = c.post(tok, {"List-Unsubscribe": "One-Click", "from_page": "1"})
     (out / "unsubscribe_done.html").write_bytes(r.content)
     r = c.get("/u/" + "x" * 32)

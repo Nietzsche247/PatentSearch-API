@@ -69,6 +69,9 @@ LAPSE_TEXT_PATH = os.environ.get("LAPSE_TEXT_PATH", "/data/api/text_current.db")
 LAPSE_LICENSES_PATH = os.environ.get("LAPSE_LICENSES_PATH", "/srv/lapse/LICENSES.md")
 # The legal pages at /docs/legal/ (PatentRef 5.11 and 5.12, lapse_accounts/legal.py): the Markdown in the patentref clone
 LAPSE_LEGAL_DIR = os.environ.get("LAPSE_LEGAL_DIR", str(Path(LAPSE_REPO_DIR) / "docs" / "legal"))
+# The terms gate of the key sign-up (PatentRef 5.11, lapse_accounts/views.py): the version of docs/legal/terms.md an account must
+# accept before a key is minted; the same value as the registry's terms gate (registry/py/patentref_registry/terms.py)
+LAPSE_TERMS_VERSION = os.environ.get("LAPSE_TERMS_VERSION", "beta-2")
 # Outbound mail rules (PatentRef 5.16, lapse_accounts/mail.py): the suppression and unsubscribe state, the public base of
 # the unsubscribe URLs, and the file holding Resend's webhook signing secret (read on every request; absent: 503)
 LAPSE_EMAIL_DB = os.environ.get("LAPSE_EMAIL_DB", str(_DATA / "email.sqlite3"))

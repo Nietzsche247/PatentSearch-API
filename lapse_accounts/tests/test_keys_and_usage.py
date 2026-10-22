@@ -11,8 +11,12 @@ PATENT_Q = '/api/v1/patent/?q={"patent_id":"10000000"}'
 JSON = "application/json"
 
 
-def post_keys(client, token, body=None):
-    return client.post("/api/v1/meta/keys/", data=json.dumps(body or {}), content_type=JSON, HTTP_AUTHORIZATION="Bearer " + token)
+def post_keys(client, token, body=None):   # with the terms accepted (PatentRef 5.11; the gate itself is in test_terms_gate.py)
+    from django.conf import settings
+
+    b = {"terms_version": settings.LAPSE_TERMS_VERSION}
+    b.update(body or {})
+    return client.post("/api/v1/meta/keys/", data=json.dumps(b), content_type=JSON, HTTP_AUTHORIZATION="Bearer " + token)
 
 
 def test_keys_requires_bearer(client):

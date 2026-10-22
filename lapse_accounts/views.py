@@ -3,11 +3,15 @@
   GET  /api/v1/meta/signup/   the sign-up and account page (HTML; Supabase Auth runs in the browser)
   GET  /api/v1/meta/keys/     Bearer <Supabase access token>: the caller's keys (prefixes, never secrets)
   POST /api/v1/meta/keys/     Bearer: mint the caller's Free key, or {"action": "rotate"} to replace it;
-                              the key value is in the response once and never again
+                              the key value is in the response once and never again. Minting needs the terms
+                              (PatentRef 5.11): {"terms_version": "<the current version>"} in the body, or an account
+                              that accepted that version at sign-up (Supabase user metadata) or with its last key;
+                              otherwise 403 ERR_TERMS with the links. Keys minted before the gate keep working.
   GET  /api/v1/meta/usage/    X-Api-Key or Bearer: this month's count, limits and the reset time
 
 Errors keep the upstream shape: body {"error": true} plus X-Status-Reason and X-Status-Reason-Code
-(ERR_AUTH for a missing or bad token, ERR_KEY for a missing or revoked API key, ERR_Q for a bad body).
+(ERR_AUTH for a missing or bad token, ERR_KEY for a missing or revoked API key, ERR_Q for a bad body, ERR_TERMS for a
+mint without the terms accepted).
 """
 import os
 from datetime import datetime, timezone
@@ -124,6 +128,50 @@ def signup_domain_check(email, now=None):
     return None
 
 
+# ---- the terms gate (PatentRef 5.11), the same terms and version as the registry's (registry/py/patentref_registry/terms.py)
+TERMS_PAGES = {"terms": "/docs/legal/terms", "privacy": "/docs/legal/privacy", "acceptable_use": "/docs/legal/acceptable-use"}
+
+
+def terms_version():
+    return getattr(settings, "LAPSE_TERMS_VERSION", "beta-2")
+
+
+def _parse_time(v):
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def terms_acceptance(body, claims, user_id):
+    """(version, accepted_at) when the caller accepted the current terms, else None. Sources, in order: the mint request
+    itself ("terms_version" in the body, the box on the sign-up page), the account's Supabase user metadata (set at the
+    registry's or this page's sign-up), the account's last key record."""
+    want = terms_version()
+    now = datetime.now(timezone.utc)
+    if str(body.get("terms_version") or "") == want:
+        return want, now
+    meta = claims.get("user_metadata") if isinstance(claims.get("user_metadata"), dict) else {}
+    if str(meta.get("terms_version") or "") == want:
+        return want, _parse_time(meta.get("terms_accepted_at")) or now
+    last = AccountKey.objects.filter(supabase_user_id=user_id, terms_version=want).order_by("-created_at").first()
+    if last is not None:
+        return want, last.terms_accepted_at or now
+    return None
+
+
+def terms_refusal(request):
+    base = getattr(settings, "LAPSE_PUBLIC_BASE", "https://patentref.io").rstrip("/")
+    want = terms_version()
+    resp = Response(status=status.HTTP_403_FORBIDDEN, data={
+        "error": True, "terms_version": want, "terms": {k: base + v for k, v in TERMS_PAGES.items()},
+        "how": f'Read the terms, then send {{"terms_version": "{want}"}} with the request (the box on the sign-up page does it).'},
+        headers={"X-Status-Reason": f"Accept the PatentRef terms (version {want}) before a key is minted: {base}/docs/legal/terms",
+                 "X-Status-Reason-Code": "ERR_TERMS"})
+    return resp
+
+
 def _active_account(user_id):
     return (
         AccountKey.objects.filter(supabase_user_id=user_id, api_key__revoked=False)
@@ -145,6 +193,7 @@ def _key_info(acct, created=False, secret=None):
         "per_minute_limit": per_minute,
         "created_at": acct.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "rotated_from": acct.rotated_from or None,
+        "terms_version": acct.terms_version,
         "note": ("Store this key now; it is shown once." if secret else "The key value was shown once at creation. POST {\"action\": \"rotate\"} for a new one."),
     }
 
@@ -175,6 +224,7 @@ class KeysView(MetaAPIView):
                     "revoked": a.api_key.revoked,
                     "created_at": a.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "rotated_from": a.rotated_from or None,
+                    "terms_version": a.terms_version,
                 }
                 for a in rows
             ],
@@ -193,6 +243,9 @@ class KeysView(MetaAPIView):
             current = _active_account(user_id)
             if current and action == "create":
                 return Response(_key_info(current))
+            accepted = terms_acceptance(body, claims, user_id)
+            if accepted is None:
+                return terms_refusal(request)
             if current is None and not AccountKey.objects.filter(supabase_user_id=user_id).exists():
                 # a new account's first key (gate 5.6): known disposable domains refused, any domain capped per day
                 err = signup_domain_check(email)
@@ -205,7 +258,8 @@ class KeysView(MetaAPIView):
                 rotated_from = current.prefix
             name = f"{PLAN_FREE}:{user_id[:8]}:{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
             obj, secret = APIUserKey.objects.create_key(name=name, username=email, email=email)
-            acct = AccountKey.objects.create(api_key=obj, supabase_user_id=user_id, email=email, plan=PLAN_FREE, rotated_from=rotated_from)
+            acct = AccountKey.objects.create(api_key=obj, supabase_user_id=user_id, email=email, plan=PLAN_FREE, rotated_from=rotated_from,
+                                             terms_version=accepted[0], terms_accepted_at=accepted[1])
         return Response(_key_info(acct, created=True, secret=secret), status=status.HTTP_201_CREATED)
 
 
@@ -260,6 +314,7 @@ def signup_page(request):
             "per_minute_limit": per_minute,
             "page_url": request.build_absolute_uri(request.path),
             "footer_lines": public.footer_lines(),
+            "terms_version": terms_version(),
         },
     )
     resp = HttpResponse(html, content_type="text/html; charset=utf-8")

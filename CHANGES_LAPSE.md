@@ -973,3 +973,25 @@ side adds it to the build inputs and its header to the format tripwire, and the 
 as printed into the same columns. The first build after the deploy loads it; until then f naming them answers null.
 Tests: `lapse_tools/tests/test_printed_names.py` (a build from five small zips), `lapse_accounts/tests/test_printed_names.py`
 (both endpoints, on a file with and without the columns).
+
+## 2026-10-22 pending approval: the key sign-up asks for the terms (PatentRef checklist 5.11, independent audit 9)
+
+Not deployed; on branch `wave4-trust-beta3` (from sqlite-backend e07e465). It goes live only through
+`C:\anitw\trust_beta3_deploy.ps1`, with the beta-3 legal text. One migration, `lapse_accounts/0003_accountkey_terms`: two
+nullable columns on the key records (SQLite ALTER TABLE ADD COLUMN, no table rewrite, no default), applied by the deploy's
+usual migrate step. New setting `LAPSE_TERMS_VERSION` (default `beta-2`, the version of the registry's terms gate and of
+`docs/legal/terms.md`).
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/models.py`, `migrations/0003_accountkey_terms.py` | `AccountKey.terms_version`, `AccountKey.terms_accepted_at` (null on keys minted before) | the accepted version and the time, with the key's record |
+| `lapse_accounts/views.py` | POST /api/v1/meta/keys/ mints or rotates only when the current terms are accepted: `{"terms_version": "<current>"}` in the body (the box), or the account's Supabase user metadata names that version (the registry's sign-up and this page's sign-up set it), or the account's last key record does; otherwise 403 with `X-Status-Reason-Code: ERR_TERMS` and a body naming the version and the three links. A create while a key is active still returns that key's record (nothing is minted). GET lists each key's `terms_version` | audit 9: the key page minted a key with no terms box |
+| `signup.html` | a required box with the Terms of Service, Privacy Policy and Acceptable Use Policy links in the sign-up form (sent to Supabase as `terms_version` and `terms_accepted_at` in the user metadata, as the registry does) and above the key buttons (sent with every mint and rotation) | |
+| `lapse_accounts/public.py` | `ERR_TERMS` in the error index (`/docs/errors/ERR_TERMS`) and in the header note | |
+| `lapse_tools/a11y/render_pages.py` | the sign-up page also as a signed-in account sees it (the key box; a key shown) | the box is checked by axe too |
+
+Keys minted before the gate keep working on every path; only a new mint or a rotation asks. Tests:
+`lapse_accounts/tests/test_terms_gate.py` (a direct POST without the box mints nothing, whatever the body; the box mints
+and stores the version and time; acceptance at sign-up counts, an older version does not; old keys keep working and a
+refused rotation leaves the old key active; the page markup; the version equals the "Version:" line of terms.md). The
+other account tests mint with the box.
