@@ -115,7 +115,7 @@ def test_otherreference_is_the_other_reference_view(client, user_key, env):
     _, key, _ = user_key
     q = {"patent_id": "10000000"}
     want = ok(get(client, key, "/api/v1/patent/other_reference/", q))
-    assert want["total_hits"] == 2 and [r["reference_sequence"] for r in want["other_references"]] == ["0", "1"]
+    assert want["total_hits"] == 2 and [r["reference_sequence"] for r in want["other_references"]] == [0, 1]
     assert ok(get(client, key, "/api/v1/patent/otherreference/", q)) == want
     assert ok(get(client, key, "/api/v1/patent/otherreference", q)) == want  # no redirect: the list route takes both forms
     r = client.post("/api/v1/patent/otherreference/", data=json.dumps({"q": q}), content_type="application/json", HTTP_X_API_KEY=key)
