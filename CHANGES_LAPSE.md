@@ -995,3 +995,22 @@ Keys minted before the gate keep working on every path; only a new mint or a rot
 and stores the version and time; acceptance at sign-up counts, an older version does not; old keys keep working and a
 refused rotation leaves the old key active; the page markup; the version equals the "Version:" line of terms.md). The
 other account tests mint with the box.
+
+## 2026-10-24 pending approval: the notebook path patent/otherreference and the size limits on the error page (PatentRef 1.13.0)
+
+Not deployed; on branch `wave4-docs71` (from sqlite-backend 334d724). It goes live only through
+`C:\anitw\docs71_deploy.ps1` (reloads only, no migration), after wave 4 O. The outside run of the PatentsView code examples
+notebook (`PatentSearch/0-patentsearch-api-demo.ipynb`, last changed 2024-12-11) against PatentRef found its endpoint table's
+`api/v1/patent/otherreference` answering 404. Upstream's release notes for 2.2.0 (`docs/blog/2024-11-06-2.2-release.md`)
+say the path was `api/v1/patent/otherreference` before that release and became `api/v1/patent/other_reference`; the
+notebook was not updated.
+
+| File | Change | Why |
+|---|---|---|
+| `API/urls.py` | `re_path("patent/otherreference/?$", OtherReferenceList.as_view())` beside the other_reference route: the same view, so the same answer, GET and POST, with or without the trailing slash. The first URL route PatentRef adds to upstream's list; every upstream route is unchanged | the notebook as written runs every cell of its endpoint table |
+| `lapse_accounts/public.py` | `/docs/errors/ERR_Q`: "q over 16 KB (16,384 bytes) in a POST body" in place of "q over 16 KB or a body over 64 KB", and the two limits that answer before the API, with no X-Status-Reason-Code: a body over 64,000 bytes answers 413 with an empty body (Caddy's `request_body max_size 64KB`, which counts 64KB as 64,000 bytes), and a GET request line over 4,094 bytes answers 400 with gunicorn's HTML page | measured 2026-10-24 on https://patentref.io: 64,000 bytes reach the API, 64,001 and 65,536 answer 413 from Caddy with or without a key, a 4,110-byte GET request line answers gunicorn's 400. The app's own cap (`LAPSE_MAX_BODY`, 65,536) stays as the backstop behind Caddy; no public request reaches it |
+
+Tests: `lapse_accounts/tests/test_docs71.py` (the alias resolves to the same view and answers the same body; raw JSON in a
+GET query string and a "+" read as a space; the trailing-slash rule; numeric strings on a number field; exact country
+codes; the inventor link beside inventor_id; disambiguated only when named; nested rows in source order; the app's body
+cap above the edge's and the error page's wording).

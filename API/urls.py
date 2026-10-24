@@ -111,6 +111,9 @@ urlpatterns = [
     path("patent/attorney/<str:pk>/", AttorneyDetail.as_view(), name="attorney-detail"),
     re_path("patent/foreign_citation/?$", ForeignCitationList.as_view()),
     re_path("patent/other_reference/?$", OtherReferenceList.as_view()),
+    # PatentRef 1.13.0: the path upstream served before its release 2.2.0 (2024-11-06), which the PatentsView code examples
+    # notebook still names; the same view, so the same answer as patent/other_reference
+    re_path("patent/otherreference/?$", OtherReferenceList.as_view()),
     re_path("patent/rel_app_text/?$", RelatedTextList.as_view()),
     path("patent/<str:pk>/", PatentDetail.as_view(), name="patent-detail"),
     re_path("patent/?$", PatentList.as_view(), name="patent-list"),

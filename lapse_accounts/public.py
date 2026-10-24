@@ -46,10 +46,12 @@ ERROR_CODES = {
     "ERR_Q": "400 Bad Request. The q, f, s or o parameter is invalid: malformed JSON in q, f, s or o; no q on a list endpoint other than the "
              "lookup endpoints (the cpc, uspc, ipc and wipo lists); more than one top-level key in q; an unknown field; a field outside the endpoint; "
              "a sort on a text field without a keyword form; q or s on the lapse group (it is returned with f only); 'offset' in o; a query over "
-             "the cost cap (100 units, 64 criteria, depth 8); q over 16 KB or a body over 64 KB. The cost cap also refuses _contains, a range or an "
+             "the cost cap (100 units, 64 criteria, depth 8); q over 16 KB (16,384 bytes) in a POST body. The cost cap also refuses _contains, a range or an "
              "empty _begins on a long-text field (claim_text, summary_text, description_text, draw_desc_text) without patent_id in the same _and: "
              "no index serves them, so they would read the whole table; use _text_any, _text_all or _text_phrase there. The X-Status-Reason "
-             "header carries the upstream text.",
+             "header carries the upstream text. Two size limits answer before the API and carry no X-Status-Reason-Code: a request body over "
+             "64,000 bytes answers 413 with an empty body, and a GET whose request line (the method, the path with its query string and the "
+             "protocol) is over 4,094 bytes answers 400 with an HTML page, so a large q goes in a POST body.",
     "ERR_KEY": "403 Forbidden. No X-Api-Key header, or the key is unknown or revoked. Get a Free key at /api/v1/meta/signup/. "
                "A data endpoint answers the upstream body {\"detail\": \"You do not have permission to perform this action.\"} with no "
                "X-Status-Reason-Code header; the code appears as that header only on the account endpoints, and in the problem details body.",
