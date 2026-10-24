@@ -69,6 +69,55 @@ def test_error_docs(client):
     assert client.get("/docs/errors/NOPE").status_code == 404
 
 
+BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+
+
+def vary(r):
+    return [v.strip() for v in r.get("Vary", "").split(",")]
+
+
+def test_error_docs_stay_plain_text_for_clients(client):
+    """Checklist 7.6: curl, HTTP libraries and agents keep the plain text, byte for byte for every Accept that does not
+    prefer text/html; Vary names Accept so a cache keeps the two forms apart."""
+    plain = client.get("/docs/errors/").content
+    assert plain.startswith(b"PatentRef API error codes (X-Status-Reason-Code; the RFC 9457 problem type is ")
+    for accept in ("*/*", "text/plain", "text/plain, text/html;q=0.5", "application/json", "application/problem+json"):
+        r = client.get("/docs/errors/", HTTP_ACCEPT=accept)
+        assert r.status_code == 200 and r["Content-Type"] == "text/plain; charset=utf-8" and r.content == plain, accept
+        assert "Accept" in vary(r) and r["Cache-Control"] == public.CACHE
+    r = client.get("/docs/errors/ERR_KEY", HTTP_ACCEPT="*/*")
+    assert r.content == f"ERR_KEY\n{public.ERROR_CODES['ERR_KEY']}\nAll codes: https://patentref.io/docs/errors/\n".encode()
+    r = client.get("/docs/errors/NOPE", HTTP_ACCEPT="*/*")
+    assert r.status_code == 404 and r.content == b"unknown code NOPE; see https://patentref.io/docs/errors/\n"
+
+
+def test_error_docs_are_a_page_for_a_browser(client):
+    """Checklist 7.6, the live axe run of 2026-10-23: the plain text opened in a browser had no language and no title (axe
+    html-has-lang and document-title, both serious). A browser gets the same text in the page skeleton instead."""
+    import html
+
+    r = client.get("/docs/errors/", HTTP_ACCEPT=BROWSER_ACCEPT)
+    page = html.unescape(r.content.decode("utf-8"))
+    assert r.status_code == 200 and r["Content-Type"] == "text/html; charset=utf-8" and "Accept" in vary(r)
+    assert '<html lang="en"' in page and "<title>API error codes | PatentRef</title>" in page and "<h1>API error codes</h1>" in page
+    assert '<main class="pr-main" id="main">' in page
+    for code, text in public.ERROR_CODES.items():
+        assert f'<a href="/docs/errors/{code}"><code>{code}</code></a>' in page and text in page, code
+    assert public.ERROR_INDEX_NOTE in page and '<link rel="canonical" href="https://patentref.io/docs/errors/">' in page
+    r = client.get("/docs/errors/err_q/", HTTP_ACCEPT=BROWSER_ACCEPT)
+    page = html.unescape(r.content.decode("utf-8"))
+    assert r.status_code == 200 and "<title>ERR_Q | PatentRef</title>" in page and public.ERROR_CODES["ERR_Q"] in page
+    assert '<link rel="canonical" href="https://patentref.io/docs/errors/ERR_Q">' in page
+    r = client.get("/docs/errors/NOPE", HTTP_ACCEPT=BROWSER_ACCEPT)
+    page = r.content.decode("utf-8")
+    assert r.status_code == 404 and "<h1>Unknown error code</h1>" in page and '<meta name="robots" content="noindex">' in page
+    for page in [client.get(p, HTTP_ACCEPT=BROWSER_ACCEPT).content.decode("utf-8") for p in ("/docs/errors/", "/docs/errors/NOPE")]:
+        low = page.lower()
+        for word in ("checklist", "gate ", "scaffold", "ops/", "handoff", "desk", "axe"):
+            assert word not in low, word
+        assert chr(0x2014) not in page
+
+
 def test_error_docs_carry_no_internal_references(client):
     """2.11 off-box run 2026-10-11, doc defect 6: the public error pages named "PatentRef checklist 1.5"."""
     pages = [client.get("/docs/errors/").content.decode("utf-8")]

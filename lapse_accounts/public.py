@@ -6,7 +6,9 @@
       truth is that repo (public/ and tools/gen_openapi.py); this app only serves the files, so no
       Caddy change and no second copy. 404 when a file is absent. No key needed.
   GET /docs/errors/ and /docs/errors/<CODE>
-      The RFC 9457 problem "type" targets: one plain-text explanation per X-Status-Reason-Code.
+      The RFC 9457 problem "type" targets: one plain-text explanation per X-Status-Reason-Code. A browser (an Accept
+      header that prefers text/html) gets the same text as a page with a language, a title and a heading (checklist 7.6);
+      every other client gets the plain text byte for byte.
   GET /api/v1/meta/
       Build facts of the snapshot in service: data_version (one per build), as_of (the newest
       release date among the build inputs), refreshed_at (when the build went into service),
@@ -30,6 +32,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
+from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET
 
 PUBLIC_FILES = {
@@ -116,21 +119,37 @@ def public_file(request, name):
     return _serve(public_dir() / name, ct)
 
 
+def wants_html(request):
+    """True when the client prefers text/html to text/plain, as a browser does. No Accept header, */* (curl, most HTTP
+    libraries) and text/plain keep the plain text."""
+    return request.get_preferred_type(["text/plain", "text/html"]) == "text/html"
+
+
 @require_GET
 def error_docs(request, code=""):
     code = (code or "").upper().strip("/")
+    status = 200
     if not code:
         body = "PatentRef API error codes (X-Status-Reason-Code; the RFC 9457 problem type is https://patentref.io/docs/errors/<CODE>)\n\n"
         body += "\n".join(f"{k}\n  {v}\n" for k, v in ERROR_CODES.items())
         body += "\n" + ERROR_INDEX_NOTE + "\n"
         body += "\nSend Accept: application/problem+json on any request to receive errors as problem details objects; the upstream body "
         body += "{\"error\": true} and the headers X-Status-Reason and X-Status-Reason-Code are the default. Full guide: https://patentref.io/llms-full.txt\n"
-        resp = HttpResponse(body, content_type="text/plain; charset=utf-8")
     elif code in ERROR_CODES:
-        resp = HttpResponse(f"{code}\n{ERROR_CODES[code]}\nAll codes: https://patentref.io/docs/errors/\n", content_type="text/plain; charset=utf-8")
+        body = f"{code}\n{ERROR_CODES[code]}\nAll codes: https://patentref.io/docs/errors/\n"
     else:
-        resp = HttpResponse(f"unknown code {code}; see https://patentref.io/docs/errors/\n", status=404, content_type="text/plain; charset=utf-8")
+        status, body = 404, f"unknown code {code}; see https://patentref.io/docs/errors/\n"
+    if wants_html(request):
+        from lapse_accounts.views import _data_version  # here, not at the top: views imports this module
+
+        version, as_of = _data_version()
+        ctx = {"code": code, "text": ERROR_CODES.get(code, ""), "unknown": status == 404, "codes": list(ERROR_CODES.items()),
+               "note": ERROR_INDEX_NOTE, "data_version": version, "as_of": as_of, "footer_lines": footer_lines()}
+        resp = HttpResponse(render_to_string("lapse_accounts/errors.html", ctx), status=status, content_type="text/html; charset=utf-8")
+    else:
+        resp = HttpResponse(body, status=status, content_type="text/plain; charset=utf-8")
     resp["Cache-Control"] = CACHE
+    resp["Vary"] = "Accept"
     return resp
 
 

@@ -5,9 +5,10 @@
 
 Uses the test settings of lapse_accounts/tests/conftest.py (a temporary Django database and a three-row search file), the
 legal documents of the patentref checkout (default: the sibling directory named patentref, lapse, pr or trust), the
-sign-up page also as a signed-in account sees it (the terms box and the key buttons; with a key shown), and sample contexts for the record page (with the family block and the superseded banner) and the unsubscribe page. Each page
+sign-up page also as a signed-in account sees it (the terms box and the key buttons; with a key shown), the error index as a browser asks for it, and sample contexts for the record page (with the family block, the superseded banner and its JSON as the view builds it), its not-found page and the unsubscribe page. Each page
 is written as it is served; nothing outside <out dir> and a temporary directory is touched.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -65,6 +66,12 @@ def main(out, repo=None):
     (out / "unsubscribe_done.html").write_bytes(r.content)
     r = c.get("/u/" + "x" * 32)
     (out / "unsubscribe_unknown.html").write_bytes(r.content)
+    # the error index as a browser asks for it (a plain-text client gets the text itself)
+    browser = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    for name, path, code in [("errors_index", "/docs/errors/", 200), ("errors_code", "/docs/errors/ERR_Q", 200), ("errors_unknown", "/docs/errors/NOPE", 404)]:
+        r = c.get(path, HTTP_ACCEPT=browser)
+        assert r.status_code == code and r["Content-Type"].startswith("text/html"), (path, r.status_code)
+        (out / f"{name}.html").write_bytes(r.content)
     from lapse_accounts import public
 
     rec = {"plain": "As of 2026-10-13, the term end computed from the dates in the USPTO record for US 4310730 is 1999-01-12 "
@@ -79,8 +86,15 @@ def main(out, repo=None):
     html = render_to_string("lapse_accounts/record.html", {
         "rec": rec, "pid": "4310730", "title": "Example title as printed", "superseded": {"requested": "20261006.4", "current": "20261013.3"},
         "data_version": "20261013.3", "as_of": "2026-10-13", "footer_lines": public.footer_lines() + [family["credit"]],
-        "family": family, "basis_text": "20 years from the filing date", "term_end_text": "", "status_json": '{"status": "expired_term"}'})
+        "family": family, "basis_text": "20 years from the filing date", "term_end_text": "",
+        # the record as JSON, built as the view builds it: its long lines are what a 320 px screen has to wrap
+        "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1)})
     (out / "record.html").write_text(html, encoding="utf-8")
+    html = render_to_string("lapse_accounts/page_error.html", {
+        "heading": "Not found", "message": "PatentRef has no record for this patent number. Check the number in the address.",
+        "link_href": "/docs/", "link_text": "PatentRef documentation", "data_version": "20261013.3", "as_of": "2026-10-13",
+        "footer_lines": public.footer_lines()})
+    (out / "record_not_found.html").write_text(html, encoding="utf-8")
     print(f"{len(list(out.glob('*.html')))} pages in {out}")
 
 

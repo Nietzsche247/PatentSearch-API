@@ -1,0 +1,7 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block body %}
+    <h1>{{ heading }}</h1>
+    <p>{{ message }}{% if link_href %} <a href="{{ link_href }}">{{ link_text }}</a>{% endif %}</p>
+{% endblock %}
