@@ -57,6 +57,23 @@ class MonthlyUsage(models.Model):
         return f"{self.subject} {self.month}: {self.count}"
 
 
+class SignupSource(models.Model):
+    """Weekly count of keys created from a sign-up link that carried a campaign code (utm_source), by code.
+
+    One row per (ISO week, code), bumped by one when POST /api/v1/meta/keys/ creates an account's key with a valid code
+    (`lapse_accounts.sources`). Nothing else: the code is never written to the key record, the account or Supabase."""
+
+    week = models.CharField(max_length=8, help_text="ISO week, YYYY-Www, UTC")
+    code = models.CharField(max_length=32)
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = [("week", "code")]
+
+    def __str__(self):
+        return f"{self.week} {self.code}: {self.count}"
+
+
 class WindowCount(models.Model):
     """Requests admitted for one subject in one fixed per-minute window (`lapse_accounts.ratelimit`).
 

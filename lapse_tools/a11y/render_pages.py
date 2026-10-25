@@ -65,7 +65,23 @@ def main(out, repo=None):
     (out / "unsubscribe_done.html").write_bytes(r.content)
     r = c.get("/u/" + "x" * 32)
     (out / "unsubscribe_unknown.html").write_bytes(r.content)
-    from lapse_accounts import public
+    from lapse_accounts import public, waitlist
+
+    # the waitlist pages (wave 4 Q1) in each state: the form as served (closed until Privacy Policy beta-4 is in force),
+    # the open form with an error, the answer after a post, and the confirmation page's two states
+    (out / "waitlist_as_served.html").write_bytes(c.get("/waitlist/").content)
+    base_ctx = {"data_version": "20261013.3", "as_of": "2026-10-13", "footer_lines": public.footer_lines(), "topics": waitlist.TOPICS.items(),
+                "is_open": True, "opens_on": "2026-11-11", "chosen": ["rules"], "unconfirmed_days": waitlist.UNCONFIRMED_DAYS,
+                "after_opening_days": waitlist.AFTER_OPENING_DAYS}
+    for name, tpl, extra in (
+            ("waitlist_form", "waitlist.html", {"state": "form"}),
+            ("waitlist_error", "waitlist.html", {"state": "error", "error": "Tick at least one box.", "email": "ann@example.org"}),
+            ("waitlist_check", "waitlist.html", {"state": "check", "email": "a***@example.org"}),
+            ("waitlist_closed", "waitlist.html", {"state": "closed", "is_open": False}),
+            ("waitlist_confirm_ask", "waitlist_confirm.html", {"state": "ask", "address": "a***@example.org", "names": "Rules updates", "token": "x" * 32}),
+            ("waitlist_confirm_done", "waitlist_confirm.html", {"state": "done", "address": "a***@example.org", "names": "Rules updates"}),
+            ("waitlist_confirm_unknown", "waitlist_confirm.html", {"state": "unknown"})):
+        (out / f"{name}.html").write_text(render_to_string(f"lapse_accounts/{tpl}", dict(base_ctx, **extra)), encoding="utf-8")
 
     rec = {"plain": "As of 2026-10-13, the term end computed from the dates in the USPTO record for US 4310730 is 1999-01-12 "
                     "(20 years from the filing date), a date that has passed (data version 20261013.3).",

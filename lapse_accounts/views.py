@@ -7,12 +7,15 @@
                               (PatentRef 5.11): {"terms_version": "<the current version>"} in the body, or an account
                               that accepted that version at sign-up (Supabase user metadata) or with its last key;
                               otherwise 403 ERR_TERMS with the links. Keys minted before the gate keep working.
+                              {"source": "<code>"} (the sign-up link's utm_source) adds one to that week's count for the
+                              code when the key is created; nothing is stored with the key or the account (sources.py).
   GET  /api/v1/meta/usage/    X-Api-Key or Bearer: this month's count, limits and the reset time
 
 Errors keep the upstream shape: body {"error": true} plus X-Status-Reason and X-Status-Reason-Code
 (ERR_AUTH for a missing or bad token, ERR_KEY for a missing or revoked API key, ERR_Q for a bad body, ERR_TERMS for a
 mint without the terms accepted).
 """
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -27,8 +30,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from API.models import APIUserKey
-from lapse_accounts import metering, public, supabase_jwt
+from lapse_accounts import metering, public, sources, supabase_jwt
 from lapse_accounts.models import PLAN_FREE, AccountKey
+
+logger = logging.getLogger(__name__)
 
 
 def _error(code, reason, http_status):
@@ -260,6 +265,13 @@ class KeysView(MetaAPIView):
             obj, secret = APIUserKey.objects.create_key(name=name, username=email, email=email)
             acct = AccountKey.objects.create(api_key=obj, supabase_user_id=user_id, email=email, plan=PLAN_FREE, rotated_from=rotated_from,
                                              terms_version=accepted[0], terms_accepted_at=accepted[1])
+        if action == "create" and body.get("source") is not None:
+            # the sign-up source count (wave 4 Q1): one more for this week's row of the code, nothing on the key or the
+            # account; after the key's own transaction, so a failure here can never undo a minted key
+            try:
+                sources.count(body.get("source"))
+            except Exception:  # noqa: BLE001 - a count is never worth a failed sign-up
+                logger.warning("sign-up source count failed", exc_info=True)
         return Response(_key_info(acct, created=True, secret=secret), status=status.HTTP_201_CREATED)
 
 

@@ -51,6 +51,7 @@ KINDS = {
     "payment-failed": "payment notices",
     "claim-step": "owner claim progress",
     "support-reply": "support replies",
+    "waitlist": "waitlist notices",   # wave 4 Q1 (lapse_accounts/waitlist.py): leaving also deletes the waitlist row
 }
 SECURITY_KINDS = {"verify-email", "key-issued"}
 SOFT_BOUNCES = 3                  # Temporary bounces within SOFT_WINDOW that suppress an address
@@ -205,13 +206,18 @@ def unsubscribe(request, token):
             return HttpResponse("unknown unsubscribe link\n", status=404, content_type="text/plain; charset=utf-8")
         return _page(request, {"state": "unknown"}, status=404)
     address, kind = row
-    what = {"address": masked(address), "kind": KINDS.get(kind, kind), "security": kind in SECURITY_KINDS, "token": token}
+    what = {"address": masked(address), "kind": KINDS.get(kind, kind), "security": kind in SECURITY_KINDS, "token": token,
+            "waitlist": kind == "waitlist"}
     if request.method == "GET":
         return _page(request, dict(what, state="ask"))
     if request.POST.get("List-Unsubscribe") != "One-Click":
         return HttpResponse("the body must be List-Unsubscribe=One-Click (RFC 8058)\n", status=400, content_type="text/plain; charset=utf-8")
     with db() as con:
         con.execute("INSERT INTO unsubscribe(address, kind, at) VALUES (?,?,?) ON CONFLICT(address, kind) DO NOTHING", (address, kind, _now()))
+    if kind == "waitlist":
+        from lapse_accounts import waitlist
+
+        waitlist.forget(address)
     if request.POST.get("from_page") == "1":
         return _page(request, dict(what, state="done"))
     return HttpResponse("unsubscribed\n", content_type="text/plain; charset=utf-8")

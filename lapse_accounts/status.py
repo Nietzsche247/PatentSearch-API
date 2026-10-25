@@ -679,6 +679,16 @@ def build_check_labels(gates):
     return [(BUILD_CHECK_LABELS.get(k, str(k).replace("_", " ")), v) for k, v in (gates or {}).items()]
 
 
+def _coming():
+    """Legal documents posted ahead of their effective date (the notice the Privacy Policy promises on this page)."""
+    from lapse_accounts import legal
+
+    try:
+        return legal.upcoming()
+    except Exception:  # noqa: BLE001 - the notice never takes the status page down
+        return []
+
+
 @require_GET
 def status_page(request):
     if request.GET.get("format") == "json":
@@ -690,6 +700,7 @@ def status_page(request):
         "json_url": "/api/v1/meta/status.json",
         "build_checks": build_check_labels(((data.get("refresh") or {}).get("current") or {}).get("gates")),
         "footer_lines": public.footer_lines(),
+        "coming": _coming(),
     })
     resp = HttpResponse(html, content_type="text/html; charset=utf-8")
     resp["Cache-Control"] = f"public, max-age={CACHE_SECONDS}"

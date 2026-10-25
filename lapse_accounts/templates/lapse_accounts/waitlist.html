@@ -1,0 +1,52 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}Waitlist{% endblock %}
+{% block head %}<meta name="description" content="Join the PatentRef waitlist: one notice when Lapse alerts and lists, rules updates or the registry open.">{% endblock %}
+{% block css %}
+    :root { --ok-bg: #e3f3e6; --ok-fg: #14532d; --err-bg: #fde8e8; --err-fg: #7f1d1d; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; } }
+    :root[data-theme="dark"] { --ok-bg: #0f2a18; --ok-fg: #a7e3b8; --err-bg: #3a1212; --err-fg: #f5b5b5; }
+    label { display: block; font-size: var(--t-sm); margin-bottom: var(--s-1); }
+    input[type=email] { width: 100%; font: inherit; padding: var(--s-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--fg); margin-bottom: var(--s-3); }
+    fieldset { border: 0; padding: 0; margin: 0 0 var(--s-3); }
+    legend { font-size: var(--t-sm); margin-bottom: var(--s-2); padding: 0; }
+    .choice { display: flex; gap: var(--s-2); align-items: flex-start; margin: 0 0 var(--s-2); }
+    .choice input { flex: none; width: var(--s-4); height: var(--s-4); margin: 0; }
+    .choice label { margin: 0; font-size: var(--t-base); }
+    .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+    button { font: inherit; padding: var(--s-2) var(--s-3); border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+    .msg { padding: var(--s-2) var(--s-3); border-radius: var(--radius); margin-bottom: var(--s-3); font-size: var(--t-sm); }
+    .msg.ok { background: var(--ok-bg); color: var(--ok-fg); }
+    .msg.err { background: var(--err-bg); color: var(--err-fg); }
+    .msg.warn { background: var(--warn-bg); color: var(--warn-fg); }
+    @media (max-width: 420px) { button { width: 100%; } }
+{% endblock %}
+{% block body %}
+    <h1>Waitlist</h1>
+    <p class="lead">Leave an email address and we will tell you when the things you tick open. You get a confirmation, one notice when each thing you chose opens, and at most one other notice. Nothing else.</p>
+
+    <div class="card">
+    {% if state == "check" %}
+      <p class="msg ok" role="status">Check your inbox{% if email %} at {{ email }}{% endif %}. We sent a link to confirm. Nothing is on the list until you confirm{% if unconfirmed_days %}, and an address that is not confirmed is deleted after {{ unconfirmed_days }} days{% endif %}. If no mail arrives in 10 minutes, look in spam, then try again.</p>
+    {% elif state == "closed" or not is_open %}
+      <p class="msg warn" role="status">The waitlist opens on {{ opens_on|default:"a date to be announced" }}. Nothing is collected before then.</p>
+    {% else %}
+      {% if state == "error" %}<p class="msg err" role="alert">{{ error }}</p>{% endif %}
+      <form method="post" action="/waitlist/">
+        <label for="wl-email">Email</label>
+        <input id="wl-email" name="email" type="email" autocomplete="email" maxlength="254" required value="{{ email|default:'' }}">
+        <fieldset>
+          <legend>Tell me when this opens (tick at least one)</legend>
+          {% for key, name in topics %}<div class="choice"><input id="wl-{{ key }}" name="topics" type="checkbox" value="{{ key }}"{% if key in chosen %} checked{% endif %}><label for="wl-{{ key }}">{{ name }}</label></div>
+          {% endfor %}
+        </fieldset>
+        <div class="hp" aria-hidden="true"><label for="wl-company">Leave this empty</label><input id="wl-company" name="company" type="text" tabindex="-1" autocomplete="off"></div>
+        <button type="submit">Join the waitlist</button>
+      </form>
+    {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>What we keep</h2>
+      <p>Your email address, the boxes you ticked, when you signed up and confirmed, and which of our notices we have sent you. We keep them until {{ after_opening_days }} days after the last thing you chose opens, or until you leave, whichever comes first. Every mail has a one-click link to leave. The list is kept apart from PatentRef accounts and API keys and is used for nothing else. Resend delivers the mail. The details are in the <a href="/docs/legal/privacy">Privacy Policy</a>.</p>
+    </div>
+{% endblock %}

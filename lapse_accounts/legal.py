@@ -179,6 +179,54 @@ def doc_meta(md):
     return (m.group(1), (m.group(2) or "").rstrip(".") or None) if m else (None, None)
 
 
+def in_force(name, beta, today=None):
+    """(True, effective date) when the document served at /docs/legal/<name> is version beta-<beta> or later and its
+    effective date (UTC) has come; (False, that date or None) otherwise, also when the file cannot be read. What the
+    waitlist and the sign-up source count do is described from Privacy Policy beta-4 on, so they act only once that text
+    is the one in force on this server (wave 4 Q1): posted 14 days ahead, they wait for its date by themselves."""
+    from datetime import date, datetime, timezone
+
+    effective, version = doc_meta(read_doc(name) or "")
+    m = re.fullmatch(r"beta-(\d+)", version or "")
+    if not (effective and m):
+        return False, None
+    try:
+        when = date.fromisoformat(effective)
+    except ValueError:
+        return False, None
+    today = today or datetime.now(timezone.utc).date()
+    return (int(m.group(1)) >= beta and today >= when), when
+
+
+def upcoming(today=None):
+    """The documents posted ahead of their effective date (UTC), for the status page's notice: the Privacy Policy and the
+    terms promise that material changes are announced there at least 14 days before they take effect. Each is
+    {"name", "title", "version", "effective", "url", "summary"}; the summary is the document's own paragraph that starts
+    "What is new in <version>:" (empty when it has none)."""
+    from datetime import date, datetime, timezone
+
+    today = today or datetime.now(timezone.utc).date()
+    out = []
+    for name in ORDER:
+        md = read_doc(name)
+        effective, version = doc_meta(md or "")
+        try:
+            when = date.fromisoformat(effective) if effective else None
+        except ValueError:
+            when = None
+        if not when or when <= today:
+            continue
+        summary = ""
+        for para in (md or "").split("\n\n"):
+            para = " ".join(para.split())
+            if version and para.startswith(f"What is new in {version}:"):
+                summary = para[len(f"What is new in {version}:"):].strip()
+                break
+        out.append({"name": name, "title": DOCS[name][1], "version": version, "effective": effective,
+                    "url": f"/docs/legal/{name}", "summary": summary})
+    return out
+
+
 # ---------------------------------------------------------------- views
 
 def _context(**extra):

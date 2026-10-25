@@ -77,6 +77,13 @@ LAPSE_TERMS_VERSION = os.environ.get("LAPSE_TERMS_VERSION", "beta-2")
 LAPSE_EMAIL_DB = os.environ.get("LAPSE_EMAIL_DB", str(_DATA / "email.sqlite3"))
 LAPSE_PUBLIC_BASE = os.environ.get("LAPSE_PUBLIC_BASE", "https://patentref.io")
 LAPSE_RESEND_WEBHOOK_SECRET_FILE = os.environ.get("LAPSE_RESEND_WEBHOOK_SECRET_FILE", "/data/lapse/secrets/resend_webhook_secret.txt")
+# The waitlist (wave 4 Q1, lapse_accounts/waitlist.py): its own SQLite file apart from the account database, the Resend relay
+# settings the registry outbox uses (read at send time, so no restart), and the post caps per client address and email domain.
+# The defaults are what patentref-us1 runs: the API only reloads, and a reload does not reread env.sh.
+LAPSE_WAITLIST_DB = os.environ.get("LAPSE_WAITLIST_DB", str(_DATA / "waitlist.sqlite3"))
+LAPSE_MAIL_ENV_FILE = os.environ.get("LAPSE_MAIL_ENV_FILE", "/data/registry/mail.env")
+LAPSE_WAITLIST_IP_HOURLY = int(os.environ.get("LAPSE_WAITLIST_IP_HOURLY", "5"))
+LAPSE_WAITLIST_DOMAIN_DAILY = int(os.environ.get("LAPSE_WAITLIST_DOMAIN_DAILY", "200"))
 
 # Search backend seam (API/search.py:get_searcher)
 LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")

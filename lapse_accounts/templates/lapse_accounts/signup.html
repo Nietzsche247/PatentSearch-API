@@ -118,6 +118,14 @@
     var SUPABASE_ANON_KEY = "{{ supabase_anon_key|escapejs }}";
     var PAGE_URL = "{{ page_url|escapejs }}";
     var TERMS_VERSION = "{{ terms_version|escapejs }}";
+    // The sign-up source count: one campaign code from this page's own address (utm_source), 1 to 32 letters, digits and
+    // hyphens, else dropped. It stays in this page's memory and in the address, is carried through the confirmation link
+    // and sent once with the first key; the server only adds one to a weekly count for it. Nothing is stored in the browser.
+    var SOURCE = (function () {
+      try { var v = new URLSearchParams(window.location.search).get("utm_source") || ""; return /^[A-Za-z0-9-]{1,32}$/.test(v) ? v : ""; }
+      catch (e) { return ""; }
+    })();
+    var RETURN_URL = PAGE_URL + (SOURCE ? "?utm_source=" + encodeURIComponent(SOURCE) : "");
     var $ = function (id) { return document.getElementById(id); };
     var authMsg = $("auth-msg"), keyMsg = $("key-msg");
 
@@ -147,7 +155,7 @@
       var email = $("su-email").value.trim(), password = $("su-password").value;
       if (!$("su-terms").checked) { say(authMsg, "err", "Tick the box to accept the terms first."); $("su-terms").focus(); return; }
       busy($("su-btn"), true); say(authMsg, "warn", "Creating the account...");
-      client.auth.signUp({ email: email, password: password, options: { emailRedirectTo: PAGE_URL,
+      client.auth.signUp({ email: email, password: password, options: { emailRedirectTo: RETURN_URL,
         data: { terms_version: TERMS_VERSION, terms_accepted_at: new Date().toISOString() } } }).then(function (res) {
         busy($("su-btn"), false);
         if (res.error) { say(authMsg, "err", res.error.message); return; }
@@ -214,7 +222,9 @@
     function mint(action) {
       if (!$("key-terms").checked) { say(keyMsg, "err", "Tick the box to accept the terms first: a key is minted only after the terms are accepted."); $("key-terms").focus(); return; }
       say(keyMsg, "warn", action === "rotate" ? "Rotating the key..." : "Creating the key...");
-      api("POST", "/api/v1/meta/keys/", token(), { action: action, terms_version: TERMS_VERSION }).then(function (j) {
+      var body = { action: action, terms_version: TERMS_VERSION };
+      if (action === "create" && SOURCE) { body.source = SOURCE; }
+      api("POST", "/api/v1/meta/keys/", token(), body).then(function (j) {
         if (j._status !== 200 && j._status !== 201) { say(keyMsg, "err", j._reason || ("Request failed (HTTP " + j._status + ")")); return; }
         if (j.api_key) {
           $("key-value").textContent = j.api_key;

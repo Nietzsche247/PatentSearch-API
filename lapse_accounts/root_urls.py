@@ -3,7 +3,7 @@ unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream setti
 from django.urls import URLResolver, include, path, re_path
 
 from API import lapse_rules, lapse_views
-from lapse_accounts import legal, mail, public
+from lapse_accounts import legal, mail, public, waitlist
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
 
@@ -38,4 +38,7 @@ urlpatterns = [
     re_path(r"^docs/legal/(?P<name>terms|privacy|acceptable-use|dmca|processors)/?$", legal.page, name="legal-page"),
     # one-click unsubscribe (gate 5.16, RFC 8058): the URL of every List-Unsubscribe header PatentRef sends
     re_path(r"^u/(?P<token>[A-Za-z0-9_-]+)/?$", mail.unsubscribe, name="unsubscribe"),
+    # the waitlist (wave 4 Q1): the form, and the confirmation of the double opt-in (a GET shows a button, a POST confirms)
+    re_path(r"^waitlist/?$", waitlist.page, name="waitlist"),
+    re_path(r"^waitlist/confirm/(?P<token>[A-Za-z0-9_-]+)/?$", waitlist.confirm_page, name="waitlist-confirm"),
 ] + [p for p in upstream_urlpatterns if _ours(p)]
