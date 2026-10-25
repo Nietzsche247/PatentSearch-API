@@ -1064,3 +1064,26 @@ Tests: `lapse_accounts/tests/test_swagger_ui.py` (pinned URLs and SRI, the CSP's
 unpinned or unsafe, the spec URL, no cookie, GET and HEAD, the 301 without the slash; with PATENTREF_NET_TESTS=1 the SRI
 values against the files unpkg serves) and `lapse_registry/tests/test_registry_not_open.py` (the closed default, 403
 ERR_NOT_OPEN with nothing stored, may_publish on the terms route, a named account by id and by email, REGISTRY_OPEN).
+
+## 2026-10-25 pending approval: release wave4-Q, both lanes in one release, the legal dates from the deploy
+
+Not deployed; branch `wave4-Q` (from sqlite-backend 3508fbf): wave4-Q1 merged as PatentRef 1.14.0, wave4-Q2 on top as
+1.15.0 (the two sections above). Conflicts: `lapse_accounts/root_urls.py` keeps both lanes' routes (/waitlist/ and
+/waitlist/confirm/<token>, /swagger-ui/ with upstream's pattern left out). No new migration; a worker reload.
+
+- The posted date of a legal text comes from the deploy (`lapse_accounts/legal.py`, `posting`, `stamp`, `unstamp`): a
+  version posted ahead writes `{{posted}}` and `{{effective}}` in patentref's docs/legal (Privacy Policy and processor
+  register beta-4 do), and `read_doc` fills them in on every request from `LAPSE_LEGAL_POSTED_FILE` (default
+  /data/api/legal_posted.json, `{doc: {version: "YYYY-MM-DD"}}`), the effective date `NOTICE_DAYS` (14) after the posted
+  one. Until the deploy has recorded a day the text shows today and an effective date 14 days ahead, so `in_force` stays
+  false and the waitlist and the sign-up count wait. `manage.py legal_posted [--stamp] [--unstamp DOC VERSION] [--json]`
+  shows or records the days (a recorded day never moves; patentref `ops/deploy_release.sh` runs `--stamp` after the
+  release passes its checks); its last line is LEGAL POSTED: PASS or WAITING. A document with written dates is served
+  as before.
+- `manage.py legal_notice` refuses a version whose posted day is not recorded yet, so the mail never names a date that
+  could still move. `legal.upcoming()` adds `posted` and `stamped`.
+
+Tests: `lapse_accounts/tests/test_legal_posted.py` (unrecorded: today and 14 days ahead, never in force, nothing
+written; recorded once, never moved, in force 14 days later, a new version its own day, unstamp; the pages, the .md twin
+and the status page; the command; the notice waits; with LAPSE_REPO_DIR, the repo's beta-4 texts carry the tokens and
+open the waitlist 14 days after the recorded day).

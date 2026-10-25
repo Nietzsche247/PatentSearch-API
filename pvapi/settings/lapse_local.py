@@ -84,6 +84,10 @@ LAPSE_WAITLIST_DB = os.environ.get("LAPSE_WAITLIST_DB", str(_DATA / "waitlist.sq
 LAPSE_MAIL_ENV_FILE = os.environ.get("LAPSE_MAIL_ENV_FILE", "/data/registry/mail.env")
 LAPSE_WAITLIST_IP_HOURLY = int(os.environ.get("LAPSE_WAITLIST_IP_HOURLY", "5"))
 LAPSE_WAITLIST_DOMAIN_DAILY = int(os.environ.get("LAPSE_WAITLIST_DOMAIN_DAILY", "200"))
+# The posted date of each legal document version served with {{posted}} and {{effective}} (release wave4-Q,
+# lapse_accounts/legal.py): the day the deploy recorded it went live (manage.py legal_posted --stamp). In the nightly
+# backup set beside the account database (patentref ops/backup.sh).
+LAPSE_LEGAL_POSTED_FILE = os.environ.get("LAPSE_LEGAL_POSTED_FILE", str(_DATA / "legal_posted.json"))
 
 # Search backend seam (API/search.py:get_searcher)
 LAPSE_BACKEND = os.environ.get("LAPSE_BACKEND", "sqlite")

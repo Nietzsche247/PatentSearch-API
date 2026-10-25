@@ -42,12 +42,125 @@ def legal_dir():
     return Path(getattr(settings, "LAPSE_REPO_DIR", "/srv/lapse")) / "docs" / "legal"
 
 
-def read_doc(name):
-    """The Markdown text of one document, or None when the file is not on the box."""
+def raw_doc(name):
+    """The Markdown text of one document as the repo holds it, or None when the file is not on the box."""
     try:
         return (legal_dir() / DOCS[name][0]).read_text(encoding="utf-8")
     except (OSError, KeyError, UnicodeDecodeError):
         return None
+
+
+# ---------------------------------------------------------------- the posting date (release wave4-Q)
+#
+# A version posted ahead of its effective date writes its dates as POSTED and EFFECTIVE in the repo ("Effective:
+# {{effective}}. Version: beta-4. Posted: {{posted}}; ..."), so no commit has to guess the deploy day. The posted date is
+# the day (UTC) the text went live on this server: the deploy records it once per document version in
+# LAPSE_LEGAL_POSTED_FILE (manage.py legal_posted --stamp, run by ops/deploy_release.sh after the release passed its
+# checks), and the effective date is NOTICE_DAYS after it (the 14 days the policy and the terms promise for a material
+# change). Until the deploy has recorded it, the text shows today as the posted date, the effective date stays 14 days
+# ahead and nothing waits on it switches on (in_force), so a late or a failed deploy never shows a date that is wrong
+# or opens anything early. A document with written dates is served as written.
+POSTED = "{{posted}}"
+EFFECTIVE = "{{effective}}"
+NOTICE_DAYS = 14
+_VERSION = re.compile(r"Version:\s*([A-Za-z0-9.\-]+)")
+
+
+def posted_file():
+    f = getattr(settings, "LAPSE_LEGAL_POSTED_FILE", "")
+    return Path(f) if f else Path(getattr(settings, "LAPSE_DATA_DIR", "/data/api")) / "legal_posted.json"
+
+
+def read_stamps():
+    """{name: {version: "YYYY-MM-DD"}} as the deploy recorded them; empty when the file is absent or unreadable."""
+    import json
+
+    try:
+        data = json.loads(posted_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+
+
+def _today():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).date()
+
+
+def posting(name, md=None, today=None):
+    """For a document whose text carries POSTED or EFFECTIVE: {"name", "version", "posted", "effective", "stamped"} with
+    dates; posted is the recorded day, or today while none is recorded (stamped False). None for a document with written
+    dates or none at all."""
+    from datetime import date, timedelta
+
+    md = raw_doc(name) if md is None else md
+    if not md or (POSTED not in md and EFFECTIVE not in md):
+        return None
+    m = _VERSION.search(md)
+    version = m.group(1).rstrip(".") if m else None
+    rec = read_stamps().get(name, {}).get(version or "") if version else None
+    try:
+        posted, stamped = date.fromisoformat(rec), True
+    except (TypeError, ValueError):
+        posted, stamped = today or _today(), False
+    return {"name": name, "version": version, "posted": posted, "effective": posted + timedelta(days=NOTICE_DAYS), "stamped": stamped}
+
+
+def read_doc(name, today=None):
+    """The Markdown text of one document as served, or None when the file is not on the box: the repo's text with the
+    posting dates filled in (posting above)."""
+    md = raw_doc(name)
+    p = posting(name, md, today) if md else None
+    if p is None:
+        return md
+    return md.replace(POSTED, p["posted"].isoformat()).replace(EFFECTIVE, p["effective"].isoformat())
+
+
+def _write_stamps(data):
+    """Replace the record in one rename (a reader sees the old file or the new one, never half of one)."""
+    import json
+    import os
+    import tempfile
+
+    f = posted_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".legal_posted.", dir=str(f.parent))
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, f)
+
+
+def stamp(names=None, today=None):
+    """Record today (UTC) as the posted date of every document version that carries POSTED or EFFECTIVE and has none
+    recorded yet; a recorded date never moves. Returns the posting of each such document after the call."""
+    today = today or _today()
+    data, todo = read_stamps(), []
+    for name in ORDER:
+        p = posting(name, today=today) if not names or name in names else None
+        if p is None or not p["version"]:
+            continue
+        if not p["stamped"]:
+            data.setdefault(name, {})[p["version"]] = today.isoformat()
+        todo.append(name)
+    if data != read_stamps():
+        _write_stamps(data)
+    return [posting(n, today=today) for n in todo]
+
+
+def unstamp(name, version):
+    """Forget the recorded posted date of one document version (a rollback that took the text off the site): the next
+    deploy that serves it records its own day and the 14 days start again. True when there was one."""
+    data = read_stamps()
+    if version not in data.get(name, {}):
+        return False
+    del data[name][version]
+    if not data[name]:
+        del data[name]
+    _write_stamps(data)
+    return True
 
 
 # ---------------------------------------------------------------- Markdown to HTML (the subset the documents use)
@@ -183,10 +296,12 @@ def in_force(name, beta, today=None):
     """(True, effective date) when the document served at /docs/legal/<name> is version beta-<beta> or later and its
     effective date (UTC) has come; (False, that date or None) otherwise, also when the file cannot be read. What the
     waitlist and the sign-up source count do is described from Privacy Policy beta-4 on, so they act only once that text
-    is the one in force on this server (wave 4 Q1): posted 14 days ahead, they wait for its date by themselves."""
+    is the one in force on this server (wave 4 Q1): posted 14 days ahead, they wait for its date by themselves. A version
+    whose posted date the deploy has not recorded yet is never in force (its effective date stays 14 days ahead)."""
     from datetime import date, datetime, timezone
 
-    effective, version = doc_meta(read_doc(name) or "")
+    today = today or datetime.now(timezone.utc).date()
+    effective, version = doc_meta(read_doc(name, today) or "")
     m = re.fullmatch(r"beta-(\d+)", version or "")
     if not (effective and m):
         return False, None
@@ -194,21 +309,21 @@ def in_force(name, beta, today=None):
         when = date.fromisoformat(effective)
     except ValueError:
         return False, None
-    today = today or datetime.now(timezone.utc).date()
     return (int(m.group(1)) >= beta and today >= when), when
 
 
 def upcoming(today=None):
     """The documents posted ahead of their effective date (UTC), for the status page's notice: the Privacy Policy and the
     terms promise that material changes are announced there at least 14 days before they take effect. Each is
-    {"name", "title", "version", "effective", "url", "summary"}; the summary is the document's own paragraph that starts
-    "What is new in <version>:" (empty when it has none)."""
+    {"name", "title", "version", "effective", "url", "summary", "posted", "stamped"}; the summary is the document's own
+    paragraph that starts "What is new in <version>:" (empty when it has none). posted and stamped come from posting()
+    for a version whose dates the deploy records (None and True for a document with written dates)."""
     from datetime import date, datetime, timezone
 
     today = today or datetime.now(timezone.utc).date()
     out = []
     for name in ORDER:
-        md = read_doc(name)
+        md = read_doc(name, today)
         effective, version = doc_meta(md or "")
         try:
             when = date.fromisoformat(effective) if effective else None
@@ -222,8 +337,10 @@ def upcoming(today=None):
             if version and para.startswith(f"What is new in {version}:"):
                 summary = para[len(f"What is new in {version}:"):].strip()
                 break
+        p = posting(name, today=today)
         out.append({"name": name, "title": DOCS[name][1], "version": version, "effective": effective,
-                    "url": f"/docs/legal/{name}", "summary": summary})
+                    "url": f"/docs/legal/{name}", "summary": summary,
+                    "posted": p["posted"].isoformat() if p else None, "stamped": p["stamped"] if p else True})
     return out
 
 

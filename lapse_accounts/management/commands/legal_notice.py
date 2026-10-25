@@ -3,7 +3,8 @@
 page, at least 14 days before they take effect; the status page shows the notice by itself (legal.upcoming), this sends
 the mail.
 
-The document must be posted ahead of its effective date (its "Effective:" line in the future). Recipients: every distinct
+The document must be posted ahead of its effective date (its "Effective:" line in the future), and when the repo dates it
+with {{posted}} the deploy must have recorded the posted day (manage.py legal_posted --stamp). Recipients: every distinct
 address of an API key account (lapse_accounts AccountKey.email), less the suppression list (bounces and complaints). It is
 a notice the terms require, so it carries no unsubscribe link (Privacy Policy section 1, Email). Each address gets it
 once per document version (table legal_notice of the mail state file), so a rerun after a failure sends only to the rest.
@@ -28,6 +29,10 @@ def notice(doc):
     if not coming:
         raise CommandError(f"{doc} has no version posted ahead of its effective date; nothing to announce")
     c = coming[0]
+    if not c.get("stamped", True):
+        # the effective date of a version the deploy dates is fixed only once the deploy has recorded the posted day
+        raise CommandError(f"{doc} {c['version']}: the deploy has not recorded its posted date yet, so its effective date "
+                           "is not fixed; run manage.py legal_posted --stamp first")
     base = waitlist.base_url()
     box = "privacy" if doc == "privacy" else "legal"
     subject = f"PatentRef {c['title']}: version {c['version']} takes effect on {c['effective']}"
