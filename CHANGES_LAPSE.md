@@ -1014,3 +1014,24 @@ Tests: `lapse_accounts/tests/test_docs71.py` (the alias resolves to the same vie
 GET query string and a "+" read as a space; the trailing-slash rule; numeric strings on a number field; exact country
 codes; the inventor link beside inventor_id; disambiguated only when named; nested rows in source order; the app's body
 cap above the edge's and the error page's wording).
+
+## 2026-10-25 pending approval: the app's body cap at the edge's 64,000 bytes (gate 5.6, found by the docs71 deploy)
+
+Not deployed; on branch `wave4-wkfix` (from sqlite-backend 3508fbf). The docs71 deploy's check from outside the box
+(2026-10-25 05:41 UTC) sent a keyless 64,001-byte POST to https://patentref.io/api/v1/patent/ and got 403 with no Server
+header, the app's answer; the same request from the box got Caddy's 413. Caddy's `max_size 64KB` counts 64,000 bytes, and
+the app's `LAPSE_MAX_BODY` was 65,536, so a body of 64,001 to 65,536 bytes passed the app's size check undrained and the
+view answered 403 without reading it. From a client far from the box that 403 reached Caddy before byte 64,001 did: the
+caller saw 403 where the docs say 413, and Caddy's limit can then trip while that answer is written, the race that
+killed Caddy five times in the gate 5.6 run (`drain()` exists to prevent it).
+
+| File | Change | Why |
+|---|---|---|
+| `pvapi/settings/lapse_local.py` | `LAPSE_MAX_BODY` (and with it `DATA_UPLOAD_MAX_MEMORY_SIZE`) 64,000 in place of 65,536 | the edge's figure: every body Caddy refuses is now one the app drains before it answers, so the edge's 413 is what every caller sees, near or far |
+| `lapse_accounts/abuse.py` | the same default where the middleware reads the setting; the docstring names the figure | the setting and its fallback agree |
+
+A body of exactly 64,000 bytes still reaches the API (a keyed one is answered, a keyless one gets the view's 403). An env
+override of `LAPSE_MAX_BODY` on the box would undo this: `/data/api/env.sh` has none (checked 2026-10-25).
+
+Tests: `lapse_accounts/tests/test_docs71.py` `test_the_app_body_cap_is_the_edge_cap` (the cap is 64,000; a keyed 64,000-byte
+body is answered and 64,001 is 400 ERR_Q; a keyless 64,001-byte body is drained before the answer, 64,000 is not).

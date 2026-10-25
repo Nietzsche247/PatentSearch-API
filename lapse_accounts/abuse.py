@@ -14,8 +14,9 @@ Three things live here, all additive (a valid request's body is unchanged):
 2. `AbuseLimitMiddleware`, in front of the views, on `/api/v1/` data paths (not `/api/v1/meta/`):
    - size caps, answered with the upstream 400 shape (`{"error": true}`, `X-Status-Reason`,
      `X-Status-Reason-Code: ERR_Q`): the query string above `LAPSE_MAX_QUERY_STRING` bytes (16 KB),
-     a body above `LAPSE_MAX_BODY` bytes (64 KB, the same figure Caddy's `request_body max_size` and
-     Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` carry), a `q` parameter above `LAPSE_MAX_Q_BYTES` (16 KB;
+     a body above `LAPSE_MAX_BODY` bytes (64,000: the figure of Caddy's `request_body max_size 64KB`, which
+     Caddy counts as 64,000 bytes, and of Django's `DATA_UPLOAD_MAX_MEMORY_SIZE`; never above the edge's, so
+     every body the edge refuses is drained here before any answer), a `q` parameter above `LAPSE_MAX_Q_BYTES` (16 KB;
      a POST body's `q` is measured by `API.lapse_cost.check` after parsing);
    - the per-IP limit on requests that carry no usable key: a request with no `X-Api-Key`, or with a
      key this worker has already seen rejected, counts against `nokey` for its IP
@@ -237,7 +238,7 @@ class AbuseLimitMiddleware:
         qs = request.META.get("QUERY_STRING", "") or ""
         if len(qs) > max_qs:
             return bad_request(f"Query string too long: {len(qs)} bytes, the limit is {max_qs}")
-        max_body = int(setting("LAPSE_MAX_BODY", 65536))
+        max_body = int(setting("LAPSE_MAX_BODY", 64000))
         try:
             length = int(request.META.get("CONTENT_LENGTH") or 0)
         except (TypeError, ValueError):

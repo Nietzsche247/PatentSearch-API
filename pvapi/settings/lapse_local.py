@@ -149,7 +149,10 @@ LAPSE_IP_PER_MINUTE = int(os.environ.get("LAPSE_IP_PER_MINUTE", "300"))         
 LAPSE_INFLIGHT_PER_KEY = int(os.environ.get("LAPSE_INFLIGHT_PER_KEY", "4"))        # requests running at once per key
 LAPSE_INFLIGHT_PER_IP = int(os.environ.get("LAPSE_INFLIGHT_PER_IP", "8"))          # requests running at once per IP
 LAPSE_MAX_QUERY_STRING = int(os.environ.get("LAPSE_MAX_QUERY_STRING", "16384"))    # bytes
-LAPSE_MAX_BODY = int(os.environ.get("LAPSE_MAX_BODY", "65536"))                    # bytes; Caddy request_body max_size carries the same figure
+# bytes: the figure of Caddy's request_body max_size 64KB, which Caddy counts as 64,000 bytes. Not above it: a body the edge
+# refuses must be one the app drains before it answers (lapse_accounts/abuse.py drain), or a keyless 64,001 to 65,536-byte
+# POST from a slow client got the view's 403 before Caddy's 413, the answer race of gate 5.6 (docs71 outside check, 2026-10-25)
+LAPSE_MAX_BODY = int(os.environ.get("LAPSE_MAX_BODY", "64000"))
 LAPSE_MAX_Q_BYTES = int(os.environ.get("LAPSE_MAX_Q_BYTES", "16384"))              # bytes of the q JSON
 DATA_UPLOAD_MAX_MEMORY_SIZE = LAPSE_MAX_BODY                                       # Django's own backstop for bodies without a Content-Length
 LAPSE_QUERY_COST_LIMIT = int(os.environ.get("LAPSE_QUERY_COST_LIMIT", "100"))      # API/lapse_cost.py units; above it the query is refused with 400 ERR_Q
