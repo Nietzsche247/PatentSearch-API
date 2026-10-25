@@ -3,7 +3,7 @@ unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream setti
 from django.urls import URLResolver, include, path, re_path
 
 from API import lapse_rules, lapse_views
-from lapse_accounts import legal, mail, public, waitlist
+from lapse_accounts import legal, mail, public, swagger, waitlist
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
 
@@ -41,4 +41,7 @@ urlpatterns = [
     # the waitlist (wave 4 Q1): the form, and the confirmation of the double opt-in (a GET shows a button, a POST confirms)
     re_path(r"^waitlist/?$", waitlist.page, name="waitlist"),
     re_path(r"^waitlist/confirm/(?P<token>[A-Za-z0-9_-]+)/?$", waitlist.confirm_page, name="waitlist-confirm"),
-] + [p for p in upstream_urlpatterns if _ours(p)]
+    # upstream's interactive page, pinned, with SRI and a CSP, reading /openapi.json (lane Q2; lapse_accounts/swagger.py);
+    # upstream's own swagger-ui route is left out below so only this one answers
+    path("swagger-ui/", swagger.page, name="swagger-ui"),
+] + [p for p in upstream_urlpatterns if _ours(p) and getattr(p, "name", None) != "swagger-ui"]

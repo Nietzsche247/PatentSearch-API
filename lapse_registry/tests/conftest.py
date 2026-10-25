@@ -42,6 +42,9 @@ os.environ["SUPABASE_URL"] = "https://example-project.supabase.co"
 os.environ["SUPABASE_ANON_KEY"] = "anon-key-for-tests"
 os.environ["REGISTRY_PUBLIC_BASE"] = "https://patentref.io"
 os.environ["REGISTRY_KEYS_DIR"] = str(_TMP / "keys")   # never the box's keyring; tests that need keys make them here
+# These tests publish from throwaway accounts, so they run with the registry open; test_registry_not_open.py closes it
+# (lane Q2: closed is the default, REGISTRY_OPEN unset)
+os.environ["REGISTRY_OPEN"] = "1"
 if REPO_DIR:
     os.environ["LAPSE_REPO_DIR"] = REPO_DIR
     sys.path.insert(0, str(Path(REPO_DIR) / "registry" / "py"))
