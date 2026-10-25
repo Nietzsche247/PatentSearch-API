@@ -9,7 +9,8 @@ settings pvapi.settings.registry) behind the same Caddy and domain as the API; t
   POST /registry/disclosures/<id>/receipt    Bearer, hook for 10.3: 501 until receipts are offered
   POST /registry/disclosures/<id>/seal       hook for 10.4: 501 (a sealed record is published with visibility "sealed")
   GET  /registry/disclosures/<id>/sealed     Bearer, hook for 10.4: the owner's sealed bundle text, when sealing is on
-  GET  /registry/disclosures/terms           Bearer: whether the account accepted the current terms (5.11), and the links
+  GET  /registry/disclosures/terms           Bearer: whether the account accepted the current terms (5.11), and the links,
+                                             and may_publish (lane Q2: the registry is not open to outside records yet)
   GET  /registry/disclosures/account/export  Bearer: everything the registry holds for the account (5.12)
   POST /registry/disclosures/account/erase   Bearer, {"confirm": "ERASE"}: the account's records become tombstones (5.12)
   POST /registry/disclosures/<id>/monitor    Bearer, {"on": true|false}: monitoring of the record (10.7), when offered
@@ -106,12 +107,30 @@ def _user(request, required=True):
     return claims["sub"] if claims else None
 
 
+NOT_OPEN = "The registry is not open to outside records yet."
+
+
+def may_publish(claims):
+    """Lane Q2: while the registry is not open to outside records (REGISTRY_OPEN off, the default), only the accounts named
+    in REGISTRY_PUBLISHERS may publish: a Supabase user id (the token's sub) or a confirmed email address (supabase_jwt
+    accepts only confirmed ones), compared without case."""
+    if getattr(settings, "REGISTRY_OPEN", False):
+        return True
+    allowed = {str(x).strip().lower() for x in getattr(settings, "REGISTRY_PUBLISHERS", ()) if str(x).strip()}
+    sub = str((claims or {}).get("sub") or "").strip().lower()
+    email = str((claims or {}).get("email") or "").strip().lower()
+    return bool(sub and sub in allowed) or bool(email and email in allowed)
+
+
 def _publisher(request):
-    """The signed-in user who may publish: not on a disposable email domain (checklist 10.10, the list of gate 5.10).
-    Returns the verified claims (their user metadata may carry the terms version accepted at sign-up: 5.11)."""
+    """The signed-in user who may publish: an account the registry is open to (lane Q2, may_publish), not on a disposable
+    email domain (checklist 10.10, the list of gate 5.10). Returns the verified claims (their user metadata may carry the
+    terms version accepted at sign-up: 5.11)."""
     from lapse_accounts import views as account_views
 
     claims = _claims(request)
+    if not may_publish(claims):
+        raise HttpError(403, "ERR_NOT_OPEN", NOT_OPEN)
     domain = account_views.email_domain(claims.get("email"))
     if account_views.is_disposable(domain):
         raise HttpError(403, "ERR_ACCOUNT", f"Records from disposable email domains are not accepted ({domain}).")
@@ -287,7 +306,8 @@ def check(request):
     def run():
         _guard_body(request)
         _write_limit(request)
-        _user(request)
+        if not may_publish(_claims(request)):   # the preflight is for publishing; lane Q2
+            raise HttpError(403, "ERR_NOT_OPEN", NOT_OPEN)
         payload, file = _payload(request)
         return _json(core.module("service").check(payload, file), private=True)
     return _call(run)
@@ -488,7 +508,9 @@ def terms_status(request):
     def run():
         _read_limit(request)
         claims = _claims(request)
-        return _json(core.module("service").terms_status(db.connection(), claims["sub"], claims, _base()), private=True)
+        body = core.module("service").terms_status(db.connection(), claims["sub"], claims, _base())
+        body["may_publish"] = may_publish(claims)   # lane Q2: the web app shows the form only to an account that may publish
+        return _json(body, private=True)
     return _call(run)
 
 

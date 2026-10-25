@@ -13,7 +13,8 @@ Env: REGISTRY_DATABASE_URL (registry_api's DSN; secret, only in the box's enviro
 REGISTRY_WRITE_PER_MINUTE (20), REGISTRY_PUBLISH_PER_ADDRESS_DAY (30), REGISTRY_SCANNER (none or clamd, read
 by patentref_registry.scan), REGISTRY_RECEIPTS_ENABLED and REGISTRY_SEALED_ENABLED (0 until 10.3, 10.4 and 10.6),
 REGISTRY_MONITORING_ENABLED, REGISTRY_CONTRIBUTION_LOGS_ENABLED, REGISTRY_CLAIMS_ENABLED, REGISTRY_NOTICES_ENABLED and
-REGISTRY_PAYMENTS_REQUIRED (registry 2: 0 until the owner offers them),
+REGISTRY_PAYMENTS_REQUIRED (registry 2: 0 until the owner offers them), REGISTRY_OPEN (0) and REGISTRY_PUBLISHERS (lane Q2:
+who may publish while the registry is not open to outside records),
 REGISTRY_CRYPTO_PATH (where registry_crypto lives when not in the patentref clone, gate 5.14), REGISTRY_KEYS_DIR (its
 keyring, /data/registry/keys), REGISTRY_READ_CACHE (the local read cache of checklist 5.15, default
 <LAPSE_DATA_DIR>/read_cache.sqlite3), REGISTRY_READ_CACHE_FILE_MAX (20 MB), REGISTRY_DB_RETRY_SECONDS (5: how often a
@@ -46,6 +47,12 @@ REGISTRY_CONTRIBUTION_LOGS_ENABLED = os.environ.get("REGISTRY_CONTRIBUTION_LOGS_
 REGISTRY_CLAIMS_ENABLED = os.environ.get("REGISTRY_CLAIMS_ENABLED", "0") == "1"
 REGISTRY_NOTICES_ENABLED = os.environ.get("REGISTRY_NOTICES_ENABLED", "0") == "1"
 REGISTRY_PAYMENTS_REQUIRED = os.environ.get("REGISTRY_PAYMENTS_REQUIRED", "0") == "1"
+# Who may publish (PatentRef lane Q2): the registry is not open to outside records yet (the terms; the first outside record
+# waits for the entity and counsel, decisions.md 2026-10-01). Until REGISTRY_OPEN=1, only the accounts named in
+# REGISTRY_PUBLISHERS may publish or run the preflight: comma separated Supabase user ids or confirmed email addresses,
+# set in /data/registry/api.env, never in code. Everyone else gets 403 ERR_NOT_OPEN. Empty and closed: nobody publishes.
+REGISTRY_OPEN = os.environ.get("REGISTRY_OPEN", "0") == "1"
+REGISTRY_PUBLISHERS = tuple(x.strip() for x in os.environ.get("REGISTRY_PUBLISHERS", "").split(",") if x.strip())
 REGISTRY_READ_CACHE = os.environ.get("REGISTRY_READ_CACHE", os.path.join(os.environ.get("LAPSE_DATA_DIR", "/data/registry"),
                                                                           "read_cache.sqlite3"))
 REGISTRY_READ_CACHE_FILE_MAX = int(os.environ.get("REGISTRY_READ_CACHE_FILE_MAX", str(20 * 1024 * 1024)))

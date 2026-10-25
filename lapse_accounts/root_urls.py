@@ -3,7 +3,7 @@ unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream setti
 from django.urls import URLResolver, include, path, re_path
 
 from API import lapse_rules, lapse_views
-from lapse_accounts import legal, mail, public
+from lapse_accounts import legal, mail, public, swagger
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
 
@@ -38,4 +38,7 @@ urlpatterns = [
     re_path(r"^docs/legal/(?P<name>terms|privacy|acceptable-use|dmca|processors)/?$", legal.page, name="legal-page"),
     # one-click unsubscribe (gate 5.16, RFC 8058): the URL of every List-Unsubscribe header PatentRef sends
     re_path(r"^u/(?P<token>[A-Za-z0-9_-]+)/?$", mail.unsubscribe, name="unsubscribe"),
-] + [p for p in upstream_urlpatterns if _ours(p)]
+    # upstream's interactive page, pinned, with SRI and a CSP, reading /openapi.json (lane Q2; lapse_accounts/swagger.py);
+    # upstream's own swagger-ui route is left out below so only this one answers
+    path("swagger-ui/", swagger.page, name="swagger-ui"),
+] + [p for p in upstream_urlpatterns if _ours(p) and getattr(p, "name", None) != "swagger-ui"]

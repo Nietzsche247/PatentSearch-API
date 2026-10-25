@@ -1014,3 +1014,22 @@ Tests: `lapse_accounts/tests/test_docs71.py` (the alias resolves to the same vie
 GET query string and a "+" read as a space; the trailing-slash rule; numeric strings on a number field; exact country
 codes; the inventor link beside inventor_id; disambiguated only when named; nested rows in source order; the app's body
 cap above the edge's and the error page's wording).
+
+## 2026-10-25 pending approval: /swagger-ui/ pinned with SRI and a CSP; registry publishing not open to outside accounts (PatentRef 1.14.0, lane Q2)
+
+Not deployed; on branch `wave4-Q2` (from sqlite-backend 3508fbf). It goes live with a worker reload of patentref-api and
+the registry install (ops/registry/install.sh in the patentref repo, which restarts only the registry's own units). Two
+findings of the 2026-10-25 fact check and the gate 7.6 run:
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/swagger.py` | new: `/swagger-ui/` answered by PatentRef's page: Swagger UI 5.32.15 from unpkg, each file with Subresource Integrity (SHA-384 of the file in the npm tarball, whose sha512 matches the registry), the spec `/openapi.json`, a Content-Security-Policy (`default-src 'none'`; the two pinned files, the one inline script by its SHA-256, `connect-src 'self'`, `img-src 'self' data:`, no `unsafe-inline`), GET and HEAD, no CSRF token or cookie, a `main` landmark | upstream's template loaded `swagger-ui-dist@3` and the hierarchical-tags plugin with no version, sent no CSP and read `/static/openapi.json`, which this server never served (the page showed an error). Upstream served the path (its docs link https://search.patentsview.org/swagger-ui/), so the path stays. Swagger UI 3 cannot read OpenAPI 3.1 |
+| `lapse_accounts/root_urls.py` | the route `swagger-ui/` to the view above; upstream's own `swagger-ui` pattern is left out of the list | one answer for the path; `templates/swagger-ui.html` and `pvapi/urls.py` are unchanged |
+| `lapse_registry/views.py` | `may_publish(claims)`: until `REGISTRY_OPEN` is on, only the accounts named in `REGISTRY_PUBLISHERS` (Supabase user ids or confirmed email addresses, without case) may publish or run the preflight; others get 403 `ERR_NOT_OPEN`, "The registry is not open to outside records yet.", after the 401 checks and before anything is read or stored. `GET /registry/disclosures/terms` adds `may_publish` | the registry is not open to outside records (the terms; the first outside record waits for the entity and counsel), and nothing enforced it: any confirmed account outside the disposable domains could publish |
+| `pvapi/settings/registry.py` | `REGISTRY_OPEN` (default 0) and `REGISTRY_PUBLISHERS` (default empty) from the environment | closed unless the box's api.env names an account |
+| `lapse_registry/tests/conftest.py` | the existing registry tests run with `REGISTRY_OPEN=1` | they publish from throwaway accounts; the new file tests the closed default |
+
+Tests: `lapse_accounts/tests/test_swagger_ui.py` (pinned URLs and SRI, the CSP's hash equals the inline script's, nothing
+unpinned or unsafe, the spec URL, no cookie, GET and HEAD, the 301 without the slash; with PATENTREF_NET_TESTS=1 the SRI
+values against the files unpkg serves) and `lapse_registry/tests/test_registry_not_open.py` (the closed default, 403
+ERR_NOT_OPEN with nothing stored, may_publish on the terms route, a named account by id and by email, REGISTRY_OPEN).
