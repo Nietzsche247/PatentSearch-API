@@ -1014,3 +1014,34 @@ Tests: `lapse_accounts/tests/test_docs71.py` (the alias resolves to the same vie
 GET query string and a "+" read as a space; the trailing-slash rule; numeric strings on a number field; exact country
 codes; the inventor link beside inventor_id; disambiguated only when named; nested rows in source order; the app's body
 cap above the edge's and the error page's wording).
+
+## 2026-10-25 pending approval: the sign-up source count, the waitlist, the legal notice (PatentRef 1.14.0, wave 4 Q1)
+
+Not deployed; on branch `wave4-Q1` (from sqlite-backend 3508fbf). One migration (`lapse_accounts/0004_signupsource`, a new
+table only), then a worker reload; no restart, and no setting needs env.sh (every default is what the box runs). What
+collects anything new waits for Privacy Policy beta-4 (patentref `docs/legal/privacy.md`) to be the served text and in
+force (`legal.in_force`): posted ahead, the code switches itself on at its effective date.
+
+- The sign-up source count (`lapse_accounts/sources.py`, model `SignupSource`): the sign-up page reads utm_source from its
+  own address (1 to 32 letters, digits and hyphens, else dropped), carries it through the confirmation link
+  (emailRedirectTo) and sends it as "source" with the first key; POST /api/v1/meta/keys/ adds one to the row (ISO week,
+  code) when it creates a key, after the key's transaction, so a failing count never fails a sign-up. Nothing on the
+  key, the account or Supabase. `manage.py signup_sources [--weeks N] [--json]` prints the weekly table.
+- The waitlist (`lapse_accounts/waitlist.py`, pages `waitlist.html` and `waitlist_confirm.html`, routes /waitlist/ and
+  /waitlist/confirm/<token>): one form (email and three choices), double opt-in (a GET of the link shows a button, a POST
+  confirms), its own SQLite file (`LAPSE_WAITLIST_DB`, default /data/api/waitlist.sqlite3) apart from the account
+  database, mail through the Resend relay the registry outbox uses (settings read at send time from
+  `LAPSE_MAIL_ENV_FILE`, default /data/registry/mail.env), RFC 8058 headers on every message (kind `waitlist` in
+  `mail.KINDS`; the one-click POST also deletes the row), disposable domains refused, 5 posts an hour per client address
+  and 200 a day per email domain, a honeypot field. Mail: the confirmation (at most once in 10 minutes and 3 times a UTC
+  day per address), one opening notice per topic, at most one other notice (`manage.py waitlist open|notice`, dry runs
+  unless --send). Retention (`manage.py waitlist purge`, daily from the patentref timer and at every post): unconfirmed
+  after 7 days, a choice 30 days after its topic opened, the caps' counters after their window, the mail state's
+  waitlist tokens of addresses no longer listed.
+- The legal notice: `legal.upcoming()` lists documents posted ahead of their effective date; the status page shows them
+  ("Coming change", with the document's "What is new in <version>:" paragraph), and `manage.py legal_notice <doc>
+  [--send]` mails the notice once to every API key account address (no unsubscribe link: a notice the terms require).
+- The unsubscribe page's fallback address is hello@patentref.io.
+
+Tests: `lapse_accounts/tests/test_signup_source.py`, `test_waitlist.py`, `test_policy_notice.py`. The a11y renderer
+(`lapse_tools/a11y/render_pages.py`) also writes the waitlist pages in each state.

@@ -130,7 +130,9 @@ def test_the_real_documents(client, monkeypatch):
     if real is None:
         pytest.skip("no patentref checkout beside this one")
     monkeypatch.setattr(settings, "LAPSE_LEGAL_DIR", str(real), raising=False)
-    known = {"/", "/LICENSES.md", "/llms-full.txt", "/llms.txt", "/api/v1/meta/status/", "/api/v1/meta/signup/"} | {f"/docs/legal/{n}" for n in legal.DOCS}
+    known = {"/", "/LICENSES.md", "/llms-full.txt", "/llms.txt", "/api/v1/meta/status/", "/api/v1/meta/signup/",
+             "/waitlist/"} | {f"/docs/legal/{n}" for n in legal.DOCS}   # /waitlist/: Privacy Policy beta-4 (wave 4 Q1)
+    assert client.get("/waitlist/").status_code == 200
     for name in legal.DOCS:
         md = legal.read_doc(name)
         assert md is not None, name

@@ -1,0 +1,19 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}Confirm the waitlist{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block css %}
+    button { font: inherit; padding: var(--s-2) var(--s-3); border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+{% endblock %}
+{% block body %}
+    <h1>Confirm the waitlist</h1>
+    {% if state == "unknown" %}
+    <p>This confirmation link is not known, or it is older than {{ unconfirmed_days }} days. Sign up again on the <a href="/waitlist/">waitlist page</a>.</p>
+    {% elif state == "done" %}
+    <p role="status">Confirmed. {{ address }} is on the waitlist for: {{ names }}. We send one notice when each of these opens, and at most one other notice. Every mail has a one-click link to leave.</p>
+    {% else %}
+    <p>Put {{ address }} on the PatentRef waitlist for: {{ names }}?</p>
+    <form method="post" action="/waitlist/confirm/{{ token }}">
+      <button type="submit">Confirm</button>
+    </form>
+    {% endif %}
+{% endblock %}

@@ -7,11 +7,11 @@
 {% block body %}
     <h1>Unsubscribe</h1>
     {% if state == "unknown" %}
-    <p>This unsubscribe link is not known. It may have been copied in part. Write to privacy@patentref.io (until that mailbox is live: aaron@omnipoolbuilders.com) and we will stop the mail by hand.</p>
+    <p>This unsubscribe link is not known. It may have been copied in part. Write to privacy@patentref.io (until that mailbox is live: hello@patentref.io) and we will stop the mail by hand.</p>
     {% elif state == "done" %}
-    <p role="status">Done. {{ address }} gets no more {{ kind }} from PatentRef.{% if security %} Mail needed to keep the account secure, such as a sign-in link you ask for, still arrives.{% endif %}</p>
+    <p role="status">Done. {{ address }} gets no more {{ kind }} from PatentRef.{% if waitlist %} We deleted it from the waitlist.{% endif %}{% if security %} Mail needed to keep the account secure, such as a sign-in link you ask for, still arrives.{% endif %}</p>
     {% else %}
-    <p>Stop {{ kind }} to {{ address }}?{% if security %} Mail needed to keep the account secure, such as a sign-in link you ask for, still arrives.{% endif %}</p>
+    <p>Stop {{ kind }} to {{ address }}?{% if waitlist %} This takes the address off the waitlist.{% endif %}{% if security %} Mail needed to keep the account secure, such as a sign-in link you ask for, still arrives.{% endif %}</p>
     <form method="post" action="/u/{{ token }}">
       <input type="hidden" name="List-Unsubscribe" value="One-Click">
       <input type="hidden" name="from_page" value="1">

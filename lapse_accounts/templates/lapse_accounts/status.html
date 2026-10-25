@@ -37,6 +37,11 @@
     <h1>Status</h1>
     <p class="lead">The PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Figures refresh once a minute; this page was generated at {{ d.generated_at }}. Machine-readable twin: <a href="{{ json_url }}">status.json</a>.</p>
 
+    {% for c in coming %}<div class="card" id="coming-{{ c.name }}">
+      <h2>Coming change: {{ c.title }}</h2>
+      <p>Version {{ c.version }} of the <a href="{{ c.url }}">{{ c.title }}</a> takes effect on {{ c.effective }}. Until then the version before it applies.{% if c.summary %} What is new: {{ c.summary }}{% endif %}</p>
+    </div>
+    {% endfor %}
     <div class="state {{ state }}" role="status">
       {% if state == "ok" %}Operational{% elif state == "degraded" %}Degraded{% else %}Down{% endif %}
       <small>{{ state_text }} Code {{ d.service.code_version }}, data {{ d.service.data_version }}, health check on the box: {{ d.service.health_detail }}.</small>
