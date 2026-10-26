@@ -1108,3 +1108,19 @@ override of `LAPSE_MAX_BODY` on the box would undo this: `/data/api/env.sh` has 
 
 Tests: `lapse_accounts/tests/test_docs71.py` `test_the_app_body_cap_is_the_edge_cap` (the cap is 64,000; a keyed 64,000-byte
 body is answered and 64,001 is 400 ERR_Q; a keyless 64,001-byte body is drained before the answer, 64,000 is not).
+
+## 2026-10-26 pending approval: release wave4-R, the gate 7.6 pages and the body cap (PatentRef 1.16.0)
+
+Not deployed; branch `wave4-R` (from `wave4-Q` 20a7b2a, release Q): `wave4-P3` (64886b8, the live axe run of 2026-10-23)
+and `wave4-wkfix` (eeaddd5, the section above) merged. No migration; a worker reload of patentref-api. Conflicts:
+`lapse_tools/a11y/render_pages.py` (Q1's waitlist pages and P3's error pages for a browser, both kept) and this file.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/templates/lapse_accounts/record.html` | the record's JSON block wraps (`white-space: pre-wrap`, as on the docs and sign-up pages) | at 320 px it scrolled sideways, a scroll region no keyboard reaches (axe scrollable-region-focusable, serious) on /p/10000000, /p/12751345 and /p/6671888 |
+| `API/lapse_views.py`, `lapse_accounts/templates/lapse_accounts/page_error.html` | /p/<id> without a record (a number it cannot read, an unknown number, an unknown v, the status engine down, a page the wording check held back) answers a page in the frame of every page, with the same status codes; the wording check's reason goes to the log, not the page | the plain-text answers had no language and no title in a browser (axe html-has-lang and document-title, serious) |
+| `lapse_accounts/public.py`, `lapse_accounts/templates/lapse_accounts/errors.html` | /docs/errors/ and /docs/errors/<CODE>: a client whose Accept prefers text/html gets the same text as a page; every other client (no Accept, */*, text/plain) the plain text byte for byte; `Vary: Accept` on both | the same two findings on the error index, which API clients read as plain text |
+| `lapse_tools/a11y/render_pages.py` | renders the record's real JSON form, the error index for a browser and the record's not-found page | the local axe run used a one-line sample and could not see the sideways scroll |
+
+Tests: `lapse_accounts/tests/test_public.py` and `test_lapse_group.py` (the pages, the plain text byte for byte, Vary),
+`test_docs71.py` (the body cap); `lapse_tools/a11y/axe_check.js` on the rendered pages, 0 serious and 0 critical.
