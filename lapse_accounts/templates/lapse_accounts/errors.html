@@ -1,0 +1,28 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}{% if unknown %}Unknown error code{% elif code %}{{ code }}{% else %}API error codes{% endif %}{% endblock %}
+{% block head %}{% if unknown %}<meta name="robots" content="noindex">{% else %}<meta name="description" content="{% if code %}What the PatentRef API error code {{ code }} means.{% else %}The error codes of the PatentRef API: the X-Status-Reason-Code header and the RFC 9457 problem types.{% endif %}">
+  <link rel="canonical" href="https://patentref.io/docs/errors/{{ code }}">{% endif %}{% endblock %}
+{% block css %}
+    dt { margin-top: var(--s-3); }
+    dd { margin: var(--s-1) 0 0; }
+    /* the long addresses in the text break where they must, so nothing scrolls sideways at 320 px */
+    .pr-main p, dd { overflow-wrap: anywhere; }
+{% endblock %}
+{% block body %}
+    {% if unknown %}
+    <h1>Unknown error code</h1>
+    <p>The PatentRef API sends no error code <code>{{ code }}</code>. <a href="/docs/errors/">All error codes</a></p>
+    {% elif code %}
+    <h1><code>{{ code }}</code></h1>
+    <p>{{ text }}</p>
+    <p><a href="/docs/errors/">All error codes</a></p>
+    {% else %}
+    <h1>API error codes</h1>
+    <p class="lead">The codes of the X-Status-Reason-Code header. The RFC 9457 problem type of each is https://patentref.io/docs/errors/&lt;CODE&gt;.</p>
+    <dl>
+      {% for c, t in codes %}<dt id="{{ c }}"><a href="/docs/errors/{{ c }}"><code>{{ c }}</code></a></dt><dd>{{ t }}</dd>
+      {% endfor %}</dl>
+    <p>{{ note }}</p>
+    <p>Send <code>Accept: application/problem+json</code> on any request to receive errors as problem details objects; the upstream body <code>{"error": true}</code> and the headers X-Status-Reason and X-Status-Reason-Code are the default. Full guide: <a href="/llms-full.txt">llms-full.txt</a></p>
+    {% endif %}
+{% endblock %}

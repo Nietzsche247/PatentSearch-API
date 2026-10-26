@@ -19,6 +19,7 @@ RFC 9457 negotiation of gate 2.11 applies unchanged. Every response carries data
 status record is run through the banned-strings check before it leaves (never-regress item 8).
 """
 import json
+import logging
 import re
 
 from django.conf import settings
@@ -32,6 +33,8 @@ from rest_framework.views import APIView
 from API import lapse_group, lapse_wording
 from API.search import get_searcher
 from API.search_sqlite import fts_quote, tokens
+
+logger = logging.getLogger(__name__)
 
 SIMILAR_MAX_TEXT = 4000
 SIMILAR_MAX_N = 20
@@ -189,6 +192,25 @@ def _as_of(searcher):
         return None
 
 
+def _record_page_error(status, heading, message, link_href="", link_text=""):
+    """The record page's own answer when it has no record to show: a page with a language, a title and a heading in the
+    skeleton of every page (checklist 7.6; the plain-text answers had neither), with the same status codes as before."""
+    from lapse_accounts.public import footer_lines
+    from lapse_accounts.views import _data_version
+
+    version, as_of = _data_version()
+    html = render_to_string("lapse_accounts/page_error.html", {
+        "heading": heading, "message": message, "link_href": link_href, "link_text": link_text,
+        "data_version": version, "as_of": as_of, "footer_lines": footer_lines()})
+    resp = HttpResponse(html, status=status, content_type="text/html; charset=utf-8")
+    resp["Cache-Control"] = "no-store"
+    resp["X-Robots-Tag"] = "noindex"
+    return resp
+
+
+NO_RECORD = ("Not found", "PatentRef has no record for this patent number. Check the number in the address.", "/docs/", "PatentRef documentation")
+
+
 class RecordPage(APIView):
     """GET /p/<patent_id>: the human page behind the permalink. No key; the per-IP meta rate."""
 
@@ -205,20 +227,22 @@ class RecordPage(APIView):
 
         pid = normalize_pid(pk)
         if not pid:
-            return HttpResponse("not found\n", status=404, content_type="text/plain; charset=utf-8")
+            return _record_page_error(404, *NO_RECORD)
         searcher = get_searcher()
         con = searcher.connection()
         data_version = searcher.data_version() or ""
         cat = searcher.catalog_facts()
         sup = version_facts(request.GET.get("v"), data_version)
         if sup is False:
-            return HttpResponse("unknown data version\n", status=404, content_type="text/plain; charset=utf-8")
+            return _record_page_error(404, "Unknown data version", "PatentRef never served the data version in this address.",
+                                      f"/p/{pid}", f"The current record for US {pid}")
         try:
             got = lapse_group.verdict_with_engine(con, cat, pid, data_version, base_url(request))
-        except RuntimeError as e:
-            return HttpResponse(f"status engine unavailable: {e}\n", status=503, content_type="text/plain; charset=utf-8")
+        except RuntimeError:
+            return _record_page_error(503, "Not available right now", "This record page cannot be built right now. Try again in a few minutes.",
+                                      "/api/v1/meta/status/", "Service status")
         if got is None:
-            return HttpResponse("not found\n", status=404, content_type="text/plain; charset=utf-8")
+            return _record_page_error(404, *NO_RECORD)
         rec, engine_rec = got
         title = None
         try:
@@ -241,7 +265,9 @@ class RecordPage(APIView):
         })
         bad = lapse_wording.check_banned(html.split('data-user-content="true"')[0])
         if bad:
-            return HttpResponse(f"wording check failed: {', '.join(bad)}\n", status=500, content_type="text/plain; charset=utf-8")
+            logger.error("record page %s: wording check failed: %s", pid, ", ".join(bad))
+            return _record_page_error(500, "This page could not be shown", "PatentRef held this page back because its wording failed a check.",
+                                      "/api/v1/meta/status/", "Service status")
         resp = HttpResponse(html, content_type="text/html; charset=utf-8")
         resp["Cache-Control"] = "public, max-age=300"
         resp["X-Data-Version"] = data_version

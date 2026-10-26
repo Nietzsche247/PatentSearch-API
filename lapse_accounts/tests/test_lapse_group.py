@@ -370,6 +370,48 @@ def test_record_page_without_a_key(client, lapse_env):
     assert client.get("/p/8087108", {"v": "19990101.1"}).status_code == 404
 
 
+def test_record_page_fits_a_phone_and_its_errors_are_pages(client, lapse_env):
+    """Checklist 7.6, the live axe run of 2026-10-23: at 320 px the record's JSON block scrolled sideways, a scroll region
+    no keyboard reaches (axe scrollable-region-focusable, serious), so it wraps as on the docs pages; and the page's own
+    errors were plain text with no language or title (html-has-lang, document-title), so they are pages now, with the
+    same status codes."""
+    import re
+
+    html = client.get("/p/8087108").content.decode("utf-8")
+    pre = re.search(r"^\s*pre \{([^}]*)\}", html, re.M).group(1)
+    assert "white-space: pre-wrap" in pre and "word-break: break-word" in pre and "overflow-x" not in pre
+    assert "checklist" not in html.lower()  # the template's note on it is a template comment, not served
+    for path, params, status, heading in [("/p/99999999", {}, 404, "Not found"), ("/p/notanumber", {}, 404, "Not found"),
+                                          ("/p/8087108", {"v": "19990101.1"}, 404, "Unknown data version")]:
+        r = client.get(path, params)
+        page = r.content.decode("utf-8")
+        assert r.status_code == status and r["Content-Type"] == "text/html; charset=utf-8", path
+        assert '<html lang="en"' in page and f"<title>{heading} | PatentRef</title>" in page and f"<h1>{heading}</h1>" in page
+        assert r["X-Robots-Tag"] == "noindex" and r["Cache-Control"] == "no-store"
+        assert lapse_wording.check_banned(page) == []
+    assert '<a href="/p/8087108">The current record for US 8087108</a>' in client.get("/p/8087108", {"v": "19990101.1"}).content.decode()
+
+
+def test_record_page_503_and_500_are_pages(client, lapse_env, monkeypatch):
+    """The two other answers of the record page without a record: the status engine down (503) and the wording check
+    holding the page back (500, the banned words go to the log, not to the reader)."""
+    from API import lapse_group, lapse_views
+
+    def down(*a, **k):
+        raise RuntimeError("engine missing")
+
+    monkeypatch.setattr(lapse_group, "verdict_with_engine", down)
+    r = client.get("/p/8087108")
+    page = r.content.decode("utf-8")
+    assert r.status_code == 503 and "<h1>Not available right now</h1>" in page and "engine missing" not in page
+    monkeypatch.undo()
+    monkeypatch.setattr(lapse_views.lapse_wording, "check_banned", lambda text: ["we recommend"])
+    r = client.get("/p/8087108")
+    page = r.content.decode("utf-8")
+    assert r.status_code == 500 and "<h1>This page could not be shown</h1>" in page and "we recommend" not in page
+    assert '<html lang="en"' in page and r["Content-Type"] == "text/html; charset=utf-8"
+
+
 def test_similar_endpoint(client, user_key, lapse_env):
     _, key, _ = user_key
     assert client.get("/api/v1/lapse/similar", {"text": "pool brush"}).status_code == 403
