@@ -11,8 +11,8 @@ references:
   6. the inventor link is <base>/api/v1/inventor/<inventor_id>/ and comes back beside inventor_id
   7. inventors.disambiguated comes back only when f names it; the whole group carries the upstream fields
   8. nested rows come back in their source order (_ord), not sorted by a field
-  9. the app's own body cap (65,536 bytes) is above the edge's 64,000, so the edge's 413 is what a caller sees; the error page
-     says so
+  9. the app's own body cap is the edge's 64,000 bytes (Caddy's max_size 64KB), so every body the edge refuses is drained by
+     the app before it answers and the edge's 413 is what a caller sees, near or far; the error page says so
 
   python -m pytest lapse_accounts/tests/test_docs71.py -q -p no:cacheprovider -o addopts=""
 """
@@ -200,18 +200,33 @@ def test_nested_rows_in_source_order(client, user_key, env):
     assert order == {"10000000": [(0, "Abbott"), (1, "Van Dyke"), (2, "Carter")], "12751376": [(1, "Zeta"), (0, "Alpha")]}
 
 
-def test_the_app_body_cap_sits_above_the_edge_cap(client, user_key, env):
-    from lapse_accounts import public
+def test_the_app_body_cap_is_the_edge_cap(client, user_key, env, monkeypatch):
+    """With the app's cap at 65,536 a keyless POST of 64,001 to 65,536 bytes reached the view, which answers 403 without
+    reading the body; from a client far from the box that 403 came back before Caddy had read byte 64,001 (the docs71
+    deploy's outside check, 2026-10-25 05:41 UTC: 403, where the box itself saw 413), the answer race that killed Caddy
+    in the gate 5.6 run. At the edge's figure every body the edge refuses is drained first, keyed or not."""
+    from lapse_accounts import abuse, public
 
-    assert int(settings.LAPSE_MAX_BODY) == 65536 > 64000
+    assert int(settings.LAPSE_MAX_BODY) == 64000 == int(settings.DATA_UPLOAD_MAX_MEMORY_SIZE)
     _, key, _ = user_key
     head = b'{"q":{"patent_id":"10000000"},"f":["patent_id"],"x":"'
-    for n, status in ((64001, 200), (65536, 200), (65537, 400)):
-        body = head + b"a" * (n - len(head) - 2) + b'"}'
-        assert len(body) == n
-        r = client.post(P, data=body, content_type="application/json", HTTP_X_API_KEY=key)
+
+    def body(n):
+        b = head + b"a" * (n - len(head) - 2) + b'"}'
+        assert len(b) == n
+        return b
+
+    for n, status in ((64000, 200), (64001, 400)):
+        r = client.post(P, data=body(n), content_type="application/json", HTTP_X_API_KEY=key)
         assert r.status_code == status, (n, r.status_code, r.content[:200])
-    assert r["X-Status-Reason-Code"] == "ERR_Q" and "Request body too large" in r["X-Status-Reason"]
+    assert r["X-Status-Reason-Code"] == "ERR_Q" and "Request body too large: 64001 bytes, the limit is 64000" in r["X-Status-Reason"]
+    drained = []
+    real = abuse.drain
+    monkeypatch.setattr(abuse, "drain", lambda request, limit: drained.append(limit) or real(request, limit))
+    r = client.post(P, data=body(64001), content_type="application/json")   # keyless, one byte over
+    assert r.status_code == 400 and drained == [64001], (r.status_code, drained)
+    r = client.post(P, data=body(64000), content_type="application/json")   # keyless at the cap: the view's 403, nothing drained
+    assert r.status_code == 403 and drained == [64001], (r.status_code, drained)
     page = public.ERROR_CODES["ERR_Q"]
     assert "q over 16 KB (16,384 bytes) in a POST body" in page and "a body over 64 KB" not in page
     assert "a request body over 64,000 bytes answers 413 with an empty body" in page
