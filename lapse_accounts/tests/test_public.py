@@ -214,7 +214,7 @@ def test_meta_index(client, public_dir):
     assert body["licenses_url"].endswith("/LICENSES.md") and body["openapi"].endswith("/openapi.json")
     assert body["attribution"].startswith("Patent data from PatentsView")
     assert isinstance(body["delta"], list) and isinstance(body["superseded_versions"], list)
-    assert r["Cache-Control"] == "public, max-age=60"
+    assert r["Cache-Control"] == "no-cache"   # PatentRef 1.18.0; before, public, max-age=60 (test_meta_version.py)
     # 2026-10-11 audit 2, finding G1: no internal machinery in the public body; the test file serves only `patents`, so
     # every data set a build can lack is listed, the four classification sets included
     text = json.dumps(body).lower()

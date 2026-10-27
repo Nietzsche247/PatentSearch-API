@@ -1143,3 +1143,23 @@ Tests: `lapse_accounts/tests/test_home_try.py` (13: the home page, the 302 gone,
 field, a run's body equals a keyed client's byte for byte, no key or Authorization reaches the view and no month is counted,
 no parameters, the limit per address, the day's limit for everyone, the ended windows deleted, the headers of the other pages,
 the privacy line); `lapse_tools/a11y/axe_check.js` on the 34 rendered pages, 0 findings.
+
+## 2026-10-27 pending approval: release wave4-T, the build facts name the version in service (PatentRef 1.18.0)
+
+Not deployed; branch `wave4-T` from `sqlite-backend` aa4968d (release S, in service). No migration; a worker reload of
+patentref-api. On 2026-10-27 a reader saw data_version 20261020.2 in GET /api/v1/meta/ at 14:05 UTC while the API's
+X-Data-Version said 20261027.1 (the weekly grants swap of 06:56 UTC). The box's request log holds no request for
+/api/v1/meta/ between 11:22 and 15:13 UTC, and all eight workers started at 07:36 UTC, after the swap, so the API did not
+give that answer: a cache on the way kept a copy from before the swap, which "public, max-age=60" allowed. Looking for it
+found one answer that could name the file before a swap: an answer whose view reads no search file took the version of the
+connection its thread still held.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/public.py` | GET /api/v1/meta/ answers `Cache-Control: no-cache` (`META_CACHE`), was `public, max-age=60` | the build facts change at every swap; a cache must ask the API before it reuses them |
+| `API/search_sqlite.py`, `API/lapse_errors.py` | `begin_request()` and `request_used_search()`: DataVersionMiddleware marks each request, `connection()` marks a read; a response whose view read no search file (403 without a key, the account endpoints, the pages) names the file the configured path resolves to now | before, it named the connection the thread kept from an earlier request, which after a swap without a worker reload was the file before the swap; a response that read the file still names its own connection (gate 4.3) |
+
+Tests: `lapse_accounts/tests/test_meta_version.py` (5: meta's data_version and header equal a data answer's and a keyless
+403's across a swap and a rollback with no reload; a 403 after a swap names the new file (fails before the change); a data
+answer keeps its own file when the symlink moves mid-request; meta's no-cache; health agrees); `test_public.py` expects
+no-cache.

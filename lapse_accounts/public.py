@@ -16,7 +16,8 @@
       recorded (counts current against next) and the fee value delta, the rules dataset version
       (rules_version), attribution and the license register URL. Read from the served file's
       _lapse_build rows and the runner's sidecars (/data/api/snapshot_current.json,
-      /data/lapse/refresh_versions.json). No key needed.
+      /data/lapse/refresh_versions.json). No key needed. Cache-Control: no-cache (META_CACHE below):
+      data_version is the X-Data-Version every answer of the API carries, read from the same file.
 
 The page footers of the sign-up and status pages are generated from LICENSES.md (checklist 1.11):
 `footer_lines()` returns the lines of its "Attribution lines" section ("## 5. Attribution lines" in the
@@ -374,11 +375,19 @@ def meta_facts():
     }
 
 
+# The build facts change at every swap, so no cache may answer them without asking the API (PatentRef 1.18.0). Until then
+# the answer said "public, max-age=60", and on 2026-10-27 a reader was shown, at 14:05 UTC, a copy of the answer from before
+# that morning's 06:56 UTC swap (data_version 20261020.2) while the API served 20261027.1: no request for /api/v1/meta/
+# reached the API between 11:22 and 15:13 UTC that day (the request log), so the copy came from a cache on the way.
+# generated_at says when the API produced an answer.
+META_CACHE = "no-cache"
+
+
 @require_GET
 def meta_index(request):
     body = meta_facts()
     resp = JsonResponse(body, json_dumps_params={"indent": 1})
-    resp["Cache-Control"] = "public, max-age=60"
+    resp["Cache-Control"] = META_CACHE
     resp["Access-Control-Allow-Origin"] = "*"
     resp["X-Data-Version"] = body["data_version"]
     return resp

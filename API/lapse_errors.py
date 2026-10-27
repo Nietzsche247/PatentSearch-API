@@ -153,9 +153,11 @@ class DataVersionMiddleware:
 
     The value is the data_version of the search database connection the request's thread holds after
     the view ran: the same connection produced the body, so header and body never name different
-    files. A response whose view never opened the search database (403 without a key, the account
+    files. A response whose view never read the search database (403 without a key, the account
     endpoints) gets the version of the file the configured path resolves to right now, read through
-    the same thread cache. The header is additive: upstream bodies and other headers are unchanged.
+    the same thread cache; before PatentRef 1.18.0 it got the version of the connection the thread still held
+    from an earlier request, which after a swap without a worker reload named the file before the swap.
+    The header is additive: upstream bodies and other headers are unchanged.
 
     On the four long-text endpoints the rows come from the long-text file, so those responses also carry
     `X-Text-Data-Version`, that file's data_version (the text_data_version of GET /api/v1/meta/health/),
@@ -166,6 +168,7 @@ class DataVersionMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        self._begin()
         response = self.get_response(request)
         if not response.has_header(DATA_VERSION_HEADER):
             version = self._version()
@@ -178,15 +181,33 @@ class DataVersionMiddleware:
         return response
 
     @staticmethod
+    def _begin():
+        """Marks the start of the request on its thread, so _version can tell an answer that read the search file from one
+        that read none (API.search_sqlite.request_used_search)."""
+        try:
+            from django.conf import settings
+
+            if getattr(settings, "LAPSE_BACKEND", "elasticsearch") == "sqlite":
+                from API.search_sqlite import begin_request
+
+                begin_request()
+        except Exception:  # noqa: BLE001, S110 - the header never breaks a response
+            pass
+
+    @staticmethod
     def _text_version():
         try:
             from django.conf import settings
 
             if getattr(settings, "LAPSE_BACKEND", "elasticsearch") != "sqlite":
                 return None
-            from API.search_sqlite import LapseSQLiteSearch, current_text_data_version
+            from API.search_sqlite import (
+                LapseSQLiteSearch,
+                current_text_data_version,
+                request_used_search,
+            )
 
-            version = current_text_data_version()
+            version = current_text_data_version() if request_used_search() else None
             if version is None:
                 version = LapseSQLiteSearch.from_django_settings().text_data_version()
             return version
@@ -200,9 +221,13 @@ class DataVersionMiddleware:
 
             if getattr(settings, "LAPSE_BACKEND", "elasticsearch") != "sqlite":
                 return None
-            from API.search_sqlite import LapseSQLiteSearch, current_data_version
+            from API.search_sqlite import (
+                LapseSQLiteSearch,
+                current_data_version,
+                request_used_search,
+            )
 
-            version = current_data_version()
+            version = current_data_version() if request_used_search() else None
             if version is None:
                 version = LapseSQLiteSearch.from_django_settings().data_version()
             return version

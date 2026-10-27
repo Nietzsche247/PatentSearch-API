@@ -1142,6 +1142,19 @@ def read_data_version(con, real_path, fallback_env=True, schema="main"):
     return env or os.path.splitext(os.path.basename(real_path))[0] or "unversioned"
 
 
+def begin_request():
+    """Marks the start of a request on this thread: `request_used_search()` is False until a search instance asks for the
+    connection. Called by `API.lapse_errors.DataVersionMiddleware` before the view runs."""
+    LapseSQLiteSearch._local.used = False
+
+
+def request_used_search():
+    """True when a search instance asked for this thread's connection since `begin_request()`: the connection the thread
+    holds then produced the body. False when the view never read the search file (403 without a key, the account
+    endpoints, the pages): the thread may still hold a connection to the file a request before a swap read."""
+    return bool(getattr(LapseSQLiteSearch._local, "used", False))
+
+
 def current_data_version():
     """The data_version of the connection this thread is holding, or None when it has opened none yet.
     Read by `API.lapse_errors.DataVersionMiddleware` after the view ran, so the header on a response
@@ -1198,6 +1211,7 @@ class LapseSQLiteSearch:
                    request_budget=getattr(settings, "LAPSE_REQUEST_BUDGET", None))
 
     def connection(self):
+        self._local.used = True  # this request read the search file (request_used_search)
         con = getattr(self._local, "con", None)
         if con is None or getattr(self._local, "real", None) != self.real or getattr(self._local, "catalog_real", None) != self.catalog \
                 or getattr(self._local, "text_real", None) != self.text:
