@@ -10,7 +10,7 @@ import time
 
 import pytest
 from django.conf import settings
-from django.test import RequestFactory
+from django.test import Client, RequestFactory
 from django.urls import resolve
 
 from API import lapse_wording
@@ -99,6 +99,9 @@ def test_the_302_to_the_docs_is_gone(client):
     assert [getattr(p.callback, "__name__", "") for p in root if hasattr(p, "callback")] == ["home"]   # upstream's RedirectView left out
     assert client.head("/").status_code == 200
     assert client.post("/").status_code == 405
+    strict = Client(enforce_csrf_checks=True)   # as a real browser or curl meets the app: the method rule answers, not CSRF
+    for path in ("/", "/try/", "/try/one/"):
+        assert strict.post(path, data="{}", content_type="application/json").status_code == 405, path
 
 
 def test_the_name_in_every_header_links_home(client):

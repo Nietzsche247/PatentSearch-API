@@ -35,6 +35,7 @@ from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.urls import resolve
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_safe
 
 from lapse_accounts import abuse, public, ratelimit
@@ -221,11 +222,13 @@ def _page(request, template, ctx, status=200, cache="public, max-age=300", noind
     return resp
 
 
+@csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page
 @require_safe
 def home(request):
     return _page(request, "lapse_accounts/home.html", _ctx())
 
 
+@csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page
 @require_safe
 def try_index(request):
     return _page(request, "lapse_accounts/try.html", _ctx(state="index"))
@@ -239,6 +242,7 @@ def _refuse(request, state, status, example=None, wait=None):
     return resp
 
 
+@csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page
 @require_GET
 def try_run(request, name):
     example = BY_NAME.get(name)
