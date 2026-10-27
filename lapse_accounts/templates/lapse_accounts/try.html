@@ -1,0 +1,59 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}{% if ran %}{{ ran.title }}: try the API{% elif state == "unknown" %}No such example{% else %}Try the API without a key{% endif %}{% endblock %}
+{% block head %}<meta name="description" content="Four fixed requests to the PatentRef API, answered without a key: a patent by its number, an assignee's grants in one year, a patent's claims, and its expiry and fee status.">
+  <link rel="canonical" href="{{ site }}/try/">{% endblock %}
+{% block home %}/{% endblock %}
+{% block css %}
+    /* the demo's own rules (release S) */
+    :root { --err-bg: #fde8e8; --err-fg: #7f1d1d; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --err-bg: #3a1212; --err-fg: #f5b5b5; } }
+    :root[data-theme="dark"] { --err-bg: #3a1212; --err-fg: #f5b5b5; }
+    h2 { margin: 0 0 var(--s-2); }
+    h3 { font-size: var(--t-base); margin: var(--s-3) 0 var(--s-1); }
+    pre { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-2); white-space: pre-wrap; word-break: break-word; }
+    .card p:last-child { margin-bottom: 0; }
+    .card a, .msg a, .more a { display: inline-block; padding: var(--s-1) 0; }
+    .msg { padding: var(--s-2) var(--s-3); border-radius: var(--radius); margin-bottom: var(--s-3); }
+    .msg.err { background: var(--err-bg); color: var(--err-fg); }
+    .msg.err a { color: inherit; }
+    .more { padding-left: var(--s-4); }
+{% endblock %}
+{% block body %}
+{% if state == "index" %}
+    <h1>Try the API without a key</h1>
+    <p class="lead">These four requests are answered here without a key, so you can see what the API sends back. Each one is shown as the curl command you would send with your own key; {{ placeholder }} stands for it.</p>
+    <p>The demo runs only these requests, at most {{ per_hour }} an hour from one address and {{ per_day }} a day for everyone. For anything else, <a href="/api/v1/meta/signup/">get a free key</a>: {{ monthly }} requests a month.</p>
+    {% for e in examples %}
+    <div class="card">
+      <h2>{{ e.title }}</h2>
+      <p>{{ e.what }}</p>
+      <pre><code>{{ e.curl }}</code></pre>
+      <p><a href="/try/{{ e.name }}/" rel="nofollow">Run this request</a></p>
+    </div>
+    {% endfor %}
+{% elif state == "ran" %}
+    <h1>{{ ran.title }}</h1>
+    <p class="lead">{{ ran.what }}</p>
+    <div class="card">
+      <h2>The request</h2>
+      <pre><code>{{ ran.curl }}</code></pre>
+      <p class="muted">{{ placeholder }} stands for your key. The demo sent this request without one, on its shared allowance.</p>
+      <h3>The answer</h3>
+      <p class="muted">Status {{ answer.status }}{% if answer.data_version %}, X-Data-Version {{ answer.data_version }}{% endif %}{% if answer.text_data_version %}, X-Text-Data-Version {{ answer.text_data_version }}{% endif %}{% if answer.reason %}, X-Status-Reason: {{ answer.reason }}{% endif %}</p>
+      <pre><code>{{ answer.json }}</code></pre>
+    </div>
+    <p><a href="/api/v1/meta/signup/">Get a free key</a> to send your own requests, or try another one:</p>
+    <ul class="more">{% for e in examples %}{% if e.name != ran.name %}
+      <li><a href="/try/{{ e.name }}/" rel="nofollow">{{ e.title }}</a></li>{% endif %}{% endfor %}
+      <li><a href="/try/">All the examples</a></li>
+    </ul>
+{% else %}
+    <h1>{% if state == "unknown" %}No such example{% elif state == "key" %}The demo takes no key{% elif state == "params" %}The demo takes no parameters{% else %}The demo allowance is used up{% endif %}</h1>
+    <p class="msg err" role="alert">{% if state == "unknown" %}The demo has no example at this address.{% elif state == "key" %}This request carried a key or an Authorization header, so nothing ran. The demo never takes a key: with your key, send the request to the API itself, {{ site }}/api/v1/.{% elif state == "params" %}This address carried a query string, so nothing ran. The demo runs only its fixed requests, exactly as shown.{% elif state == "limit-address" %}This address has had its {{ per_hour }} demo runs this hour. Try again in {{ wait_minutes }} minute{{ wait_minutes|pluralize }}, or get a free key.{% else %}The demo has answered its {{ per_day }} runs for everyone today. It starts again at 00:00 UTC, in {{ wait_minutes }} minute{{ wait_minutes|pluralize }}. A free key works now.{% endif %}</p>
+    <p><a href="/api/v1/meta/signup/">Get a free key</a>: {{ monthly }} requests a month, {{ per_minute }} a minute.</p>
+    <ul class="more">{% for e in examples %}
+      <li><a href="/try/{{ e.name }}/" rel="nofollow">{{ e.title }}</a></li>{% endfor %}
+      <li><a href="/try/">All the examples</a></li>
+    </ul>
+{% endif %}
+{% endblock %}

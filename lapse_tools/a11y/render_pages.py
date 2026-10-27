@@ -5,7 +5,7 @@
 
 Uses the test settings of lapse_accounts/tests/conftest.py (a temporary Django database and a three-row search file), the
 legal documents of the patentref checkout (default: the sibling directory named patentref, lapse, pr or trust), the
-sign-up page also as a signed-in account sees it (the terms box and the key buttons; with a key shown), the error index as a browser asks for it, and sample contexts for the record page (with the family block, the superseded banner and its JSON as the view builds it), its not-found page and the unsubscribe page. Each page
+sign-up page also as a signed-in account sees it (the terms box and the key buttons; with a key shown), the error index as a browser asks for it, and sample contexts for the record page (with the family block, the superseded banner and its JSON as the view builds it), its not-found page and the unsubscribe page, and (release S) the home page, the demo's list as served and its run and refusal pages. Each page
 is written as it is served; nothing outside <out dir> and a temporary directory is touched.
 """
 import json
@@ -111,6 +111,34 @@ def main(out, repo=None):
         "link_href": "/docs/", "link_text": "PatentRef documentation", "data_version": "20261013.3", "as_of": "2026-10-13",
         "footer_lines": public.footer_lines()})
     (out / "record_not_found.html").write_text(html, encoding="utf-8")
+    # the home page and the demo (release S): the pages as served, a run's page with a long answer (the claims of US 10905426
+    # as the API gives them, one claim of 900 characters to wrap at 320 px), and the refusals
+    from lapse_accounts import demo
+
+    for name, path in (("home", "/"), ("try_index", "/try/")):
+        r = c.get(path)
+        assert r.status_code == 200, (path, r.status_code)
+        (out / f"{name}.html").write_bytes(r.content)
+    claim = ("1. A surgical instrument removably couplable to an actuator arrangement, said surgical instrument comprising: an end "
+             "effector, comprising: a first jaw; and a second jaw movable relative to said first jaw between an open position and a "
+             "closed position; a drive system axially movable relative to said end effector between a starting position and an ending "
+             "position; a housing assembly operably couplable to the actuator arrangement, said housing assembly comprising: an "
+             "engagement member configured to operably couple said housing assembly to the actuator arrangement; and a contact "
+             "arrangement energizable independently of said housing assembly being coupled or decoupled to the actuator arrangement; "
+             "and a motor configured to drive said drive system between the starting position and the ending position.")
+    body = {"error": False, "count": 2, "total_hits": 20, "g_claims": [
+        {"patent_id": "10905426", "claim_sequence": 0, "claim_number": "00001", "claim_dependent": None, "claim_text": claim},
+        {"patent_id": "10905426", "claim_sequence": 1, "claim_number": "00002", "claim_dependent": "claim 1",
+         "claim_text": "2. The surgical instrument of claim 1, wherein said contact arrangement comprises a plurality of contacts."}]}
+    answer = {"status": 200, "data_version": "20261020.2", "text_data_version": "20261006.4", "reason": None,
+              "json": json.dumps(body, indent=2, ensure_ascii=False)}
+    ran = demo.BY_NAME["claims"]
+    pages_s = (("try_ran", dict(state="ran", ran=ran, answer=answer)), ("try_key", dict(state="key", ran=ran)),
+               ("try_params", dict(state="params", ran=ran)), ("try_unknown", dict(state="unknown")),
+               ("try_limit_address", dict(state="limit-address", ran=ran, wait_minutes=41)),
+               ("try_limit_everyone", dict(state="limit-everyone", ran=ran, wait_minutes=1)))
+    for name, extra in pages_s:
+        (out / f"{name}.html").write_text(render_to_string("lapse_accounts/try.html", demo._ctx(**extra)), encoding="utf-8")
     print(f"{len(list(out.glob('*.html')))} pages in {out}")
 
 

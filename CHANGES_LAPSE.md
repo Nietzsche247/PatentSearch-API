@@ -1124,3 +1124,22 @@ and `wave4-wkfix` (eeaddd5, the section above) merged. No migration; a worker re
 
 Tests: `lapse_accounts/tests/test_public.py` and `test_lapse_group.py` (the pages, the plain text byte for byte, Vary),
 `test_docs71.py` (the body cap); `lapse_tools/a11y/axe_check.js` on the rendered pages, 0 serious and 0 critical.
+
+## 2026-10-27 pending approval: release wave4-S, the home page and the keyless demo (PatentRef 1.17.0)
+
+Not deployed; branch `wave4-S` from `sqlite-backend` 8d8b927 (release R, in service). No migration (the demo's counters are
+rows of `lapse_accounts_windowcount`, the throttles' table); a worker reload of patentref-api. The patentref repo's
+`wave4-S` drops the site file's `redir / /docs/`, so / reaches this app.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/demo.py`, `lapse_accounts/templates/lapse_accounts/home.html` | GET / is the home page: what PatentRef is in two sentences, the base URL in R and in Python (three lines each), the free key, links to the docs, the demo, the status page, the snapshot and the waitlist; no script; upstream's redirect of / to /docs/ is left out of the routes (`root_urls._not_root`) | the public beta needs a front page a person can read in one screen (the marketing plan's spec 3) |
+| `lapse_accounts/demo.py`, `lapse_accounts/templates/lapse_accounts/try.html` | GET /try/ lists four fixed requests (`EXAMPLES`) as curl with the placeholder YOUR_KEY; GET /try/<name>/ runs one through the API's own view, in process, with a request built by the demo (no X-Api-Key, no Authorization, no cookie, Accept: application/json), the view's permission and throttles off, and shows the status, X-Data-Version and the JSON body; a request with a key, an Authorization header or any query string answers 400 and runs nothing; an unknown name 404 | a demo people can try without a sign-up (spec 10), that can never be used as a keyless API or charged to an account |
+| `lapse_accounts/demo.py` | the allowance: `LAPSE_DEMO_PER_HOUR` runs a clock hour per client address (20) and `LAPSE_DEMO_PER_DAY` a UTC day for everyone (2,000), on `ratelimit.bump`, the address from `abuse.client_ip`; above either 429 with Retry-After (a run refused by the day's cap takes nothing from its address); every run deletes the demo's ended windows | the Privacy Policy's usage data paragraph (time, path, status and client IP address of every API request, for per-address limits and abuse prevention) covers the count; an address is kept at most until its hour ends |
+| `lapse_accounts/templates/lapse_accounts/base.html` | the name in the header links to / (a page may still name its own: the status page links to itself) | before, it linked to the sign-up page, as there was no home page |
+| `lapse_tools/a11y/render_pages.py` | renders the home page, the demo's list, a run with a long answer and the four refusals | the local axe run covers the new pages |
+
+Tests: `lapse_accounts/tests/test_home_try.py` (13: the home page, the 302 gone, the list holds only the fixed requests and no
+field, a run's body equals a keyed client's byte for byte, no key or Authorization reaches the view and no month is counted,
+no parameters, the limit per address, the day's limit for everyone, the ended windows deleted, the headers of the other pages,
+the privacy line); `lapse_tools/a11y/axe_check.js` on the 34 rendered pages, 0 findings.

@@ -13,11 +13,11 @@
 </head>
 <body>
   {% comment %}The one skeleton every PatentRef page served by this app extends (patentref skill page-template, checklist 7.6):
-  header with the name, data version and as-of; the page's blocks in main; the footer with the attribution lines of
+  header with the name (a link to the home page, release S; a page may name its own), data version and as-of; the page's blocks in main; the footer with the attribution lines of
   LICENSES.md and the same links on every page. Tokens come from _tokens.css, a byte copy of the registry's
   src/app/tokens.css (skill css-tokens).{% endcomment %}
   <header class="pr-header">
-    <a class="pr-name" href="{% block home %}/api/v1/meta/signup/{% endblock %}">PatentRef</a>
+    <a class="pr-name" href="{% block home %}/{% endblock %}">PatentRef</a>
     <p class="pr-asof">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}. Free beta.</p>
   </header>
   <main class="pr-main" id="main">

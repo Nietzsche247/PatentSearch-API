@@ -1,0 +1,44 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}A PatentsView-compatible US patent API{% endblock %}
+{% block head %}<meta name="description" content="PatentRef is a PatentsView-compatible API for US patents granted from 1976 on, refreshed every week. Change the base URL and add a free key to run PatentsView code against it.">
+  <link rel="canonical" href="{{ site }}/">{% endblock %}
+{% block home %}/{% endblock %}
+{% block css %}
+    /* the home page's own rules (release S): one screen at 1280 px */
+    .lead { font-size: var(--t-lg); color: var(--fg); }
+    .actions { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: 0 0 var(--s-4); }
+    .button { display: inline-block; padding: var(--s-2) var(--s-3); border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); text-decoration: none; font-weight: 600; }
+    .button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .actions a:not(.button) { display: inline-block; padding: var(--s-1) 0; }
+    h2 { margin: var(--s-4) 0 var(--s-2); }
+    h3 { font-size: var(--t-base); margin: var(--s-3) 0 var(--s-1); }
+    pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-2); white-space: pre-wrap; word-break: break-word; }
+    .links { display: flex; flex-wrap: wrap; gap: 0 var(--s-4); padding: 0; list-style: none; margin: 0 0 var(--s-3); }
+    .links a { display: inline-block; padding: var(--s-1) 0; }
+{% endblock %}
+{% block body %}
+    <h1>PatentRef</h1>
+    <p class="lead">PatentRef is a PatentsView-compatible API for US patents granted from 1976 on, refreshed every week from USPTO data. It is an independent service and is not affiliated with the USPTO.</p>
+    <p class="actions"><a class="button" href="/api/v1/meta/signup/">Get a free key</a> <a href="/try/">Try it without a key</a></p>
+
+    <h2>Point your code at PatentRef</h2>
+    <p>The same endpoints, the same q, f, s and o parameters and the same response shape. The base URL is <code>{{ site }}/api/v1/</code>, and every request sends your key in <code>X-Api-Key</code>.</p>
+    <h3>R (the patentsview package)</h3>
+    <pre><code>library(patentsview)
+Sys.setenv(PATENTSVIEW_API_KEY = "{{ placeholder }}")
+assignInNamespace("get_base", function(endpoint) sprintf("{{ site }}/api/v1/%s/", endpoint), ns = "patentsview")</code></pre>
+    <h3>Python</h3>
+    <pre><code>import requests
+BASE = "{{ site }}/api/v1/"
+print(requests.get(BASE + "patent/", params={"q": '{"patent_id":"10905426"}'}, headers={"X-Api-Key": "{{ placeholder }}"}).json())</code></pre>
+    <p class="muted">{{ placeholder }} stands for your key. A free key allows {{ monthly }} requests a month and {{ per_minute }} a minute.</p>
+
+    <h2>More</h2>
+    <ul class="links">
+      <li><a href="/docs/">Docs</a></li>
+      <li><a href="/try/">Try it</a></li>
+      <li><a href="/api/v1/meta/status/">Status</a></li>
+      <li><a href="/docs/snapshot.html">The data on Zenodo</a></li>
+      <li><a href="/waitlist/">Waitlist</a></li>
+    </ul>
+{% endblock %}

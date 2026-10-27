@@ -3,7 +3,7 @@ unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream setti
 from django.urls import URLResolver, include, path, re_path
 
 from API import lapse_rules, lapse_views
-from lapse_accounts import legal, mail, public, swagger, waitlist
+from lapse_accounts import demo, legal, mail, public, swagger, waitlist
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
 
@@ -13,6 +13,11 @@ def _ours(pattern):
     make the API server post to Google. ops/caddy/patentref.caddy answers 404 for the same paths before they reach the app."""
     return not (isinstance(pattern, URLResolver) and ({getattr(pattern, "namespace", None), getattr(pattern, "app_name", None)}
                                                        & {"admin", "social"}))
+
+
+def _not_root(pattern):
+    """Upstream's redirect of / to /docs/ is left out: / is PatentRef's home page since release S (1.17.0)."""
+    return str(pattern.pattern) != ""
 
 
 urlpatterns = [
@@ -44,4 +49,9 @@ urlpatterns = [
     # upstream's interactive page, pinned, with SRI and a CSP, reading /openapi.json (lane Q2; lapse_accounts/swagger.py);
     # upstream's own swagger-ui route is left out below so only this one answers
     path("swagger-ui/", swagger.page, name="swagger-ui"),
-] + [p for p in upstream_urlpatterns if _ours(p) and getattr(p, "name", None) != "swagger-ui"]
+    # the home page and the keyless demo (release S, 1.17.0; lapse_accounts/demo.py): the demo runs only its fixed requests,
+    # on a shared allowance limited per address, never on a key
+    re_path(r"^$", demo.home, name="home"),
+    re_path(r"^try/?$", demo.try_index, name="try"),
+    re_path(r"^try/(?P<name>[A-Za-z0-9_-]+)/?$", demo.try_run, name="try-run"),
+] + [p for p in upstream_urlpatterns if _ours(p) and _not_root(p) and getattr(p, "name", None) != "swagger-ui"]
