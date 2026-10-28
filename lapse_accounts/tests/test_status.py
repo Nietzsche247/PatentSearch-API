@@ -30,11 +30,11 @@ def test_health_answers_head_without_a_body(client, monkeypatch):
     assert client.post("/api/v1/meta/health/").status_code == 405
 
 
-def _ur_mirror(tmp_path, read_ago_s, state="up", fetch_ok=True):
+def _ur_mirror(tmp_path, read_ago_s, state="up", fetch_ok=True, interval_s=300):
     t = time.time()
     doc = {"source": "UptimeRobot", "fetched_at": status.iso(t - read_ago_s), "fetch_ok": fetch_ok, "error": None if fetch_ok else "HTTP 401",
            "last_ok_at": status.iso(t - read_ago_s),
-           "monitor": {"url": "https://patentref.io/api/v1/meta/health/", "state": state, "status_raw": state.upper(), "interval_s": 300,
+           "monitor": {"url": "https://patentref.io/api/v1/meta/health/", "state": state, "status_raw": state.upper(), "interval_s": interval_s,
                        "state_since": status.iso(t - 3600), "last_check_at": status.iso(t - read_ago_s - 120), "last_check_ms": 108,
                        "checks_24h": 288, "regions": ["eu"],
                        "last_incident": {"started_at": "2026-10-15T02:52:31.361Z", "duration_s": 276, "reason": "404 Not Found", "status": "Resolved"}}}
@@ -67,6 +67,10 @@ def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
     html = client.get("/api/v1/meta/status/").content.decode()
     assert "UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network (region EU) every 5 minutes" in html
     assert '<span class="pill ok">up</span>' in html and "answered in 108 ms" in html and "stale" not in html
+    # release W: checks_24h is the number of points of UptimeRobot's response-time series (about 323 a day at 60 s
+    # checks, while UptimeRobot ran about 1,300 checks), so the page says what it counts; the JSON key stays for the API
+    assert "<dt>Response-time points, last 24 h</dt><dd>288 (points of UptimeRobot" in html and "not a count of checks" in html
+    assert "Checks, last 24 h" not in html
     d = client.get("/api/v1/meta/status.json").json()
     assert d["external_check"]["state"] == "up" and d["external_check"]["fresh"] is True and d["state"][0] == "ok"
     text = client.get("/api/v1/meta/status.json").content.decode()
@@ -84,6 +88,18 @@ def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
     d = client.get("/api/v1/meta/status.json").json()
     assert d["state"][0] == "ok" and d["external_check"]["fresh"] is False
     assert "stale" in client.get("/api/v1/meta/status/").content.decode()
+
+
+def test_status_page_says_every_minute_at_60_s_checks(client, monkeypatch, tmp_path):
+    # release W: UptimeRobot Solo checks every 60 s since 2026-10-28; the page said "every 1 minutes"
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
+                                                         "backup_journal": str(tmp_path / "bj.jsonl")})
+    (tmp_path / "reports").mkdir()
+    _ur_mirror(tmp_path, 60, interval_s=60)
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert "from its own network (region EU) every minute and confirms" in html and "every 1 minutes" not in html
+    assert client.get("/api/v1/meta/status.json").json()["external_check"]["interval_minutes"] == 1
 
 
 def test_health_503_when_db_missing(client, monkeypatch):

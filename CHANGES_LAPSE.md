@@ -1177,10 +1177,12 @@ no List-Unsubscribe header on PatentRef's mail.
 | `lapse_accounts/mail.py` | `list_unsubscribe(token)`: List-Unsubscribe names the https one-click URL and `mailto:hello@patentref.io?subject=unsubscribe%20<token>`; `message()` (prepare() as an EmailMessage), `record_unsubscribe()` (the one-click POST and the mailto path record the same row), kind `outreach` | independent audit 11 F5; the coordinator's line of gate 5.16: mailto plus https and List-Unsubscribe-Post on every mail that is not an account notice the terms require |
 | `lapse_accounts/waitlist.py` | every waitlist mail takes its two headers from `mail.list_unsubscribe` | the mailto on the waitlist mail too |
 | `lapse_accounts/management/commands/mail_unsubscribe.py` | new: `manage.py mail_unsubscribe <token>` records an unsubscribe that came by mail | the mailto reaches a person; this records it as the one-click POST does |
+| `lapse_accounts/templates/lapse_accounts/status.html` | the row "Checks, last 24 h" is now "Response-time points, last 24 h" and says it is not a count of checks; at 60-second checks the page says "every minute" (it said "every 1 minutes") | the coordinator, 2026-10-28: status.json's `checks_24h` read about 323 while UptimeRobot ran about 1,300 checks in 24 hours. It is the `data_points` of UptimeRobot's response-time series (patentref ops/uptime/uptimerobot.py), which groups the checks. The JSON key and its OpenAPI description stay until a release that may change /openapi.json |
 
 Not changed: the legal-change notice (`legal_notice`) and the registry's payment and case notices carry no unsubscribe
 link, as Privacy Policy section 1 says of account notices the terms require.
 
 Tests: `test_swagger_ui.py` (the inline style's hash in the CSP, one main, the 7.6 fixes and every override color's
 contrast), `test_mail.py` (+4: the mailto beside the https URL with one token, outreach through `message()`, the one-click
-POST for outreach, the operator command), `test_waitlist.py` (the mailto on every waitlist mail).
+POST for outreach, the operator command), `test_waitlist.py` (the mailto on every waitlist mail), `test_status.py` (the
+row says what it counts; "every minute" at 60 s).
