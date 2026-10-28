@@ -3,10 +3,13 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import time
+from io import StringIO
 
 import pytest
 from django.conf import settings
+from django.core.management import CommandError, call_command
 
 from lapse_accounts import mail
 
@@ -38,13 +41,18 @@ def bounce(to, kind="Permanent", sub="General"):
             "data": {"email_id": "e1", "to": [to], "bounce": {"type": kind, "subType": sub, "message": "550 no such user"}}}
 
 
+def uris(header):
+    """The URIs of a List-Unsubscribe header, in order (RFC 2369: each in angle brackets, separated by commas)."""
+    return re.findall(r"<([^>]+)>", header)
+
+
 def test_headers_follow_rfc_8058(mailstate):
     msg = mail.prepare("Ann <Ann@Example.org>", "monitor-hit", "US 10000000: a fee event", "One line.")
     h = msg["headers"]
     assert h["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
     assert h["List-Unsubscribe"].startswith("<https://patentref.io/u/") and h["List-Unsubscribe"].endswith(">")
     assert msg["to"] == ["ann@example.org"] and msg["from"] == "PatentRef <noreply@mail.patentref.io>"
-    url = h["List-Unsubscribe"][1:-1]
+    url = uris(h["List-Unsubscribe"])[0]
     assert url in msg["text"] and "Why you got this" in msg["text"]
     assert mail.unsubscribe_url("ann@example.org", "monitor-hit") == url  # one token per address and kind
     with pytest.raises(ValueError):
@@ -137,3 +145,51 @@ def test_svix_reference_vector():
     ok, why = mail.verify(example, "msg_p5jXN8AQM9LWM0D4loKWxJek", "1614265330",
                           b'{"test": 2432232314}', "v1," + "g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=", now=1614265330)
     assert ok, why
+
+
+# ---------------------------------------------------------------- release W (independent audit 11, finding F5): mailto beside https
+
+def test_list_unsubscribe_names_the_https_url_and_a_mailto_with_the_same_token(mailstate):
+    h = mail.unsubscribe_headers("Kim <kim@example.org>", "outreach")
+    https, mailto = uris(h["List-Unsubscribe"])
+    token = https.rsplit("/", 1)[1]
+    assert https == f"https://patentref.io/u/{token}" and re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token)
+    assert mailto == f"mailto:hello@patentref.io?subject=unsubscribe%20{token}"
+    assert h["List-Unsubscribe"] == f"<{https}>, <{mailto}>"                  # RFC 8058: the one-click https URI is there
+    assert h["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+    assert mail.unsubscribe_headers("kim@example.org", "outreach") == h       # one token per address and kind
+
+
+def test_outreach_mail_takes_the_same_path_with_its_own_reason(mailstate):
+    msg = mail.message("kim@example.org", "outreach", "PatentRef is open", "One line.", why="you asked for PatentRef news.")
+    assert msg["To"] == "kim@example.org" and msg["From"] == mail.FROM and msg["Message-ID"] and msg["Date"]
+    https, mailto = uris(msg["List-Unsubscribe"])
+    assert msg["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click" and mailto.startswith("mailto:hello@patentref.io?")
+    body = msg.get_content()
+    assert "Why you got this: you asked for PatentRef news." in body and https in body and "—" not in body
+    mail.suppress("lou@example.org", "hard_bounce", "resend")
+    with pytest.raises(mail.Suppressed):
+        mail.message("lou@example.org", "outreach", "s", "t")
+
+
+def test_the_one_click_post_records_the_unsubscribe_for_outreach(client, mailstate):
+    https = uris(mail.unsubscribe_headers("max@example.org", "outreach")["List-Unsubscribe"])[0]
+    r = client.post(https.replace("https://patentref.io", ""), data="List-Unsubscribe=One-Click", content_type="application/x-www-form-urlencoded")
+    assert r.status_code == 200 and r.content == b"unsubscribed\n"
+    assert not mail.can_send("max@example.org", "outreach") and mail.can_send("max@example.org", "monitor-hit")
+    with pytest.raises(mail.Suppressed):
+        mail.message("max@example.org", "outreach", "s", "t")
+
+
+def test_a_mailto_request_is_recorded_by_the_operator_command(mailstate):
+    h = mail.unsubscribe_headers("ned@example.org", "monitor-hit")
+    token = uris(h["List-Unsubscribe"])[1].rsplit("%20", 1)[1]
+    out = StringIO()
+    call_command("mail_unsubscribe", f"unsubscribe {token}", stdout=out)            # the subject as the mail has it
+    assert out.getvalue().strip() == "UNSUBSCRIBED: n***@example.org from monitor alerts" and "ned@" not in out.getvalue()
+    assert not mail.can_send("ned@example.org", "monitor-hit")
+    call_command("mail_unsubscribe", f"https://patentref.io/u/{token}", stdout=StringIO())   # the URL works too, again
+    with pytest.raises(CommandError):
+        call_command("mail_unsubscribe", "unsubscribe " + "z" * 32, stdout=StringIO())
+    with pytest.raises(CommandError):
+        call_command("mail_unsubscribe", "nothing", stdout=StringIO())

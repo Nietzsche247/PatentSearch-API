@@ -9,9 +9,10 @@
 
 Mail. The only mail this module sends: the confirmation (again when the address asks again, at most once in 10 minutes
 and 3 times a UTC day), one opening notice per chosen topic when the operator opens it, and at most one other notice per
-address (`python manage.py waitlist open|notice`, dry runs unless --send). Every message carries List-Unsubscribe and
-List-Unsubscribe-Post (RFC 8058) for kind "waitlist", and none goes to an address on the suppression list (bounces and
-complaints, lapse_accounts/mail.py). It leaves through the Resend relay the registry outbox already uses: the settings in
+address (`python manage.py waitlist open|notice`, dry runs unless --send). Every message carries List-Unsubscribe (the
+https one-click URL and a mailto) and List-Unsubscribe-Post (RFC 8058) for kind "waitlist", and none goes to an address on
+the suppression list (bounces and complaints, lapse_accounts/mail.py). It leaves through the Resend relay the registry
+outbox already uses: the settings in
 LAPSE_MAIL_ENV_FILE (default /data/registry/mail.env: REGISTRY_SMTP_HOST, _PORT, _USER, _PASSWORD_FILE), read at
 send time, so installing or changing them needs no restart; without them the form answers 503 and stores nothing.
 
@@ -185,16 +186,18 @@ def base_url():
 
 def message(to, subject, text, why, preview=False):
     """One waitlist message: plain text, the footer with the reason, the way out and the postal address, and the two
-    RFC 8058 headers for this recipient. preview: a placeholder unsubscribe link, nothing written (the dry run)."""
-    leave = f"{base_url()}/u/RECIPIENT-TOKEN" if preview else mail.unsubscribe_url(to, KIND)
+    RFC 8058 headers for this recipient (mail.list_unsubscribe: the https one-click URL and a mailto). preview: a
+    placeholder unsubscribe link, nothing written (the dry run)."""
+    token = "RECIPIENT-TOKEN" if preview else mail.token_for(to, KIND)
+    leave = f"{base_url()}/u/{token}"
     out = EmailMessage()
     out["From"] = getattr(settings, "LAPSE_WAITLIST_FROM", mail.FROM)
     out["To"] = to
     out["Subject"] = subject
     out["Date"] = format_datetime(_now())
     out["Message-ID"] = make_msgid(domain="mail.patentref.io")
-    out["List-Unsubscribe"] = f"<{leave}>"
-    out["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    for k, v in mail.list_unsubscribe(token, base_url()).items():
+        out[k] = v
     footer = (f"\n\n--\nWhy you got this: {why}\nLeave the waitlist (one click, nothing more is sent): "
               f"{leave}\nWhat we keep and why: {base_url()}/docs/legal/privacy\n{FOOTER_POSTAL}\n")
     out.set_content(text.rstrip() + footer)

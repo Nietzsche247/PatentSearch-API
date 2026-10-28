@@ -1163,3 +1163,24 @@ Tests: `lapse_accounts/tests/test_meta_version.py` (5: meta's data_version and h
 403's across a swap and a rollback with no reload; a 403 after a swap names the new file (fails before the change); a data
 answer keeps its own file when the symlink moves mid-request; meta's no-cache; health agrees); `test_public.py` expects
 no-cache.
+
+## 2026-10-28 pending approval: release wave4-W, /swagger-ui/ for gate 7.6 and the mailto beside the one-click unsubscribe
+
+Not deployed; branch `wave4-W` from `sqlite-backend` 7e10851 (release T, in service). No migration, no API version, no
+change to /openapi.json; a worker reload of patentref-api. Independent audit 11 found /swagger-ui/ with 1 critical and 3
+serious axe-core 4.10.3 rules and 50 px of sideways scroll at 320 px (since release Q put Swagger UI 5.32.15 there), and
+no List-Unsubscribe header on PatentRef's mail.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/swagger.py` | one inline style (by its SHA-256 in style-src, no 'unsafe-inline'): colors of at least 4.5 to 1 for the method badges, version badges, info links, Authorize, Execute and Cancel, the parameter location and the schema buttons; 24 px targets for the copy-path and schema buttons and the info links; below 480 px the tag headers, schema names and the parameter and response tables wrap. The inline script: deepLinking off (an operation's path was a link inside its button) and, each time Swagger UI draws, a name for the servers select ("Server"), the parameter fields (their parameter name), the request body ("Request body"), the dialog's close button ("Close"), and tabindex 0 on the scrolling code examples. The container is a div (Swagger UI draws its own main), color-scheme light | axe: select-name (critical), nested-interactive, color-contrast, target-size (serious) and the sideways scroll; in the open operation, Try it out and the Authorize dialog also label, scrollable-region-focusable and button-name. After: 0 critical and 0 serious at 1280, 390 and 320 px in both color schemes, in the first view and in those four states, no sideways scroll, no CSP refusal |
+| `lapse_accounts/mail.py` | `list_unsubscribe(token)`: List-Unsubscribe names the https one-click URL and `mailto:hello@patentref.io?subject=unsubscribe%20<token>`; `message()` (prepare() as an EmailMessage), `record_unsubscribe()` (the one-click POST and the mailto path record the same row), kind `outreach` | independent audit 11 F5; the coordinator's line of gate 5.16: mailto plus https and List-Unsubscribe-Post on every mail that is not an account notice the terms require |
+| `lapse_accounts/waitlist.py` | every waitlist mail takes its two headers from `mail.list_unsubscribe` | the mailto on the waitlist mail too |
+| `lapse_accounts/management/commands/mail_unsubscribe.py` | new: `manage.py mail_unsubscribe <token>` records an unsubscribe that came by mail | the mailto reaches a person; this records it as the one-click POST does |
+
+Not changed: the legal-change notice (`legal_notice`) and the registry's payment and case notices carry no unsubscribe
+link, as Privacy Policy section 1 says of account notices the terms require.
+
+Tests: `test_swagger_ui.py` (the inline style's hash in the CSP, one main, the 7.6 fixes and every override color's
+contrast), `test_mail.py` (+4: the mailto beside the https URL with one token, outreach through `message()`, the one-click
+POST for outreach, the operator command), `test_waitlist.py` (the mailto on every waitlist mail).
