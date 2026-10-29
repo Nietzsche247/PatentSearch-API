@@ -11,13 +11,23 @@ This module is the path any mail PatentRef itself sends must take:
   prepare(to, kind, subject, text)  refuses a suppressed address (every kind) and an address that unsubscribed from that
                                     kind (security kinds excepted), and returns the message with the List-Unsubscribe and
                                     List-Unsubscribe-Post headers of RFC 8058 for a per-recipient https URL
+  message(to, kind, subject, text)  the same as an EmailMessage for the Resend relay (SMTP), as the waitlist sends it
+  list_unsubscribe(token)           the two headers: List-Unsubscribe names the https one-click URL and a mailto (RFC 2369,
+                                    for clients that only mail; independent audit 11, finding F5), List-Unsubscribe-Post
+                                    "List-Unsubscribe=One-Click"
   GET  /u/<token>                   a page with one button (a GET never unsubscribes: link scanners follow GETs)
   POST /u/<token>                   the one-click unsubscribe: body List-Unsubscribe=One-Click, no login, no cookie
+  manage.py mail_unsubscribe <token>  the same record for a mailto request (a mail to UNSUBSCRIBE_MAILTO whose subject is
+                                    "unsubscribe <token>"), entered by the operator
   POST /api/v1/meta/email/events/   Resend's webhook, signed the Svix way. email.bounced with bounce.type Permanent and
                                     email.complained suppress the address at once, Temporary bounces after 3 in 7 days,
                                     suppression.added mirrors Resend's own list. The signing secret is read from
                                     LAPSE_RESEND_WEBHOOK_SECRET_FILE on every request, so installing it needs no restart;
                                     without it the route answers 503 and stores nothing.
+Which mail carries the headers (Privacy Policy section 1, Email): every kind of KINDS (the security kinds carry them too,
+but unsubscribing never stops them), so every waitlist mail and any news or outreach mail. Account notices the terms
+require (the legal-change notice of manage.py legal_notice, the registry's payment and case notices) carry no unsubscribe
+link and cannot be unsubscribed from while the account is open, as the policy says.
 State: a small SQLite file (LAPSE_EMAIL_DB, default <LAPSE_DATA_DIR>/email.sqlite3) created on first use, like the
 count cache. Addresses are stored lower-cased.
 """
@@ -52,8 +62,10 @@ KINDS = {
     "claim-step": "owner claim progress",
     "support-reply": "support replies",
     "waitlist": "waitlist notices",   # wave 4 Q1 (lapse_accounts/waitlist.py): leaving also deletes the waitlist row
+    "outreach": "PatentRef news",     # release W: mail to people who asked for news or were written to once (Stage 1)
 }
 SECURITY_KINDS = {"verify-email", "key-issued"}
+UNSUBSCRIBE_MAILTO = "hello@patentref.io"   # the mailto of List-Unsubscribe until privacy@patentref.io is live (as the unsubscribe page)
 SOFT_BOUNCES = 3                  # Temporary bounces within SOFT_WINDOW that suppress an address
 SOFT_WINDOW = 7 * 86400
 TOLERANCE = 300                   # seconds between the webhook's svix-timestamp and now
@@ -152,23 +164,70 @@ def token_for(address, kind):
         return t
 
 
+def _base():
+    return getattr(settings, "LAPSE_PUBLIC_BASE", "https://patentref.io").rstrip("/")
+
+
 def unsubscribe_url(address, kind):
-    base = getattr(settings, "LAPSE_PUBLIC_BASE", "https://patentref.io").rstrip("/")
-    return f"{base}/u/{token_for(address, kind)}"
+    return f"{_base()}/u/{token_for(address, kind)}"
+
+
+def list_unsubscribe(token, base=None):
+    """The two headers for one token. List-Unsubscribe: the https URL first (RFC 8058: its one-click POST needs no login),
+    then a mailto (RFC 2369) whose subject carries the token, for mail clients that only send mail; that mail reaches a
+    person, who records it with manage.py mail_unsubscribe. The provider's DKIM signature must cover both (Resend signs
+    them)."""
+    to = getattr(settings, "LAPSE_UNSUBSCRIBE_MAILTO", "") or UNSUBSCRIBE_MAILTO
+    return {"List-Unsubscribe": f"<{(base or _base()).rstrip('/')}/u/{token}>, <mailto:{to}?subject=unsubscribe%20{token}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
 
 
 def unsubscribe_headers(address, kind):
-    """The two RFC 8058 headers. The provider's DKIM signature must cover both (Resend signs them)."""
-    return {"List-Unsubscribe": f"<{unsubscribe_url(address, kind)}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+    """The two RFC 8058 headers for this address and kind (one token per address and kind)."""
+    return list_unsubscribe(token_for(address, kind))
 
 
-def prepare(to, kind, subject, text):
-    """The message as Resend's send API takes it (from, to, subject, text, headers), or Suppressed."""
+def prepare(to, kind, subject, text, why=None):
+    """The message as Resend's send API takes it (from, to, subject, text, headers), or Suppressed. why: the reason line of
+    the footer (default: the account and the kind)."""
     if not can_send(to, kind):
         raise Suppressed(f"{norm(to) or to!r} is suppressed or unsubscribed from {kind}")
     url = unsubscribe_url(to, kind)
-    footer = f"\n\nWhy you got this: your PatentRef account ({KINDS[kind]}).\nUnsubscribe from {KINDS[kind]}: {url}\n"
+    footer = (f"\n\nWhy you got this: {why or f'your PatentRef account ({KINDS[kind]}).'}\n"
+              f"Unsubscribe from {KINDS[kind]}: {url}\n")
     return {"from": FROM, "to": [norm(to)], "subject": subject, "text": text.rstrip() + footer, "headers": unsubscribe_headers(to, kind)}
+
+
+def message(to, kind, subject, text, why=None, sender=None):
+    """prepare() as an EmailMessage for the Resend relay (SMTP): From, To, Subject, Date, Message-ID, the footer and both
+    headers. Suppressed as prepare()."""
+    from email.message import EmailMessage
+    from email.utils import format_datetime, make_msgid
+
+    m = prepare(to, kind, subject, text, why)
+    out = EmailMessage()
+    out["From"], out["To"], out["Subject"] = sender or m["from"], m["to"][0], m["subject"]
+    out["Date"], out["Message-ID"] = format_datetime(datetime.now(UTC)), make_msgid(domain="mail.patentref.io")
+    for k, v in m["headers"].items():
+        out[k] = v
+    out.set_content(m["text"])
+    return out
+
+
+def record_unsubscribe(token):
+    """Record the unsubscribe a token asks for (the one-click POST and the mailto path): (address, kind), or None for an
+    unknown token. Leaving the waitlist also deletes the address's waitlist row."""
+    row = _lookup(token)
+    if row is None:
+        return None
+    address, kind = row
+    with db() as con:
+        con.execute("INSERT INTO unsubscribe(address, kind, at) VALUES (?,?,?) ON CONFLICT(address, kind) DO NOTHING", (address, kind, _now()))
+    if kind == "waitlist":
+        from lapse_accounts import waitlist
+
+        waitlist.forget(address)
+    return address, kind
 
 
 # ---------------------------------------------------------------- the unsubscribe page and the one-click POST
@@ -212,12 +271,7 @@ def unsubscribe(request, token):
         return _page(request, dict(what, state="ask"))
     if request.POST.get("List-Unsubscribe") != "One-Click":
         return HttpResponse("the body must be List-Unsubscribe=One-Click (RFC 8058)\n", status=400, content_type="text/plain; charset=utf-8")
-    with db() as con:
-        con.execute("INSERT INTO unsubscribe(address, kind, at) VALUES (?,?,?) ON CONFLICT(address, kind) DO NOTHING", (address, kind, _now()))
-    if kind == "waitlist":
-        from lapse_accounts import waitlist
-
-        waitlist.forget(address)
+    record_unsubscribe(token)
     if request.POST.get("from_page") == "1":
         return _page(request, dict(what, state="done"))
     return HttpResponse("unsubscribed\n", content_type="text/plain; charset=utf-8")

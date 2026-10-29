@@ -183,28 +183,55 @@ OWN_KEY_SECONDS = 600  # how long a worker keeps the prefixes of the service's o
 _own_cache = {"at": 0.0, "prefixes": frozenset()}
 
 
+def _own_key(entry):
+    """The key one entry of the own-key list names, read here and returned only to own_key_prefixes(); None when the file
+    is missing, unreadable or without the key. An entry is a path, whose first line is the key (the operator's and the
+    probe's key files), or a (path, NAME) pair for an env file, whose NAME=value line holds it (an optional `export `, and
+    quotes around the value, allowed). Nothing of the file is printed, logged or kept, and no error names its content."""
+    if isinstance(entry, (list, tuple)):
+        if len(entry) != 2 or not entry[0] or not entry[1]:
+            return None
+        path, name = str(entry[0]), str(entry[1])
+    else:
+        path, name = str(entry or ""), None
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if name is None:
+                return fh.readline().strip()
+            for line in fh:
+                line = line.strip()
+                if line.startswith("export "):
+                    line = line[len("export "):].lstrip()
+                if line.startswith(name + "="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'").strip()
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    return None
+
+
 def own_key_prefixes():
-    """The key prefixes of the service's own requests: the operator key in the file that LAPSE_API_KEY_FILE names in the
-    API's environment (/data/api/test_api_key.txt on the box, ops/deploy.md), which the daily contract run, the deploy's
-    live checks and the operator's test suites send; settings.LAPSE_OWN_KEY_FILES overrides the list of files. The
-    request log keeps a key's prefix (the part before the dot, the same characters the usage endpoint shows), so the
-    prefix is what is compared; the key itself is read inside this function and not kept. A file that is missing or
-    unreadable gives no prefix, and every request then counts."""
+    """The key prefixes of the service's own requests, left out of the status page's API figures and the structure
+    layer's usage counter (lapse_accounts/usage_counts.py): the operator key in the file that LAPSE_API_KEY_FILE names in
+    the API's environment (/data/api/test_api_key.txt on the box, ops/deploy.md), which the daily contract run, the
+    deploy's live checks and the operator's test suites send, plus the entries of settings.LAPSE_OWN_KEY_EXTRA_FILES (on
+    the box: the GitHub probe's key file and the beta test account's env file, pvapi/settings/lapse_local.py);
+    settings.LAPSE_OWN_KEY_FILES, when set, replaces the whole list. The request log keeps a key's prefix (the part before
+    the dot, the same characters the usage endpoint shows), so the prefix is what is compared; each key is read inside
+    this process by _own_key() and not kept, and neither a key nor a prefix is printed or logged. A file that is missing
+    or unreadable gives no prefix, and that key's requests then count."""
     now = time.time()
     with _lock:
         if now - _own_cache["at"] < OWN_KEY_SECONDS:
             return _own_cache["prefixes"]
     files = getattr(settings, "LAPSE_OWN_KEY_FILES", None)
     if files is None:
-        files = [f for f in (os.environ.get("LAPSE_API_KEY_FILE"),) if f]
+        files = [f for f in (os.environ.get("LAPSE_API_KEY_FILE"),) if f] + list(getattr(settings, "LAPSE_OWN_KEY_EXTRA_FILES", None) or [])
     out = set()
-    for f in files:
-        try:
-            with open(f, encoding="utf-8") as fh:
-                key = fh.readline().strip()
-        except (OSError, UnicodeDecodeError):
-            continue
-        if "." in key:  # the form keys have here (prefix.secret); anything else is not compared
+    for entry in files:
+        key = _own_key(entry)
+        if key and "." in key:  # the form keys have here (prefix.secret); anything else is not compared
             out.add(key.split(".", 1)[0][:16])
     with _lock:
         _own_cache["at"], _own_cache["prefixes"] = now, frozenset(out)
@@ -220,7 +247,8 @@ def request_figures(path, since, api_prefix="/api/v1/", meta_prefix="/api/v1/met
     Two kinds of answer are not server errors here (independent audit 7, B22): a 501 on a route whose data set is
     documented as not served (API/lapse_errors.py DEFERRED_ROUTES) counts as not_served, and the service's own
     requests (the keys of own_key_prefixes(): the contract run, which asks for a few documented 500s on purpose, the
-    deploy's checks, the operator's tests) are left out of every API figure and counted as own_requests. So
+    deploy's checks, the operator's tests, the GitHub probe, the beta test account's drills) are left out of every API
+    figure and counted as own_requests. So
     server_errors and the rates count the 5xx answers other clients got, other than the documented 501s."""
     from API.lapse_errors import is_deferred_route
 

@@ -173,8 +173,12 @@ def lapse_env():
     build_catalog(catalog)
     old = dict(settings.LAPSE_SQLITE)
     old_cat = getattr(settings, "LAPSE_CATALOG_PATH", None)
+    old_text = getattr(settings, "LAPSE_TEXT_PATH", None)
     settings.LAPSE_SQLITE["path"] = search
     settings.LAPSE_CATALOG_PATH = catalog
+    # the record page shows the claims from the long-text file (gate S0.4): none here, so no test reads a file in service
+    # (lapse_accounts/tests/test_record_anchors.py has its own)
+    settings.LAPSE_TEXT_PATH = str(_TMP / "no_long_text_file.db")
     if not REPO_DIR or not (Path(REPO_DIR) / "lapse" / "expiry.py").is_file():
         pytest.fail("the status engine lapse.expiry lives in the patentref repo: set LAPSE_REPO_DIR to a patentref "
                     f"checkout (found none beside {ROOT} or at /srv/lapse)", pytrace=False)
@@ -187,6 +191,7 @@ def lapse_env():
         settings.LAPSE_SQLITE.clear()
         settings.LAPSE_SQLITE.update(old)
         settings.LAPSE_CATALOG_PATH = old_cat
+        settings.LAPSE_TEXT_PATH = old_text
         LapseSQLiteSearch._local.__dict__.clear()
         LapseSQLiteSearch._meta_cache.clear()
 

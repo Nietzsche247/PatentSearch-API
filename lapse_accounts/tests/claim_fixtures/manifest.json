@@ -1,0 +1,376 @@
+{
+  "10034028": {
+    "claims": 18,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US10034028.tsv",
+    "kind": "method",
+    "note": "independent claim that cites another claim",
+    "source": "aipd"
+  },
+  "10037710": {
+    "claims": 5,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US10037710.tsv",
+    "kind": "method",
+    "note": "characterized in that",
+    "source": "aipd"
+  },
+  "10049105": {
+    "claims": 14,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US10049105.tsv",
+    "kind": "apparatus",
+    "note": "independent claim that incorporates claim 1 in its body",
+    "source": "aipd"
+  },
+  "10073891": {
+    "claims": 9,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US10073891.tsv",
+    "kind": "system",
+    "note": "independent claim incorporating claim 1; cross-checked against PatentPulse",
+    "source": "aipd"
+  },
+  "12167790": {
+    "claims": 10,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12167790.tsv",
+    "kind": "apparatus",
+    "note": "workstation module",
+    "publication_date": "2024-12-17",
+    "source": "patentpulse",
+    "source_file": "ipg241217.zip",
+    "source_id": "12167790"
+  },
+  "12175013": {
+    "claims": 20,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12175013.tsv",
+    "kind": "system",
+    "note": "nested configured-to lists",
+    "publication_date": "2024-12-24",
+    "source": "patentpulse",
+    "source_file": "ipg241224.zip",
+    "source_id": "12175013"
+  },
+  "12180353": {
+    "claims": 5,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12180353.tsv",
+    "kind": "composition",
+    "note": "wt % ranges, chemical structure image placeholder",
+    "publication_date": "2024-12-31",
+    "source": "patentpulse",
+    "source_file": "ipg241231.zip",
+    "source_id": "12180353"
+  },
+  "12474417": {
+    "claims": 18,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12474417.tsv",
+    "kind": "method",
+    "note": "method of determining a lifetime parameter",
+    "publication_date": "2025-11-18",
+    "source": "patentpulse",
+    "source_file": "ipg251118.zip",
+    "source_id": "12474417"
+  },
+  "12486226": {
+    "claims": 9,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12486226.tsv",
+    "kind": "composition",
+    "note": "compound of formula with structure image removed",
+    "publication_date": "2025-12-02",
+    "source": "patentpulse",
+    "source_file": "ipg251202.zip",
+    "source_id": "12486226"
+  },
+  "12496280": {
+    "claims": 8,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12496280.tsv",
+    "kind": "composition",
+    "note": "characterized in that; a) b) lettered list",
+    "publication_date": "2025-12-16",
+    "source": "patentpulse",
+    "source_file": "ipg251216.zip",
+    "source_id": "12496280"
+  },
+  "12505332": {
+    "claims": 16,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12505332.tsv",
+    "kind": "method",
+    "note": "deep learning method",
+    "publication_date": "2025-12-23",
+    "source": "patentpulse",
+    "source_file": "ipg251223_r1.zip",
+    "source_id": "12505332"
+  },
+  "12511007": {
+    "claims": 18,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "US12511007.tsv",
+    "kind": "crm",
+    "note": "method, device, storage medium",
+    "publication_date": "2025-12-30",
+    "source": "patentpulse",
+    "source_file": "ipg251230_r2.zip",
+    "source_id": "12511007"
+  },
+  "3995389": {
+    "claims": 3,
+    "dependent_field": "patentsview",
+    "era": "1976-1979",
+    "file": "US3995389.tsv",
+    "kind": "apparatus",
+    "note": "lettered sub-elements a. b.; consisting of",
+    "source": "aipd"
+  },
+  "3996569": {
+    "claims": 16,
+    "dependent_field": "patentsview",
+    "era": "1976-1979",
+    "file": "US3996569.tsv",
+    "kind": "apparatus",
+    "note": "characterized",
+    "source": "aipd"
+  },
+  "4007548": {
+    "claims": 13,
+    "dependent_field": "patentsview",
+    "era": "1976-1979",
+    "file": "US4007548.tsv",
+    "kind": "method",
+    "note": "multiple dependency in field",
+    "source": "aipd"
+  },
+  "4021937": {
+    "claims": 2,
+    "dependent_field": "patentsview",
+    "era": "1976-1979",
+    "file": "US4021937.tsv",
+    "kind": "apparatus",
+    "note": "2 claims, 'comprising in combination'",
+    "source": "aipd"
+  },
+  "4156107": {
+    "claims": 19,
+    "dependent_field": "patentsview",
+    "era": "1976-1979",
+    "file": "US4156107.tsv",
+    "kind": "apparatus",
+    "note": "multiple dependency, 'or' references",
+    "source": "aipd"
+  },
+  "4359730": {
+    "claims": 4,
+    "dependent_field": "patentsview",
+    "era": "1980s",
+    "file": "US4359730.tsv",
+    "kind": "apparatus",
+    "note": "multiple dependency 'or'",
+    "source": "aipd"
+  },
+  "5402504": {
+    "claims": 38,
+    "dependent_field": "patentsview",
+    "era": "1990s",
+    "file": "US5402504.tsv",
+    "kind": "apparatus",
+    "note": "multiple dependency",
+    "source": "aipd"
+  },
+  "5404514": {
+    "claims": 6,
+    "dependent_field": "patentsview",
+    "era": "1990s",
+    "file": "US5404514.tsv",
+    "kind": "method",
+    "note": "consisting",
+    "source": "aipd"
+  },
+  "5414838": {
+    "claims": 7,
+    "dependent_field": "patentsview",
+    "era": "1990s",
+    "file": "US5414838.tsv",
+    "kind": "crm",
+    "note": "storage medium",
+    "source": "aipd"
+  },
+  "5418943": {
+    "claims": 29,
+    "dependent_field": "patentsview",
+    "era": "1990s",
+    "file": "US5418943.tsv",
+    "kind": "system",
+    "note": "'any one of claims' references",
+    "source": "aipd"
+  },
+  "6023673": {
+    "claims": 23,
+    "dependent_field": "patentsview",
+    "era": "2000s",
+    "file": "US6023673.tsv",
+    "kind": "apparatus",
+    "note": "characterized",
+    "source": "aipd"
+  },
+  "6023701": {
+    "claims": 10,
+    "dependent_field": "patentsview",
+    "era": "2000s",
+    "file": "US6023701.tsv",
+    "kind": "crm",
+    "note": "computer readable",
+    "source": "aipd"
+  },
+  "7689559": {
+    "claims": 12,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US7689559.tsv",
+    "kind": "method",
+    "note": "'any one of claims' and ranges",
+    "source": "aipd"
+  },
+  "7705229": {
+    "claims": 20,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US7705229.tsv",
+    "kind": "method",
+    "note": "any of claims, multiple dependency",
+    "source": "aipd"
+  },
+  "7844447": {
+    "claims": 8,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US7844447.tsv",
+    "kind": "method",
+    "note": "field/text disagreement",
+    "source": "aipd"
+  },
+  "7852411": {
+    "claims": 2,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US7852411.tsv",
+    "kind": "apparatus",
+    "note": "2 claims, 'Apparatus according to claim 1'",
+    "source": "aipd"
+  },
+  "8032377": {
+    "claims": 12,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "US8032377.tsv",
+    "kind": "method",
+    "note": "any-of references, field/text disagreement",
+    "source": "aipd"
+  },
+  "D1009402": {
+    "claims": 1,
+    "dependent_field": "xml_claim_ref",
+    "era": "2024-2025",
+    "file": "USD1009402.tsv",
+    "kind": "design",
+    "note": "USPTO grant XML (PTGRDT) via HF design dataset",
+    "publication_date": "20240102",
+    "source": "uspto_xml",
+    "source_file": "USD1009402-20240102.XML"
+  },
+  "D1107373": {
+    "claims": 1,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "USD1107373.tsv",
+    "kind": "design",
+    "note": "design claim, no number prefix",
+    "publication_date": "2025-12-30",
+    "source": "patentpulse",
+    "source_file": "ipg251230_r2.zip",
+    "source_id": "D1107373"
+  },
+  "PP36316": {
+    "claims": 1,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "USPP36316.tsv",
+    "kind": "plant",
+    "note": "single plant claim",
+    "publication_date": "2024-12-17",
+    "source": "patentpulse",
+    "source_file": "ipg241217.zip",
+    "source_id": "PP036316"
+  },
+  "PP37179": {
+    "claims": 1,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "USPP37179.tsv",
+    "kind": "plant",
+    "note": "single plant claim",
+    "publication_date": "2025-12-30",
+    "source": "patentpulse",
+    "source_file": "ipg251230_r2.zip",
+    "source_id": "PP037179"
+  },
+  "RE32012": {
+    "claims": 18,
+    "dependent_field": "patentsview",
+    "era": "1980s",
+    "file": "USRE32012.tsv",
+    "kind": "reissue",
+    "note": "reissue with multiple dependency",
+    "source": "aipd"
+  },
+  "RE42441": {
+    "claims": 25,
+    "dependent_field": "patentsview",
+    "era": "2010s",
+    "file": "USRE42441.tsv",
+    "kind": "reissue",
+    "note": "reissue; deleted and added text merged without markup",
+    "source": "aipd"
+  },
+  "RE50239": {
+    "claims": 10,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "USRE50239.tsv",
+    "kind": "reissue",
+    "note": "reissue; markup merged",
+    "publication_date": "2024-12-17",
+    "source": "patentpulse",
+    "source_file": "ipg241217.zip",
+    "source_id": "RE050239"
+  },
+  "RE50714": {
+    "claims": 20,
+    "dependent_field": "none",
+    "era": "2024-2025",
+    "file": "USRE50714.tsv",
+    "kind": "reissue",
+    "note": "reissue; markup merged",
+    "publication_date": "2025-12-30",
+    "source": "patentpulse",
+    "source_file": "ipg251230_r2.zip",
+    "source_id": "RE050714"
+  }
+}

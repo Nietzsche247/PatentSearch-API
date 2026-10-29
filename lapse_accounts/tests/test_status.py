@@ -1,5 +1,6 @@
 """Gate 5.4: the health route, the per-request log and the status page figures."""
 import json
+import os
 import sqlite3
 import time
 
@@ -30,11 +31,11 @@ def test_health_answers_head_without_a_body(client, monkeypatch):
     assert client.post("/api/v1/meta/health/").status_code == 405
 
 
-def _ur_mirror(tmp_path, read_ago_s, state="up", fetch_ok=True):
+def _ur_mirror(tmp_path, read_ago_s, state="up", fetch_ok=True, interval_s=300):
     t = time.time()
     doc = {"source": "UptimeRobot", "fetched_at": status.iso(t - read_ago_s), "fetch_ok": fetch_ok, "error": None if fetch_ok else "HTTP 401",
            "last_ok_at": status.iso(t - read_ago_s),
-           "monitor": {"url": "https://patentref.io/api/v1/meta/health/", "state": state, "status_raw": state.upper(), "interval_s": 300,
+           "monitor": {"url": "https://patentref.io/api/v1/meta/health/", "state": state, "status_raw": state.upper(), "interval_s": interval_s,
                        "state_since": status.iso(t - 3600), "last_check_at": status.iso(t - read_ago_s - 120), "last_check_ms": 108,
                        "checks_24h": 288, "regions": ["eu"],
                        "last_incident": {"started_at": "2026-10-15T02:52:31.361Z", "duration_s": 276, "reason": "404 Not Found", "status": "Resolved"}}}
@@ -67,6 +68,10 @@ def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
     html = client.get("/api/v1/meta/status/").content.decode()
     assert "UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network (region EU) every 5 minutes" in html
     assert '<span class="pill ok">up</span>' in html and "answered in 108 ms" in html and "stale" not in html
+    # release W: checks_24h is the number of points of UptimeRobot's response-time series (about 323 a day at 60 s
+    # checks, while UptimeRobot ran about 1,300 checks), so the page says what it counts; the JSON key stays for the API
+    assert "<dt>Response-time points, last 24 h</dt><dd>288 (points of UptimeRobot" in html and "not a count of checks" in html
+    assert "Checks, last 24 h" not in html
     d = client.get("/api/v1/meta/status.json").json()
     assert d["external_check"]["state"] == "up" and d["external_check"]["fresh"] is True and d["state"][0] == "ok"
     text = client.get("/api/v1/meta/status.json").content.decode()
@@ -84,6 +89,18 @@ def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
     d = client.get("/api/v1/meta/status.json").json()
     assert d["state"][0] == "ok" and d["external_check"]["fresh"] is False
     assert "stale" in client.get("/api/v1/meta/status/").content.decode()
+
+
+def test_status_page_says_every_minute_at_60_s_checks(client, monkeypatch, tmp_path):
+    # release W: UptimeRobot Solo checks every 60 s since 2026-10-28; the page said "every 1 minutes"
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
+                                                         "backup_journal": str(tmp_path / "bj.jsonl")})
+    (tmp_path / "reports").mkdir()
+    _ur_mirror(tmp_path, 60, interval_s=60)
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert "from its own network (region EU) every minute and confirms" in html and "every 1 minutes" not in html
+    assert client.get("/api/v1/meta/status.json").json()["external_check"]["interval_minutes"] == 1
 
 
 def test_health_503_when_db_missing(client, monkeypatch):
@@ -171,6 +188,64 @@ def test_own_key_prefixes_from_the_operator_key_file(tmp_path, monkeypatch):
     k.write_text("nodotinthisline\n")  # never compare a whole key
     monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
     assert status.own_key_prefixes() == set()
+
+
+def test_own_key_prefixes_add_the_probe_key_file_and_the_beta_env_file(tmp_path, monkeypatch, capsys, caplog):
+    """Release Y: the probe's key file (first line) and the beta test account's env file (its BETA_TEST_API_KEY line)
+    join the operator key; each is read in the process and nothing of it is printed or logged."""
+    def fake(p):  # made-up keys, built here so no key-like literal sits in the file
+        return ".".join((p, "z" * 24))
+
+    op, probe, beta = tmp_path / "test_api_key.txt", tmp_path / "probe_key.txt", tmp_path / "beta_test_account.env"
+    op.write_text(fake("oper0001") + "\n")
+    probe.write_text(fake("probe002") + "\n")
+    beta.write_text("BETA_TEST_EMAIL=someone@example.com\nBETA_TEST_PASSWORD=" + "p" * 12 + "\nBETA_TEST_API_KEY=" + fake("beta0003") + "\n")
+    extra = [str(probe), (str(beta), "BETA_TEST_API_KEY")]
+
+    def prefixes():
+        monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
+        return status.own_key_prefixes()
+
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEY_FILES", None, raising=False)
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEY_EXTRA_FILES", extra, raising=False)
+    monkeypatch.setenv("LAPSE_API_KEY_FILE", str(op))
+    with caplog.at_level("DEBUG"):
+        assert prefixes() == {"oper0001", "probe002", "beta0003"}
+    for form in ('export BETA_TEST_API_KEY="{}"\n', "BETA_TEST_API_KEY='{}'\n", "  BETA_TEST_API_KEY = {}\n"):
+        beta.write_text("BETA_TEST_EMAIL=someone@example.com\n" + form.format(fake("beta0004")))
+        got = prefixes()
+        if form.startswith("  BETA_TEST_API_KEY ="):  # "NAME = value" is not the NAME= form: not read
+            assert got == {"oper0001", "probe002"}
+        else:
+            assert got == {"oper0001", "probe002", "beta0004"}
+    beta.write_text("BETA_TEST_EMAIL=someone@example.com\n")  # no key line: the others still count
+    assert prefixes() == {"oper0001", "probe002"}
+    beta.write_bytes(b"\xff\xfe\x00 not text")  # unreadable as text: no prefix, no error
+    assert prefixes() == {"oper0001", "probe002"}
+    beta.unlink()
+    probe.unlink()
+    assert prefixes() == {"oper0001"}
+    for bad in ((str(beta),), (str(beta), ""), ("", "BETA_TEST_API_KEY"), "", None):
+        monkeypatch.setattr(settings, "LAPSE_OWN_KEY_EXTRA_FILES", [bad], raising=False)
+        assert prefixes() == {"oper0001"}
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEY_FILES", [str(op)], raising=False)  # set, it replaces the whole list
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEY_EXTRA_FILES", extra, raising=False)
+    assert prefixes() == {"oper0001"}
+    out = capsys.readouterr()
+    shown = out.out + out.err + caplog.text
+    for p in ("oper0001", "probe002", "beta0003", "beta0004", "z" * 24, "p" * 12):
+        assert p not in shown
+
+
+def test_the_settings_name_the_probe_and_beta_files_in_the_data_folder():
+    """On the box the data folder is /data/api (LAPSE_DATA_DIR); in tests it is the scratch folder, so the suites never
+    read the box's own key files."""
+    from pathlib import Path
+
+    extra = settings.LAPSE_OWN_KEY_EXTRA_FILES
+    assert [Path(extra[0]).name, Path(extra[1][0]).name, extra[1][1]] == ["probe_key.txt", "beta_test_account.env", "BETA_TEST_API_KEY"]
+    assert Path(extra[0]).parent == Path(extra[1][0]).parent == Path(os.environ["LAPSE_DATA_DIR"])
+    assert not Path(extra[0]).exists() and not Path(extra[1][0]).exists()
 
 
 def test_deferred_routes_are_the_routes_of_the_deferred_data_sets():

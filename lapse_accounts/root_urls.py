@@ -2,8 +2,8 @@
 unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream settings keep theirs."""
 from django.urls import URLResolver, include, path, re_path
 
-from API import lapse_rules, lapse_views
-from lapse_accounts import demo, legal, mail, public, swagger, waitlist
+from API import lapse_brief, lapse_extract, lapse_rules, lapse_structure, lapse_structure_counts, lapse_triage, lapse_views
+from lapse_accounts import demo, legal, mail, public, swagger, triage_page, waitlist
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
 
@@ -26,6 +26,19 @@ urlpatterns = [
     re_path(r"^api/v1/lapse/status/(?P<pk>[^/]+)/?$", lapse_views.StatusView.as_view(), name="lapse-status"),
     re_path(r"^api/v1/status/(?P<pk>[^/]+)/?$", lapse_views.StatusView.as_view(), name="status"),
     re_path(r"^api/v1/lapse/similar/?$", lapse_views.SimilarView.as_view(), name="lapse-similar"),
+    # the structure layer, tier S0 (gate S0.2): one patent's claim tree, computed on read by claimgraph; keyed and throttled the same
+    re_path(r"^api/v1/structure/claims/(?P<pk>[^/]+)/?$", lapse_structure.ClaimTreeView.as_view(), name="structure-claims"),
+    # a brief of one patent cut to a token budget (gate S0.5), from the same claim tree; keyed and throttled the same
+    re_path(r"^api/v1/structure/brief/(?P<pk>[^/]+)/?$", lapse_brief.BriefView.as_view(), name="structure-brief"),
+    # gate S0.6: one patent's claim counts (API/claim_counts.py from the same claim tree), computed on read; keyed and throttled the same
+    re_path(r"^api/v1/structure/counts/(?P<pk>[^/]+)/?$", lapse_structure_counts.ClaimCountsView.as_view(), name="structure-counts"),
+    # the triage table (gate S1.8L): up to 500 patents in one answer, computed on read; keyed and throttled the same, plus one
+    # table at a time per key
+    re_path(r"^api/v1/structure/triage/?$", lapse_triage.TriageView.as_view(), name="structure-triage"),
+    # the structure layer, tier S1 (gate S1.1): the on-demand extraction trial, built dark (API/lapse_extract.py); keyed and
+    # throttled the same; the jobs route first, so a job id is never read as a patent number
+    re_path(r"^api/v1/structure/extract/jobs/(?P<job_id>[^/]+)/?$", lapse_extract.ExtractJobView.as_view(), name="structure-extract-job"),
+    re_path(r"^api/v1/structure/extract/(?P<pk>[^/]+)/?$", lapse_extract.ExtractView.as_view(), name="structure-extract"),
 ] + [
     # the rules layer (PatentRef 11.3): one route per tool, keyed and throttled like the paths above
     re_path(rf"^api/v1/rules/{p + '/?' if p else ''}$", lapse_rules.RulesView.as_view(tool=tool), name=f"rules-{tool}")
@@ -33,6 +46,8 @@ urlpatterns = [
 ] + [
     # the human page behind the versioned permalink; no key
     re_path(r"^p/(?P<pk>[A-Za-z0-9]+)/?$", lapse_views.RecordPage.as_view(), name="record-page"),
+    # the extraction trial's result as a page (gate S1.1): no key, the per-IP meta rate; 404 while no result is made
+    re_path(r"^p/(?P<pk>[A-Za-z0-9]+)/extracted/?$", lapse_extract.ExtractPage.as_view(), name="extract-page"),
     # agent plumbing at the root (gate 2.11): served by Django so the shared Caddy needs no change
     re_path(r"^(?P<name>llms\.txt|llms-full\.txt|openapi\.json|changes\.txt|LICENSES\.md)$", public.public_file, name="public-file"),
     re_path(r"^docs/errors/?$", public.error_docs, name="error-docs"),
@@ -54,4 +69,8 @@ urlpatterns = [
     re_path(r"^$", demo.home, name="home"),
     re_path(r"^try/?$", demo.try_index, name="try"),
     re_path(r"^try/(?P<name>[A-Za-z0-9_-]+)/?$", demo.try_run, name="try-run"),
+    # the triage table's page (gate S1.8L; lapse_accounts/triage_page.py): the browser sends the visitor's key to the API; the
+    # example is built on read from a fixed list, without a key
+    re_path(r"^triage/?$", triage_page.page, name="triage"),
+    re_path(r"^triage/example/?$", triage_page.example, name="triage-example"),
 ] + [p for p in upstream_urlpatterns if _ours(p) and _not_root(p) and getattr(p, "name", None) != "swagger-ui"]

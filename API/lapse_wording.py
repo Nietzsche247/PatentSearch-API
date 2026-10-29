@@ -231,6 +231,20 @@ def plain(record, patent_id, data_version):
                       **_parent_args(record))
 
 
+# The structure layer's barred words (the plan of record of 2026-10-29, section 2; independent audit 13, finding F): no
+# answer, field name, error text or page of the structure layer uses them in PatentRef's own words, nor any word that says
+# what a claim covers. The patent's own words (the claim text and its spans, titles, term keys and other quotes) are left out
+# by the callers. Whole words, any case, with their endings; a field name is read with its underscores as spaces.
+STRUCTURE_BANNED = re.compile(
+    r"\b(risk\w*|clear\w*|safe\w*|free to use|freedom to operate|invalid\w*|valid\w*|scope\w*|breadth\w*|strength\w*|"
+    r"broad\w*|narrow\w*|infring\w*|cover\w*|reads? on|enforceab\w*|unenforceab\w*)\b", re.I)
+
+
+def structure_words(text):
+    """The structure layer's barred words in `text`, lower case and sorted; empty when it uses none."""
+    return sorted({m.group(0).lower() for m in STRUCTURE_BANNED.finditer((text or "").replace("_", " "))})
+
+
 def check_banned(text):
     """The banned strings found in `text` (case-insensitive), em-dashes and emoji included; empty when clean."""
     low = (text or "").lower()

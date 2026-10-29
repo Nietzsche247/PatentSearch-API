@@ -60,7 +60,10 @@ ERROR_CODES = {
                "A data endpoint answers the upstream body {\"detail\": \"You do not have permission to perform this action.\"} with no "
                "X-Status-Reason-Code header; the code appears as that header only on the account endpoints, and in the problem details body.",
     "ERR_ES": "500 Internal Server Error. The search backend raised an error or a timeout (20 s a statement, 30 s a request), "
-              "or an operator was used on a field type that rejects it (prefix or wildcard on numeric, date and boolean fields).",
+              "or an operator was used on a field type that rejects it (prefix or wildcard on numeric, date and boolean fields). "
+              "On /api/v1/structure/claims/<patent_id>/ also a patent whose claims are over that endpoint's work cap (1,000 claim "
+              "rows, 1,000,000 characters, 5 s a read), and on /api/v1/structure/brief/<patent_id>/ and "
+              "/api/v1/structure/counts/<patent_id>/, which share it; no patent of the data in service is near it.",
     "ERR_NOT_IMPLEMENTED": "501 Not Implemented. The endpoint's data set is not in this snapshot: pre-grant publications are deferred "
                            "to a later build, the NBER routes are dead upstream, the long-text endpoints answer it only when no "
                            "long-text file is in service (GET /api/v1/meta/health/ shows text_data_version), and any other endpoint answers it "
@@ -80,13 +83,18 @@ ERROR_CODES = {
                  "the /api/v1/meta/ endpoints never count.",
     "NOT_FOUND": "404 Not Found. A detail route with a key that has no record ({\"detail\": \"Not found.\"}), or a path that is not routed. "
                  "On /api/v1/lapse/status/<patent_id>/ an unknown patent answers the same {\"detail\": \"Not found.\"}, and a v that never "
-                 "existed answers {\"error\": true} with X-Status-Reason-Code NOT_FOUND. That v answer is the only one that carries NOT_FOUND "
-                 "as a header; on the others it is the problem details code.",
+                 "existed answers {\"error\": true} with X-Status-Reason-Code NOT_FOUND. On /api/v1/structure/claims/<patent_id>/ (and on "
+                 "/api/v1/structure/brief/<patent_id>/ and /api/v1/structure/counts/<patent_id>/) a patent "
+                 "the data in service does not have, and a patent it has without claim text in the long-text file (a grant after that "
+                 "file's last grant date), answer {\"error\": true} with X-Status-Reason-Code NOT_FOUND and the reason in X-Status-Reason. "
+                 "Those answers carry NOT_FOUND as a header; on the others it is the problem details code.",
 }
 # Which codes the X-Status-Reason-Code header carries, and which appear only as the problem details code. Kept in step with
 # openapi.json components.headers.X-Status-Reason-Code and llms-full.txt section 5 (patentref tools/gen_openapi.py).
 ERROR_INDEX_NOTE = ("The X-Status-Reason-Code header carries ERR_Q, ERR_ES and ERR_NOT_IMPLEMENTED on the data endpoints; NOT_FOUND on "
-                    "/api/v1/lapse/status/ for a v that never existed; ERR_KEY, ERR_AUTH, ERR_SIGNUP_LIMIT and ERR_TERMS on the account endpoints under "
+                    "/api/v1/lapse/status/ for a v that never existed and on /api/v1/structure/claims/ for a patent without a claim tree, as "
+                    "on /api/v1/structure/brief/ and /api/v1/structure/counts/; "
+                    "ERR_KEY, ERR_AUTH, ERR_SIGNUP_LIMIT and ERR_TERMS on the account endpoints under "
                     "/api/v1/meta/. A data endpoint's 403 and 429 and a detail route's 404 carry no code header, as upstream; the problem "
                     "details body names them ERR_KEY, THROTTLED and NOT_FOUND.")
 

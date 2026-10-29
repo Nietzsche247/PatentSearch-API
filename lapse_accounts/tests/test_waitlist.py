@@ -57,8 +57,13 @@ def token_of(msg):
     return re.search(r"/waitlist/confirm/([A-Za-z0-9_-]+)", msg.get_content()).group(1)
 
 
+def unsub_url(msg):
+    """The https URI of the List-Unsubscribe header (the first; the second is the mailto, release W)."""
+    return re.findall(r"<([^>]+)>", msg["List-Unsubscribe"])[0]
+
+
 def unsub_path(msg):
-    return msg["List-Unsubscribe"].strip("<>").replace("https://patentref.io", "")
+    return unsub_url(msg).replace("https://patentref.io", "")
 
 
 def rows(w):
@@ -74,7 +79,9 @@ def check_rfc8058(msg):
     lu = msg["List-Unsubscribe"]
     assert lu.startswith("<https://patentref.io/u/") and lu.endswith(">"), lu
     assert msg["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
-    assert lu.strip("<>") in msg.get_content()
+    https, mailto = re.findall(r"<([^>]+)>", lu)                              # release W: the mailto beside the https URL
+    assert mailto == "mailto:hello@patentref.io?subject=unsubscribe%20" + https.rsplit("/", 1)[1], lu
+    assert https in msg.get_content()
     assert "6640 North Oracle Road" in msg.get_content() and "Why you got this" in msg.get_content()
     assert "\u2014" not in msg.get_content() and "\u2014" not in msg["Subject"]
 

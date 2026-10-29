@@ -165,3 +165,7 @@ test_api_key.txt
 odp_key.txt
 *.tsv
 *.tsv.zip
+
+# the claim fixtures of the structure tests (the real claims of 37 patents; release X brought them with claimgraph, and
+# release Z keeps them here without it) are tracked although *.tsv is ignored above
+!lapse_accounts/tests/claim_fixtures/*.tsv

@@ -1,0 +1,50 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}US {{ pid }} machine-extracted passages{% endblock %}
+{% block head %}<meta name="robots" content="noindex">
+  <meta name="description" content="Machine-extracted passages of US {{ pid }}: problems, advantages and drawbacks of earlier work the patent states, and the components its claims recite, each quoted with its place in the text.">{% endblock %}
+{% block css %}
+    /* the machine-extracted page's own rules (structure layer S1.1) */
+    h2 { margin: var(--s-4) 0 var(--s-2); }
+    .label { background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0 0 var(--s-3); }
+    dt { color: var(--muted); font-size: var(--t-sm); }
+    dd { margin: 0; word-break: break-word; }
+    ul.items { list-style: none; padding: 0; margin: 0; }
+    ul.items li { border-left: 3px solid var(--border); padding: var(--s-1) 0 var(--s-1) var(--s-3); margin-bottom: var(--s-2); }
+    .quote { display: block; }
+    .place { display: block; color: var(--muted); font-size: var(--t-sm); }
+    pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); white-space: pre-wrap; word-break: break-word; }
+    @media (max-width: 420px) { dl { grid-template-columns: 1fr; } }
+{% endblock %}
+{% block body %}
+    <h1>US {{ pid }}: machine-extracted passages</h1>
+    <p class="label" role="note"><strong>{{ label }}</strong></p>
+    <dl>
+      <dt>Model</dt><dd><code>{{ body.model }}</code></dd>
+      <dt>Prompt</dt><dd><code>{{ body.prompt_hash }}</code> ({{ body.prompt_version }})</dd>
+      <dt>Structure version</dt><dd><code>{{ body.structure_version }}</code></dd>
+      <dt>Extracted</dt><dd>{{ body.extracted_at }}</dd>
+      <dt>Text read</dt><dd>long-text file {{ body.text_data_version }}{% if body.rechecked_against %}, read again against {{ body.rechecked_against }}{% endif %}</dd>
+      <dt>Passages kept</dt><dd>{{ body.units|length }} of {{ body.counts.returned }} the model gave; {{ body.counts.not_found }} not found word for word in the text and left out</dd>
+    </dl>
+    {% for g in groups %}
+    <h2 id="{{ g.type }}">{{ g.heading }}</h2>
+    {% if g.items %}
+    <ul class="items">{% for it in g.items %}
+      <li><span class="quote" data-user-content="true">{{ it.text }}</span>
+        <span class="place">{% if it.term %}Term: {{ it.term }}. {% endif %}From {{ it.place }}{% if it.claims %}; recited in claim{{ it.claims|length|pluralize }} {{ it.claims|join:", " }}{% endif %}.</span></li>{% endfor %}
+    </ul>
+    {% else %}
+    <p>None was found in the text.</p>
+    {% endif %}
+    {% endfor %}
+    <h2>Links</h2>
+    <ul>
+      <li><a href="/p/{{ pid }}">The record page of US {{ pid }}</a></li>
+      <li><a href="/api/v1/structure/claims/{{ pid }}/">The claim tree through the API</a> (key required): the character places above for claims are offsets into the same claim texts</li>
+      <li><a href="/api/v1/structure/extract/{{ pid }}/">This result as JSON</a> (key required)</li>
+    </ul>
+    <h2>Result</h2>
+    <pre data-user-content="true">{{ json }}</pre>
+{% endblock %}
+{% block footer_extra %}    <p>This page shows passages a language model picked from the patent's own text, each checked by code to be a word-for-word quote at the place given. No person has reviewed them. It is not advice.</p>{% endblock %}

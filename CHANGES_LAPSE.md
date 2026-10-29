@@ -1163,3 +1163,225 @@ Tests: `lapse_accounts/tests/test_meta_version.py` (5: meta's data_version and h
 403's across a swap and a rollback with no reload; a 403 after a swap names the new file (fails before the change); a data
 answer keeps its own file when the symlink moves mid-request; meta's no-cache; health agrees); `test_public.py` expects
 no-cache.
+
+## 2026-10-28 pending approval: release wave4-W, /swagger-ui/ for gate 7.6 and the mailto beside the one-click unsubscribe
+
+Not deployed; branch `wave4-W` from `sqlite-backend` 7e10851 (release T, in service). No migration, no API version, no
+change to /openapi.json; a worker reload of patentref-api. Independent audit 11 found /swagger-ui/ with 1 critical and 3
+serious axe-core 4.10.3 rules and 50 px of sideways scroll at 320 px (since release Q put Swagger UI 5.32.15 there), and
+no List-Unsubscribe header on PatentRef's mail.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/swagger.py` | one inline style (by its SHA-256 in style-src, no 'unsafe-inline'): colors of at least 4.5 to 1 for the method badges, version badges, info links, Authorize, Execute and Cancel, the parameter location and the schema buttons; 24 px targets for the copy-path and schema buttons and the info links; below 480 px the tag headers, schema names and the parameter and response tables wrap. The inline script: deepLinking off (an operation's path was a link inside its button) and, each time Swagger UI draws, a name for the servers select ("Server"), the parameter fields (their parameter name), the request body ("Request body"), the dialog's close button ("Close"), and tabindex 0 on the scrolling code examples. The container is a div (Swagger UI draws its own main), color-scheme light | axe: select-name (critical), nested-interactive, color-contrast, target-size (serious) and the sideways scroll; in the open operation, Try it out and the Authorize dialog also label, scrollable-region-focusable and button-name. After: 0 critical and 0 serious at 1280, 390 and 320 px in both color schemes, in the first view and in those four states, no sideways scroll, no CSP refusal |
+| `lapse_accounts/mail.py` | `list_unsubscribe(token)`: List-Unsubscribe names the https one-click URL and `mailto:hello@patentref.io?subject=unsubscribe%20<token>`; `message()` (prepare() as an EmailMessage), `record_unsubscribe()` (the one-click POST and the mailto path record the same row), kind `outreach` | independent audit 11 F5; the coordinator's line of gate 5.16: mailto plus https and List-Unsubscribe-Post on every mail that is not an account notice the terms require |
+| `lapse_accounts/waitlist.py` | every waitlist mail takes its two headers from `mail.list_unsubscribe` | the mailto on the waitlist mail too |
+| `lapse_accounts/management/commands/mail_unsubscribe.py` | new: `manage.py mail_unsubscribe <token>` records an unsubscribe that came by mail | the mailto reaches a person; this records it as the one-click POST does |
+| `lapse_accounts/templates/lapse_accounts/status.html` | the row "Checks, last 24 h" is now "Response-time points, last 24 h" and says it is not a count of checks; at 60-second checks the page says "every minute" (it said "every 1 minutes") | the coordinator, 2026-10-28: status.json's `checks_24h` read about 323 while UptimeRobot ran about 1,300 checks in 24 hours. It is the `data_points` of UptimeRobot's response-time series (patentref ops/uptime/uptimerobot.py), which groups the checks. The JSON key and its OpenAPI description stay until a release that may change /openapi.json |
+
+Not changed: the legal-change notice (`legal_notice`) and the registry's payment and case notices carry no unsubscribe
+link, as Privacy Policy section 1 says of account notices the terms require.
+
+Tests: `test_swagger_ui.py` (the inline style's hash in the CSP, one main, the 7.6 fixes and every override color's
+contrast), `test_mail.py` (+4: the mailto beside the https URL with one token, outreach through `message()`, the one-click
+POST for outreach, the operator command), `test_waitlist.py` (the mailto on every waitlist mail), `test_status.py` (the
+row says what it counts; "every minute" at 60 s).
+
+## 2026-10-29 pending approval: release wave4-X, the claim tree endpoint (structure layer S0.2, PatentRef 1.19.0)
+
+Not deployed; branch `wave4-X` from `wave4-W` 81ded9d (release W, approved and not yet landed; X lands after it). No
+migration, no new dependency (claimgraph is standard library only), no change to any PatentsView-compatible endpoint or
+field; a worker reload of patentref-api. The patentref repo's `wave4-X` adds the path to /openapi.json (existing paths
+byte for byte), llms.txt, llms-full.txt, the docs page and the MCP tool `get_claim_tree`.
+
+| File | Change | Why |
+|---|---|---|
+| `claimgraph/` | new top-level package, vendored from claimgraph v0.1 (the tarball of 2026-10-28, sha256 fc51f99a...6e8c, 92,443 bytes): the package files and README byte for byte, its tests and fixtures (`claimgraph/tests`, 532 tests), its tools; in `claimgraph/tests/conftest.py` and `claimgraph/tools/bench.py` only the path lines change (the package and its tests now sit one level below the fork root) | gate S0.1's package in the API. Deterministic (regular expressions and small state machines, no model call), standard library only. Run its suite from the fork root: `python -m pytest claimgraph/tests -q -p no:django -o addopts=""` |
+| `API/lapse_structure.py` | new: `ClaimTreeView` for `GET /api/v1/structure/claims/<patent_id>/`: the patent's rows of `txt.g_claims` by the (patent_id, claim_sequence) index, `claimgraph.build_patent`, `claimgraph.validate_patent` (an answer whose offsets do not hold is never served), the patent object with `error`, `generator`, `data_version`, `text_data_version` and `as_of`; `X-Text-Data-Version`, `Cache-Control: public, max-age=300`, `Server-Timing: claimtree;desc="hit"|"miss"` | gate S0.2: the claim tree, computed on read. No precomputed store (decisions.md 2026-10-28: 510 GB to 1.5 TB for the corpus) and no LLM in the request path |
+| | `AnswerCache`: an in-process LRU of the encoded answers, 256 answers and 32 MB per worker process, whichever comes first (an answer over 4 MB is not kept), keyed by patent, both data versions and the structure version | a repeated tree costs a dictionary read; a swap or a new structure version never serves an older tree |
+| | work cap: 1,000 claim rows and 1,000,000 characters a patent, 5 s a read; over it 500 ERR_ES | no request ties up a worker. The corpus's largest claim set (887 claims, 6684189) builds in 60 ms on the box |
+| | errors: 400 ERR_Q (not a patent number), 404 NOT_FOUND (a patent the data in service does not have; a patent without claim text in the long-text file), 501 ERR_NOT_IMPLEMENTED (no long-text file in service), all `{"error": true}` with X-Status-Reason, so RFC 9457 applies | the API's existing error shape |
+| `lapse_accounts/root_urls.py` | the route, beside `/api/v1/lapse/similar` (keyed, throttled and counted like every data path) | |
+| `lapse_accounts/public.py` | `/docs/errors/NOT_FOUND`, `/docs/errors/ERR_ES` and the index note name the new path's answers | the error pages say which paths carry NOT_FOUND as a header |
+
+Tests: `lapse_accounts/tests/test_structure_claims.py` (the shape and the version fields; every span an offset into the
+claim text on all 37 claimgraph fixtures and the tree equal to claimgraph on the fixture file; 404 for an unknown patent
+and for one without claim text, 400, 501, 403 without a key, each in the RFC 9457 form; the LRU's hit and bounds; the
+work cap; the wording of what the endpoint writes; the vendored suite run from the fork root, at least 532 passed).
+On patentref-us1's own data: 10,000 random patents (seed 20261028, 144,228 claims) through claimgraph, 0 validator
+problems, 19,790 claims a second with 4 workers.
+
+Added to release X before its deploy (2026-10-29): the structure layer's usage counter, for the S1 tripwire of the spec
+(within 30 days of Stage 1: 10 or more distinct outside keys call the claim tree, or claim tree calls reach 5 percent of
+outside calls).
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/requestlog.py` | a second table in the usage-log file, `structure_log(ts, status, prefix, path, client)`, created by `CREATE TABLE IF NOT EXISTS` beside `request_log` (the way `request_log` is created; no Django migration, nothing in `request_log` changes); one row per response under `/api/v1/structure/`, written in the same transaction as its `request_log` row and deleted after the same 35 days; `client` is `mcp` when the User-Agent starts with `patentref-mcp/` (the MCP package's `get_claim_tree`), else empty; the user agent itself is not kept | the MCP package's calls arrive as plain calls to `/api/v1/structure/claims/`; its User-Agent is the only thing that tells them apart, and `request_log` has no column for it |
+| `lapse_accounts/usage_counts.py` | new: per UTC day and over any window, claim tree calls and the distinct outside key prefixes behind them (as a number), the same for all of `/api/v1/structure/`, the MCP package's claim tree calls, every outside call to a data path, the share, refusals and the service's own requests apart. A call is the monthly counter's rule (keyed, a data path, answered below 500 other than 403 and 429); outside means not one of `status.own_key_prefixes()`, the keys the status page leaves out of its figures | the tripwire reads from the same rows and the same exclusions as the existing request figures |
+| `lapse_accounts/management/commands/structure_usage.py` | new: `show [--days N]`, `day [--date D] [--out DIR]` (written once per day; patentref's `ops/systemd/counts.sh` runs it daily), `tripwire --since D [--days 30]`; counts only, never a key prefix | the operator's read-out, and a daily file that outlives the 35-day request rows |
+
+Tests: `lapse_accounts/tests/test_structure_usage.py` (the rows and the client tag through the middleware, nothing else
+stored; retention and a failed write for both tables; the count rule, own keys left out as the status page leaves them
+out, the share, the MCP calls apart, a file without the new table; distinct keys over a 30-day window; both tripwire legs;
+the command writes a day once and prints counts only).
+
+## 2026-10-29 pending approval: release wave4-Y, the structured mode of /api/v1/lapse/similar (PatentRef 1.20.0)
+
+Not deployed; branch `wave4-Y` from `wave4-X` 1ad3d64 (release X with its usage counter; Y lands after X and its perf
+step). No migration, no new dependency, no stored data, no model call; a worker reload of patentref-api. Without `mode`,
+or with `mode=text`, `/api/v1/lapse/similar` answers byte for byte as before; any other value of the new parameter is
+400 ERR_Q. The patentref repo's `wave4-Y` documents it (openapi.json additions, llms.txt, llms-full.txt, the Lapse docs
+page, changes.txt 1.20.0).
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_similar_structured.py` | new: `mode=structured`. The text's term keys from claimgraph's term finder (the heuristic behind a claim tree's term mentions), weighed by the rarest word's document frequency in titles and abstracts (the text mode's 2 percent cap, at least the 3 rarest kept, at most 12); candidates from `fts_patents` only (the text mode's own query, 40 deep, and the keys as FTS5 phrases, 40); each candidate's claims read from `txt.g_claims` by its index and parsed by claimgraph on read (validated, the claim tree's work cap), the keys of the terms its claims introduce kept in a 4,096-patent LRU per worker; score = the weighed share of the text's keys found (1 exact, 0.5 when one key ends with the other as whole words); each neighbour's `shared_terms` with the claim number and the mention's offsets into that claim's text | the structure layer spec's S1.3 on S0 terms (the market scan's free structured Lapse matching), deterministic and computed on read; no precomputed store, no paid matching |
+| `API/lapse_views.py` | `SimilarView` reads `mode` first (absent or `text`: the code path as before, untouched; `structured`: the new module after the same `text` and `n` checks; else 400 ERR_Q) | today's answers unchanged |
+
+Tests: `lapse_accounts/tests/test_similar_structured.py` (the text mode's answer the same bytes with and without
+mode=text; 400 for another mode and the text rules in structured mode; 403, 501; the answer's shape and versions; the
+text's keys and weights; candidates, scores and order on six made-up patents; every shared term's offsets against the
+claim tree; the same answer twice and the cache; a text without known words and the work cap; matching; wording).
+
+Added to release Y on 2026-10-29 (the coordinator's calls after the backtest):
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/status.py` | `own_key_prefixes()` reads, beside the operator key file that `LAPSE_API_KEY_FILE` names, the entries of `settings.LAPSE_OWN_KEY_EXTRA_FILES`: a key file (its first line) or a (env file, NAME) pair (its `NAME=value` line, `export ` and quotes allowed), each inside the process by the new `_own_key()`; nothing of a file is printed, logged or kept, a missing or unreadable file gives no prefix; `LAPSE_OWN_KEY_FILES`, when set, still replaces the whole list | the GitHub probe's key and the beta test account's key were counted as outside calls in the status page's figures and in the structure layer's usage counter; both now leave them out, the same set in both |
+| `pvapi/settings/lapse_local.py` | `LAPSE_OWN_KEY_EXTRA_FILES = [<data dir>/probe_key.txt, (<data dir>/beta_test_account.env, "BETA_TEST_API_KEY")]`; the data dir is `LAPSE_DATA_DIR` (/data/api on the box, a scratch folder in the tests) | the two files the box already holds, mode 600, owned by the user the API runs as |
+| `lapse_accounts/usage_counts.py` | the docstring names the wider set | |
+
+`mode=structured` is described as experimental (the patentref repo's documents, 1.20.0): the backtest's weak spots are
+common short claim words, ties within near-identical patent families, and texts with fewer than 3 term keys, as in many
+chemistry abstracts. No answer changed.
+
+Tests: `test_status.py` (+2: the probe key file and the beta env file join the operator key, the env file's forms, a
+missing key line, unreadable bytes, missing files, bad entries, the override, nothing of a key or prefix in the output or
+the log; the settings name the two files in the data folder, which in tests is the scratch one); `test_structure_usage.py`
+(+1: the probe and beta keys left out of the counter and of the status page's figures alike).
+
+## 2026-10-29 pending approval: release Z, lane Z-A: a link to each claim and element on the record page, and the patent brief (structure layer S0.4 and S0.5)
+
+Not deployed; branch `wave5-ZA` from `wave4-Y` 323f62c (releases X and Y). The integrator merges it with lanes Z-B, Z-C
+and Z-D into release Z. No migration, no new dependency, no stored data, no model call; a worker reload of patentref-api.
+No existing endpoint or field changed. The patentref repo's `wave5-ZA` documents it (openapi.json additions, llms.txt,
+llms-full.txt, the claim trees docs page, the MCP tool `get_patent_brief`).
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_claimgraph.py` | new: the one module through which the two modules below reach claimgraph (`STRUCTURE_VERSION`, `GENERATOR`, `ClaimRow`, `build_patent` and claimgraph's check) | claimgraph moves to a package of its own later; then this import is the one line these two modules need changed |
+| `API/lapse_permalinks.py` | new: the anchors (`c<n>`, `c<n>-s<sequence>` for a repeated number, `c<n>-e<k>-<start>-<end>` for element k with its offsets in the claim text; `ANCHOR_PATTERN`); `graph_for()`, the claim tree release X serves, read through release X's cache with release X's reads, work caps and check (the record page, the claim tree and the brief share one bounded cache); `layout()` (the claim text up to the first element, then one line an element, starting at its label; joined, exactly the claim text) and `render_claims()` (every text escaped); `page_claims()` for the template, which never raises | gate S0.4: stable anchors on /p/<patent_id> for each claim and element, the same on every rebuild of the same data, computed on read |
+| `API/lapse_brief.py` | new: `BriefView` for `GET /api/v1/structure/brief/<patent_id>/?max_tokens=` (300 to 32,000, default 2,000): identity, status (the status record without its links), each independent claim with its elements, each dependent claim on one line, the claim term keys, in that fixed order, cut at the first item that does not fit; tokens by the stated proxy, the UTF-8 bytes of the body divided by 3 and rounded up, never over max_tokens; truncated and omitted; every quote checked against its claim's text and the wording of everything PatentRef writes checked before the answer leaves; the prepared brief of a patent in a bounded LRU per worker (256 patents, 16 MB) | gate S0.5, computed on read; errors as the claim tree's (400 ERR_Q, 404 NOT_FOUND, 500 ERR_ES, 501 ERR_NOT_IMPLEMENTED; 503 ERR_ES without the status engine) |
+| `API/lapse_views.py` | `RecordPage` passes the claims section (`lapse_permalinks.page_claims`) to the template | the page shows the claims with their anchors |
+| `lapse_accounts/templates/lapse_accounts/record.html` | the claims section below the record (inside `data-user-content`, the claim text being the patent's), its CSS (tokens only; long words wrap at 320 px; 24 px link targets), links to the claim tree and the brief, and a small script that lands a link to an anchor the page does not have on the claim it names, with a note | the page's existing checks unchanged |
+| `lapse_accounts/root_urls.py` | the route `api/v1/structure/brief/<pk>/` beside the claim tree's | keyed, throttled and metered like every /api/v1/ data path |
+
+Tests: `lapse_accounts/tests/test_record_anchors.py` (every claim and element of the 37 claimgraph fixtures and a made-up
+patent with markup in its claims has its anchor, holding exactly its text; the anchors' form, a repeated claim number,
+the layout's labels; the same anchors after a rebuild; one cache with the claim tree; the script's pattern is the module's;
+the page without claim text, without a long-text file, over the work cap and with a claim set it cannot lay out; markup
+stays text; the page's existing checks; wording) and `lapse_accounts/tests/test_structure_brief.py` (shape, order and
+versions; on every patent at nine budgets never over max_tokens, its own size named, a prefix of the larger budget's
+answer, truncated and omitted right; every quote against the fixture file, every anchor on the record page; identity,
+status, dependent lines, component keys; the same bytes after a rebuild; 400, 404, 500, 501, 503 and RFC 9457, 403 without
+a key; the cache; wording; no network client; one claimgraph import), with their data files in
+`lapse_accounts/tests/structure_files.py`. `test_lapse_group.py`'s environment now names no long-text file, so its
+record page tests read no file in service.
+
+## 2026-10-29 pending approval: release Z lane Z-B, the claim counts endpoint and the snapshot job (structure layer S0.6, PatentRef 1.21.0)
+
+Not deployed; branch `wave5-ZB` from `wave4-Y` 323f62c (release Y), one of the four lanes the release Z integrator
+merges. No migration, no new dependency (standard library only), no stored data, no model call; a worker reload of
+patentref-api. No PatentsView-compatible endpoint or field changes. The patentref repo's `wave5-ZB` documents it
+(openapi.json additions, llms.txt, llms-full.txt, the docs page claim-counts.html, changes.txt 1.21.0).
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_claimgraph.py` | new: the one module through which this lane's code imports claimgraph (its structure version, claim row type, tree builder and offset check, and `GENERATOR`, "claimgraph <version>") | when claimgraph becomes the private package `patentref/claimgraph`, only this import changes |
+| `API/claim_counts.py` | new, pure: the counts of one claim and of one patent from its claim tree: claims, independent and dependent claims, the claims whose text names another claim (the USPTO dataset's rule for a dependent claim), multiple dependent and cancelled claims, words (a run between white space with a letter or digit, after the number prefix), characters (spacing made regular), elements and wherein clauses, dependency depth, and the USPTO dataset's counts of "consisting", "or" and "selected from"; `PATENT_FIELDS` and `CLAIM_FIELDS` give each field's type, definition and the USPTO Patent Claims Research Dataset variable it follows; `COUNTS_VERSION = "1"`; the snapshot's TSV row and data dictionary | gate S0.6: the USPTO dataset's counts (grants of 1976 to 2014) continued for every grant the long-text file holds; one core for the endpoint and the snapshot, so a snapshot row is what the endpoint answers |
+| `API/lapse_structure_counts.py` | new: `ClaimCountsView` for `GET /api/v1/structure/counts/<patent_id>/`: the claim tree's own read (`lapse_structure.CLAIMS_SQL` and `PATENT_SQL` by the (patent_id, claim_sequence) index, its work cap of 1,000 claim rows and 1,000,000 characters, its 5 s read), the tree's own offset check (counts from a tree whose offsets do not hold are never served), then the counts; `counts_version`, `structure_version`, `generator`, `data_version`, `text_data_version`, `as_of`; `X-Text-Data-Version`, `Cache-Control: public, max-age=300`, `Server-Timing: claimcounts;desc="hit"|"miss"`; its own `lapse_structure.AnswerCache` (1,024 answers, 8 MB per worker process, an answer over 1 MB not kept) | computed on read, as the claim tree; the same errors: 400 ERR_Q, 404 NOT_FOUND (a patent the data does not have, or one without claim text), 500 ERR_ES (the work cap, a timeout, a tree that fails its check), 501 ERR_NOT_IMPLEMENTED (no long-text file), all `{"error": true}` with X-Status-Reason, so RFC 9457 applies |
+| `lapse_accounts/root_urls.py` | the route, beside the claim tree's (keyed, throttled and counted like every data path) | |
+| `lapse_tools/claims_counts_snapshot.py` | new: the full-corpus snapshot. `txt.g_claims` read only in (patent_id, claim_sequence) order through its index, one patent at a time; counted in worker processes a batch at a time from the main thread (the cursor stays in its thread); parts of 100,000 patents written as gzip members with no time or name in their headers (the same rows give the same bytes), a `.tmp` name then a rename, and a checkpoint (`progress.json`) after each, so a stopped run resumes after the last part it finished and refuses to resume with other settings; a guard before the first part and between parts (a box timer within 45 minutes or its job running, the Tuesday and Thursday grants run's window, the deploy, heavy or refresh lock held as read from `/proc/locks`, a not-before time: refused at the start, exit 2; paused with the checkpoint kept, exit 3); at the end one gzip TSV `claims_counts_<text data version>.tsv.gz` (a header member and the parts), its data dictionary, a manifest and SHA256SUMS, the TSV read back and its rows counted; `check` reads a finished folder against SHA256SUMS and the manifest | the S0.6 Zenodo snapshot. It runs only after gate 5.8 ticks (2026-11-05 03:47 UTC at the earliest), started by patentref's desk-gated `C:\anitw\s06_snapshot.ps1` as agent under systemd-run with nice 19, idle I/O, CPUQuota 300% and MemoryMax 3G |
+
+Tests: `lapse_accounts/tests/test_structure_counts.py` (19: the shape and the version fields; the known counts of US
+10034028 from claimgraph's fixture (three independent claims, claim 17 naming claim 1 only in its body; the depths; one
+claim's words and characters); the answer equal to the counting code and to the claim tree on every claimgraph fixture;
+the trailing slash and the US prefix; every field a count with a definition and its USPTO note; on made-up claims the
+word and character rules, cancelled claims, depths with chains, cycles and missing parents, multiple dependencies and a
+reference in the body, the USPTO word counts, the TSV row and its nulls; 404 for an unknown patent and for one without
+claim text, 400, 403 without a key, 501, the work cap's 500, in both error forms; the cache; the wording; claimgraph
+imported only through `API/lapse_claimgraph.py`) and
+`lapse_accounts/tests/test_claims_counts_snapshot.py` (8: a run in parts; a stopped run resumed gives the same bytes as
+one pass; the limit and `check`; the guard's refusal and pause; the guard's timer and service readings; a held flock seen
+through `/proc/locks`; the stream's query plan uses the index; the work caps equal the endpoint's).
+
+Checked against the USPTO files (BigQuery `patents-public-data.uspto_oce_claims`, the USPTO Patent Claims Research
+Dataset): a calibration sample of 1,000 random grants of 1976 to 2014 (seed 20261029, 877 of them in the USPTO files) set
+the tolerance, and a fresh sample (seed 20261030, 898 in the files) met all 13 stated statements: the claims of a patent
+equal for 99.78 percent of patents, the USPTO rule's independent and dependent counts for 98.89 and 99.11 percent, a
+claim's words within 2 words or 2 percent for 92.96 percent of claims (97.66 for grants from 2002), characters for 97.73,
+"or", "consisting" and "selected from" for 98.95, 100 and 99.96 (the patentref repo's ops/audits/2026-10-29_ZB/). For
+grants from 2002 on the USPTO files count a claim's number as a word and as characters when their text starts with it;
+the comparison takes it off their counts first. The USPTO files hold no design or plant patents.
+
+On patentref-us1 (2026-10-29, scratch, 1,000 patents): the snapshot under systemd-run (nice 19, idle I/O, CPUQuota 100%,
+MemoryMax 1G, as agent), stopped after 2 of 4 parts and resumed, gave the same bytes as one pass, 3,718 claims a second with
+2 workers; the full pass's 136 million claim rows, about 4 to 12 hours under the limits above.
+## 2026-10-29 pending approval: lane Z-C of release Z, the triage table (PatentRef 1.21.0)
+
+Not deployed; branch `wave5-ZC` from `wave4-Y` 323f62c, for release Z's integrator to merge with lanes Z-A, Z-B and
+Z-D. No migration, no new dependency, no stored data, no model call; a worker reload of patentref-api. Every answer is
+computed on read, per patent, from the claim text, the catalog and the status rows, with a bounded cache; there is no
+corpus-wide component index. The have and lacks marks are the user's own notes on the patent's own parts: the page keeps
+them in the browser and writes them into the user's export, and no request carries them. The patentref repo's
+`wave5-ZC` documents the table (openapi.json additions, llms.txt, llms-full.txt, the structure docs page, changes.txt
+1.21.0).
+
+| File | Change | Why |
+|---|---|---|
+| `API/structure_claimgraph.py` | new: the one module through which the triage table imports claimgraph (`build_patent`, `check_patent`, `find_mentions`, `normalize_key`, the versions) | release Z moves claimgraph into a private package: one import to change |
+| `API/lapse_triage.py` | new: `GET` and `POST /api/v1/structure/triage/`. Input: `patents` (up to 500 numbers, as pasted text or a list; thousands separators, `US` before the number and kind codes are read) or `search` (an FTS5 query of `txt.fts_g_claims`: quoted phrases kept, at most 12 terms joined by AND, `limit` 1 to 500, default 100, read in reverse load order with an early stop and no sort), and up to 12 `components` (when none are named, the 6 term keys found in the most patents of the table, weighed by the rarest word's document frequency); `output=csv` for CSV (RFC 4180, the export columns). Per patent: the status endpoint's 8 fields (status, its basis, the reinstatement flag, as of); per component its position (`every_independent`, `some_independent`, `only_dependent`, `absent`) with the claims and the first mention's quote, claim, start and end; each independent claim's parts (preamble, transition, elements) with their ids and offsets. Bounds: one table at a time per key (`LAPSE_TRIAGE_PER_KEY`, 1) and at most `LAPSE_TRIAGE_TOTAL` (3) at once on the server, a 429 with Retry-After and `X-Status-Reason` beyond either, the slots on the throttles' window counters and released by the middleware's in-flight path; a 20 s time guard (patents not reached come back with note `time_limit`, the table with `complete: false` and `no-store`); the claim tree's work cap; every quote compared with claimgraph's span text before it is sent (note `offset_check` when one differs); per-patent facts in a 2,048-entry, 16 MB cache and the word counts of the table's own pick in a 65,536-word cache, both per worker and per data version; a wording check of every answer (500 ERR_ES, never the words) | gate S1.8L of the plan of record; computed on read |
+| `lapse_accounts/triage_page.py` | new: `/triage/` and `/triage/example/` (a keyless table of six patents, built once per data version and kept only when complete; 503 while it cannot be built), each with a Content-Security-Policy that hashes its own inline style and script; `LAPSE_TRIAGE_EXAMPLE` may name other patents and components | the page on the site's template; the example is also the filled state the axe gate checks |
+| `lapse_accounts/templates/lapse_accounts/triage.html`, `_triage.js` | new: the form (patents or a search, components; the key field has no name and the key goes only in the `X-Api-Key` header), the table with its legend and order menu, the parts panel with have, lacks or no mark per part, CSV and JSON export with the marks, a file control that opens an earlier JSON export with its marks; the marks in `localStorage` (`patentref.triage.marks.v1`) only; all text set by `textContent` | the marks stay with the user |
+| `lapse_accounts/root_urls.py` | the three routes (the API route after the claim tree's) | |
+
+Tests: `lapse_accounts/tests/test_structure_triage.py` (pasted lists, components and search terms read; 403, every 400
+reason as problem details, 501 without the long-text file or its index; the answer's shape, versions and headers;
+positions, matches and quotes on six made-up patents and a number in no file, a reference back counted for its term; the status the status
+endpoint's; every quote the claim text at its offsets; the parts the claim tree's; components picked when none are
+named; the search's order and its query plan (index order, no sort); GET the same table as POST; the CSV; the per-key
+and server slots; the time guard and the cache; the work cap and the offset check; the caches' bounds and the word
+counts kept per data version; the wording rule; the page, its policy and its text; the example page; the page's CSV,
+built by node from the page's script, the API's CSV with the marks).
+
+Measured on patentref-us1 on 2026-10-29 (08:56 to 09:19 UTC, the view called in process against the files in service,
+niced, outside the timer windows; a scratch clone and data folder): 500 random granted patents in one request, complete
+every time, 3.8 to 6.3 s cold when none of their pages had been read before (in the slowest, 3.0 s went to the status
+rows read from disk), 3.0 s cold in a new process with the pages read once, 0.18 s from the worker's cache; a claims
+search capped at 500, 3.5 to 3.9 s cold and 0.21 s warm. Every quote and part of four draws of 500 random patents
+(36,852) is the claim tree endpoint's text at its offsets, and every independent claim's parts (4,716) are the claim
+tree's, in order.
+
+## 2026-10-29 pending approval: release Z, the integration (the four lanes, claimgraph out of the fork, the barred words)
+
+Not deployed; branch `wave5-Z` from `wave4-Y` 323f62c with lanes Z-A, Z-B, Z-C and Z-D merged (their sections above). No
+migration, no stored data, no model call in a request; a worker reload of patentref-api, after the release deploy installs
+claimgraph's wheel into the API's virtual environment. The patentref repo's `wave5-Z` documents it (PatentRef 1.21.0).
+
+| File | Change | Why |
+|---|---|---|
+| `claimgraph/` | removed; its fixtures (the real claims of 37 patents) moved to `lapse_accounts/tests/claim_fixtures/` | claimgraph, PatentRef's claim parser, is a private package and stays out of this repository: the fork imports it, and the deploy installs its wheel (claimgraph 0.2.0) into the API's environment |
+| `API/lapse_claimgraph.py` | the one module that imports claimgraph; every other module takes claimgraph's names from it. At import it raises `ClaimgraphMissing` (an ImportError that says what to install) when the package is missing, when the claimgraph found is not the installed package, or when it builds another structure version than 2 | the API stops at startup with that message, never on a request |
+| `API/lapse_structure.py`, `API/lapse_similar_structured.py`, `API/lapse_triage.py` | claimgraph's names from `API/lapse_claimgraph.py`; `API/structure_claimgraph.py` removed | one adapter |
+| the claim tree (and every answer read from it) | the term mention's field that says where the antecedent was found is now `found_in`, with the same values (`same_claim`, `dependency_chain`, `cited_claim`); `structure_version` is "2"; `generator` "claimgraph 0.2.0". Nothing else in the trees changed: the same rows give the same claims, spans and offsets | independent audit 13, finding F: the field name used one of the structure layer's barred words |
+| `API/lapse_structure.py`, `API/lapse_brief.py`, `API/lapse_structure_counts.py` | a string that is not a patent number answers 400 ERR_Q with the reason "Not a patent number: '<value>'", as the extraction trial already did | audit 13, finding F: the earlier reason used one of the barred words |
+| `lapse_accounts/public.py` | the error index's NOT_FOUND and ERR_ES texts and its note on the X-Status-Reason-Code header name the brief and the claim counts beside the claim tree | the new paths answer those codes the same way |
+| `API/lapse_wording.py` | `STRUCTURE_BANNED` and `structure_words()`: the structure layer's barred words | one list for the guard |
+
+Tests: `lapse_accounts/tests/test_claimgraph_package.py` (no claimgraph folder in the fork, one module that imports it, the
+installed package in use, and the three startup refusals) and `lapse_accounts/tests/test_structure_wording.py` (every
+structure route's answers, field names and error texts in both forms, the structured mode of lapse/similar, the record
+page with its claims, the extraction page while dark and the triage pages, with the patent's own words left out; a new
+structure route without a guard fails it). claimgraph's own suite (536 tests) runs against the installed wheel in the box
+suite. The fork's earlier structure tests read the fixtures in their new place and expect structure version 2.

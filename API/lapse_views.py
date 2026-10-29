@@ -10,9 +10,12 @@
       by patent_id ascending (scaffold 5.3). The tokens that go into the query are the rarest of the input
       (select_terms: document frequency from the snapshot, tokens in more than 2 percent of patents dropped,
       16 kept), which is what keeps the call near a second on 9.4 million patents; the response lists them
-      as `terms`. X-Api-Key.
+      as `terms`. X-Api-Key. With mode=structured (lane Y), patents ranked by the claim terms they share with
+      the text, computed on read by claimgraph: API/lapse_similar_structured.py. Without mode, or with
+      mode=text, the answer is the one above, byte for byte; another mode value is 400 ERR_Q.
   GET /p/<patent_id>?v=<data_version>
-      The per-patent record page (HTML), the human-facing target of the permalink. No key; per-IP rate.
+      The per-patent record page (HTML), the human-facing target of the permalink. No key; per-IP rate. Below the record
+      it shows the patent's claims, with an anchor on each claim and each element (gate S0.4, API/lapse_permalinks.py).
 
 Errors keep the upstream shape (`{"error": true}` plus X-Status-Reason and X-Status-Reason-Code), so the
 RFC 9457 negotiation of gate 2.11 applies unchanged. Every response carries data_version and as_of, and the
@@ -113,6 +116,9 @@ class SimilarView(APIView):
     """GET /api/v1/lapse/similar?text=&n= (scaffold 5.3)."""
 
     def get(self, request, format=None):
+        mode = request.GET.get("mode")   # lane Y: mode=structured (API/lapse_similar_structured.py); absent or text: as before
+        if mode is not None and mode not in ("text", "structured"):
+            return _error("'mode' must be text or structured")
         text = request.GET.get("text", "")
         if not text.strip():
             return _error("'text' is required")
@@ -124,6 +130,10 @@ class SimilarView(APIView):
             return _error("'n' must be an integer")
         if n < 1 or n > SIMILAR_MAX_N:
             return _error(f"'n' must be 1 to {SIMILAR_MAX_N}")
+        if mode == "structured":
+            from API.lapse_similar_structured import structured_answer
+
+            return structured_answer(get_searcher(), text, n)
         terms = []
         for t in tokens(text):
             if len(t) > 1 and t not in terms:
@@ -256,12 +266,16 @@ class RecordPage(APIView):
         lines = footer_lines()
         if fam and fam["credit"] not in lines:
             lines = list(lines) + [fam["credit"]]  # the Google credit on every page with a family block (LICENSES.md section 3)
+        from API import lapse_permalinks
+
+        claims = lapse_permalinks.page_claims(searcher, pid)  # the claims with a link to each claim and element (gate S0.4)
         html = render_to_string("lapse_accounts/record.html", {
             "rec": rec, "pid": pid, "title": title, "superseded": sup, "data_version": data_version,
             "as_of": rec.get("as_of"), "footer_lines": lines, "family": fam,
             "basis_text": lapse_wording.basis_text(rec.get("basis"), engine_rec),
             "term_end_text": lapse_wording.term_end_text(engine_rec),
             "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1),
+            "claims": claims,
         })
         bad = lapse_wording.check_banned(html.split('data-user-content="true"')[0])
         if bad:

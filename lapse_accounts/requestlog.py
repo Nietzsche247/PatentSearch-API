@@ -16,6 +16,16 @@ hour. The file is WAL mode so the status page can read it while the workers writ
 
 Nothing secret is stored: the key prefix is the 8 characters the usage endpoint already shows, the path has
 no query string.
+
+The structure layer's usage counter (release X, the S1 tripwire): a request under STRUCTURE_PREFIX also gets one row in
+
+  structure_log(ts REAL, status INTEGER, prefix TEXT, path TEXT, client TEXT)
+
+in the same file, written in the same transaction and deleted after the same RETENTION_DAYS. `client` is "mcp" when
+the request's User-Agent starts with MCP_AGENT (the PatentRef MCP package sends "patentref-mcp/<version>", so its
+get_claim_tree calls can be told apart) and "" otherwise; the user agent itself is not kept. The table is created the
+way request_log is, by CREATE TABLE IF NOT EXISTS when a writer opens the file; nothing in request_log changes, so an
+older release keeps writing request_log as before. lapse_accounts.usage_counts reads both tables.
 """
 import logging
 import os
@@ -33,11 +43,21 @@ MAX_BUFFER = 20000
 RETENTION_DAYS = 35
 PRUNE_EVERY = 3600
 
+STRUCTURE_PREFIX = "/api/v1/structure/"
+MCP_AGENT = "patentref-mcp/"
+
 SCHEMA = (
     "CREATE TABLE IF NOT EXISTS request_log(ts REAL NOT NULL, status INTEGER NOT NULL, ms REAL NOT NULL,"
     " prefix TEXT, path TEXT, method TEXT);"
     "CREATE INDEX IF NOT EXISTS request_log_ts ON request_log(ts);"
+    "CREATE TABLE IF NOT EXISTS structure_log(ts REAL NOT NULL, status INTEGER NOT NULL, prefix TEXT, path TEXT, client TEXT);"
+    "CREATE INDEX IF NOT EXISTS structure_log_ts ON structure_log(ts);"
 )
+
+
+def client_tag(user_agent):
+    """'mcp' for the PatentRef MCP package's requests (its User-Agent is patentref-mcp/<version>), else ''."""
+    return "mcp" if (user_agent or "").lower().startswith(MCP_AGENT) else ""
 
 
 def log_path():
@@ -60,15 +80,18 @@ class _Writer:
     def __init__(self):
         self._lock = threading.Lock()
         self._rows = []
+        self._srows = []  # structure_log rows (the structure layer's usage counter)
         self._thread = None
         self._last_prune = 0.0
         self._con = None
         self._pid = None
 
-    def add(self, row):
+    def add(self, row, srow=None):
         with self._lock:
             if len(self._rows) < MAX_BUFFER:
                 self._rows.append(row)
+            if srow is not None and len(self._srows) < MAX_BUFFER:
+                self._srows.append(srow)
             if len(self._rows) >= FLUSH_ROWS:
                 wake = True
             else:
@@ -99,23 +122,29 @@ class _Writer:
     def flush(self):
         with self._lock:
             rows, self._rows = self._rows, []
-        if not rows:
+            srows, self._srows = self._srows, []
+        if not rows and not srows:
             return
         try:
             if self._con is None:
                 self._con = connect(log_path())
             self._con.executemany("INSERT INTO request_log VALUES (?,?,?,?,?,?)", rows)
+            if srows:
+                self._con.executemany("INSERT INTO structure_log VALUES (?,?,?,?,?)", srows)
             self._con.commit()
             now = time.time()
             if now - self._last_prune > PRUNE_EVERY:
                 self._last_prune = now
                 self._con.execute("DELETE FROM request_log WHERE ts < ?", (now - RETENTION_DAYS * 86400,))
+                self._con.execute("DELETE FROM structure_log WHERE ts < ?", (now - RETENTION_DAYS * 86400,))
                 self._con.commit()
         except sqlite3.Error as exc:
-            log.warning("request log write failed (%s); %d rows kept for the next flush", exc.__class__.__name__, len(rows))
+            log.warning("request log write failed (%s); %d rows kept for the next flush", exc.__class__.__name__, len(rows) + len(srows))
             with self._lock:
                 self._rows = rows + self._rows
                 del self._rows[MAX_BUFFER:]
+                self._srows = srows + self._srows
+                del self._srows[MAX_BUFFER:]
             try:
                 if self._con is not None:
                     self._con.close()
@@ -141,7 +170,11 @@ class RequestLogMiddleware:
         key = request.META.get("HTTP_X_API_KEY") or ""
         prefix = key.split(".", 1)[0][:16] if key else ""
         try:
-            writer.add((time.time(), int(response.status_code), round(ms, 3), prefix, request.path[:200], request.method[:8]))
+            ts, st, path = time.time(), int(response.status_code), request.path[:200]
+            srow = None
+            if path.startswith(STRUCTURE_PREFIX):
+                srow = (ts, st, prefix, path, client_tag(request.META.get("HTTP_USER_AGENT")))
+            writer.add((ts, st, round(ms, 3), prefix, path, request.method[:8]), srow)
         except Exception:  # the log never breaks a response
             pass
         return response

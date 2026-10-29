@@ -134,6 +134,19 @@ LAPSE_STATUS_PATHS = {
     "api_dir": os.environ.get("LAPSE_DATA_DIR", "/data/api"),
     "backup_journal": os.environ.get("PATENTREF_BACKUP_DIR", "/data/backups") + "/backup_journal.jsonl",
 }
+# The service's own keys beyond the operator key (LAPSE_API_KEY_FILE), left out of the status page's API figures and the
+# structure layer's usage counter (lapse_accounts/status.py own_key_prefixes): the GitHub probe's key file (its first line
+# is the key) and the 5.10 beta test account's env file (its BETA_TEST_API_KEY line). Each is read inside the process; no
+# key or prefix is printed or logged. A missing file leaves that key's requests counted (in tests the folder is a scratch
+# one, so nothing is there).
+LAPSE_OWN_KEY_EXTRA_FILES = [str(_DATA / "probe_key.txt"), (str(_DATA / "beta_test_account.env"), "BETA_TEST_API_KEY")]
+# The on-demand extraction trial (structure layer S1.1; API/lapse_extract.py, the patentref clone's lapse.extract): its
+# folder (config.json, the KILL file, the jobs and results database, the daily spend log, the quality reports) and the
+# model provider's key file (one line EXTRACT_API_KEY=<key>, mode 600; only the worker reads it). Off while config.json does
+# not turn it on or the key file is not there; nothing is written while it is off (in the suites both are in the scratch
+# folder, so no suite reads the box's).
+LAPSE_EXTRACT_DIR = os.environ.get("LAPSE_EXTRACT_DIR", str(_DATA / "extract"))
+LAPSE_EXTRACT_KEY_FILE = os.environ.get("LAPSE_EXTRACT_KEY_FILE", str(_DATA / "extract.env"))
 
 # Throttles (lapse_accounts/throttling.py): upstream's per-minute key throttle with the rate chosen per key
 # (account keys: the plan's per-minute allowance, 45/m for Free; keys without an account: LAPSE_THROTTLE_RATE,

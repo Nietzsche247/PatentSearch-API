@@ -20,6 +20,20 @@
     table.fam th, table.fam td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
     table.fam th { color: var(--muted); font-weight: 600; }
     .credit { color: var(--muted); font-size: var(--t-sm); }
+    {% comment %}The claims (structure layer, gate S0.4; API/lapse_permalinks.py): a block for each claim, its elements one
+    to a line. Long words wrap so nothing scrolls sideways at 320 px; an element's link is a 24 px target (WCAG 2.5.8);
+    the claim or element a link names is outlined.{% endcomment %}
+    .claims { overflow-wrap: anywhere; word-break: break-word; }
+    .claim { border-top: 1px solid var(--border); padding-top: var(--s-2); margin-top: var(--s-3); scroll-margin-top: var(--s-3); }
+    .claim h3 { font-size: var(--t-base); margin: 0; }
+    .claim h3 a { display: inline-block; padding: var(--s-1) 0; }
+    .claim-dep { color: var(--muted); font-size: var(--t-sm); margin: 0 0 var(--s-1); }
+    .claim-lead { margin: 0 0 var(--s-1); }
+    ol.claim-els { list-style: none; padding-left: 0; margin: 0 0 var(--s-2); }
+    ol.claim-els li { position: relative; padding-left: var(--s-5); margin: 0 0 var(--s-1); min-height: 24px; scroll-margin-top: var(--s-3); }
+    .el-link { position: absolute; left: 0; top: 0; min-width: 24px; min-height: 24px; line-height: 24px; font-size: var(--t-sm); }
+    .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .claim:target, ol.claim-els li:target { outline: 2px solid var(--focus); outline-offset: 2px; }
     @media (max-width: 420px) { dl { grid-template-columns: 1fr; } }
 {% endblock %}
 {% block body %}
@@ -57,12 +71,66 @@
     {% endif %}
     <h2>Links</h2>
     <ul>
-      <li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (key required)</li>
+      {% if claims.state == "ok" %}<li><a href="#claims">The claims</a>, below on this page</li>
+      {% endif %}<li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (key required)</li>
       <li><a href="/api/v1/lapse/status/{{ pid }}/">This verdict as JSON</a> (key required)</li>
+      <li><a href="/api/v1/structure/claims/{{ pid }}/">The claim tree as JSON</a> (key required)</li>
+      <li><a href="/api/v1/structure/brief/{{ pid }}/">A short brief of this patent as JSON</a> (key required)</li>
       <li><a href="https://patentcenter.uspto.gov/applications?patentNumber={{ pid }}">USPTO Patent Center</a></li>
       <li><a href="{{ rec.permalink }}">Permalink to this version</a></li>
     </ul>
     <h2>Record</h2>
     <pre>{{ status_json }}</pre>
+    <h2 id="claims">Claims</h2>
+    {% if claims.state == "ok" %}
+    <p>The claims as the USPTO long-text file prints them (text data version {{ claims.text_data_version }}), split into their parts by PatentRef's claim parser (structure version {{ claims.structure_version }}): each claim's text up to its first element, then one line for each element. Each claim and each element has a link of its own, made from the claim's number and, for an element, its place in the claim and its character offsets in the claim text, so a link stays the same as long as the data does. <a href="/docs/structure.html#links">How the links are made</a>.</p>
+    <div class="claims" id="claims-list" data-user-content="true" data-text-version="{{ claims.text_data_version }}">
+{{ claims.html }}
+    </div>
+    {% elif claims.state == "no_claims" %}
+    <p>The long-text file in service (text data version {{ claims.text_data_version }}) has no claims for this patent: it holds the claims of grants up to its last grant date.</p>
+    {% elif claims.state == "no_text_file" %}
+    <p>The claims are not on this page right now: no long-text file is in service.</p>
+    {% else %}
+    <p>The claims of this patent are not on this page right now.</p>
+    {% endif %}
 {% endblock %}
 {% block footer_extra %}    <p>This page states what the USPTO record shows as of the date above, and the term end computed from the dates in it. It is not advice.</p>{% endblock %}
+{% block scripts %}{% if claims.state == "ok" %}{% comment %}A link to a claim or element anchor the page does not have (the data
+changed after the link was made) lands on the claim the anchor names, with a note; with no such claim, on the claims, with
+the note. The pattern is API/lapse_permalinks.ANCHOR_PATTERN (a test checks they are the same).{% endcomment %}  <script>
+  (function () {
+    var box = document.getElementById("claims-list");
+    if (!box) { return; }
+    var form = /^c([0-9]+)(?:-s([0-9]+))?(?:-e([0-9]+)-([0-9]+)-([0-9]+))?$/;
+    function land() {
+      var old = document.getElementById("anchor-note");
+      if (old) { old.parentNode.removeChild(old); }
+      var id = location.hash.slice(1);
+      try { id = decodeURIComponent(id); } catch (e) { return; }
+      if (!id || document.getElementById(id)) { return; }
+      var m = form.exec(id);
+      if (!m) { return; }
+      var claim = document.getElementById("c" + m[1] + (m[2] ? "-s" + m[2] : "")) || document.getElementById("c" + m[1]);
+      var tv = box.getAttribute("data-text-version");
+      var note = document.createElement("p");
+      note.id = "anchor-note";
+      note.className = "banner";
+      note.setAttribute("role", "status");
+      note.tabIndex = -1;
+      if (claim) {
+        note.textContent = "The part of claim " + m[1] + " this link names is not on this page now (the claims here are as split from text data version " + tv + "). Claim " + m[1] + " is shown in full below.";
+        claim.insertBefore(note, claim.children[1] || null);
+        claim.scrollIntoView();
+      } else {
+        note.textContent = "This page has no claim " + m[1] + " now (text data version " + tv + "), the claim this link names. The claims start below.";
+        box.parentNode.insertBefore(note, box);
+        note.scrollIntoView();
+      }
+      note.focus({ preventScroll: true });
+    }
+    window.addEventListener("hashchange", land);
+    land();
+  })();
+  </script>
+{% endif %}{% endblock %}
