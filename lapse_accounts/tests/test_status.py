@@ -664,7 +664,7 @@ def test_the_answer_from_the_kept_figures_is_the_same_bytes(client, monkeypatch,
     assert sorted(scans) == [86400, 30 * 86400]                       # the first answer reads both windows
     assert json.loads(fresh_json)["requests_30d"] == real(path, t - 30 * 86400)   # what the code of before put there
     monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})   # a new answer; the 30-day figures stay kept
-    scans.clear()
+    scans[:] = []
     kept_json = client.get("/api/v1/meta/status.json").content
     kept_html = client.get("/api/v1/meta/status/").content
     assert scans == [86400]                                            # only the 24-hour figures read
