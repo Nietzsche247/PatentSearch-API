@@ -35,7 +35,7 @@
 {% endblock %}
 {% block body %}
     <h1>Status</h1>
-    <p class="lead">The PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Figures refresh once a minute; this page was generated at {{ d.generated_at }}. Machine-readable twin: <a href="{{ json_url }}">status.json</a>.</p>
+    <p class="lead">The PatentsView-compatible API at <code>https://patentref.io/api/v1/</code>. Figures refresh once a minute, the 30-day figures every 10 minutes; this page was generated at {{ d.generated_at }}. Machine-readable twin: <a href="{{ json_url }}">status.json</a>.</p>
 
     {% for c in coming %}<div class="card" id="coming-{{ c.name }}">
       <h2>Coming change: {{ c.title }}</h2>

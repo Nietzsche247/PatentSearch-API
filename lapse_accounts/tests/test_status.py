@@ -620,7 +620,8 @@ def test_status_json_serves_the_answer_held_while_one_thread_computes_the_next(c
     for _ in range(3):
         r = client.get("/api/v1/meta/status.json")
         assert r.status_code == 200 and r.json()["generated_at"] == first["generated_at"] and r["Cache-Control"] == "public, max-age=60"
-    assert f"this page was generated at {first['generated_at']}" in client.get("/api/v1/meta/status/").content.decode()
+    html = client.get("/api/v1/meta/status/").content.decode()
+    assert f"Figures refresh once a minute, the 30-day figures every 10 minutes; this page was generated at {first['generated_at']}." in html
     assert started.wait(5) and len(calls) == 1
     gate.set()
     _join_refresh()
