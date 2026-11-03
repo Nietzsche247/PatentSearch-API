@@ -1397,6 +1397,7 @@ migration, no new route, field or package; a worker reload of patentref-api.
 |---|---|---|
 | `lapse_accounts/status.py` | `figures_30d()`: the 30-day request figures kept `FIGURES_30D_SECONDS` (600 s) in the worker (`_figures_30d`; an answer with an error is not kept); the 24-hour figures are read on every computation | a computation costs a few milliseconds instead of 3.5 s |
 | `lapse_accounts/status.py` | `cached()`: past `CACHE_SECONDS` the request that finds the answer old starts one thread to compute the next, and every request gets the answer the worker holds until it is ready; only a worker's first answer is computed in a request, once, while its other threads wait for it | no request waits on a computation while an answer exists |
+| `lapse_accounts/templates/lapse_accounts/status.html` | the page's first paragraph reads "Figures refresh once a minute, the 30-day figures every 10 minutes; this page was generated at ..." | it said once a minute for every figure |
 
 The answer's fields, their order and `Cache-Control: public, max-age=60` are unchanged; `requests_30d` can be up to 10
 minutes older than `generated_at`. Tests: `lapse_accounts/tests/test_status.py` (the 30-day figures kept 600 s and read again
