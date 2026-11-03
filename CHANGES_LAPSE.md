@@ -1385,3 +1385,22 @@ structure route's answers, field names and error texts in both forms, the struct
 page with its claims, the extraction page while dark and the triage pages, with the patent's own words left out; a new
 structure route without a guard fails it). claimgraph's own suite (536 tests) runs against the installed wheel in the box
 suite. The fork's earlier structure tests read the fixtures in their new place and expect structure version 2.
+
+## 2026-11-03 pending approval: release AB, the status page answers from the figures it holds
+
+At each minute's end every thread of a worker computed the status figures again, about 3.5 s on the box with the 30-day
+request figures (nine scans of the request log, 1.76 million rows, most of them from 2026-10-08), so a status request could
+wait that long once a minute in each of the 8 workers. Not deployed; branch `wave6-AB` from `sqlite-backend` 8a9e971. No
+migration, no new route, field or package; a worker reload of patentref-api.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/status.py` | `figures_30d()`: the 30-day request figures kept `FIGURES_30D_SECONDS` (600 s) in the worker (`_figures_30d`; an answer with an error is not kept); the 24-hour figures are read on every computation | a computation costs a few milliseconds instead of 3.5 s |
+| `lapse_accounts/status.py` | `cached()`: past `CACHE_SECONDS` the request that finds the answer old starts one thread to compute the next, and every request gets the answer the worker holds until it is ready; only a worker's first answer is computed in a request, once, while its other threads wait for it | no request waits on a computation while an answer exists |
+
+The answer's fields, their order and `Cache-Control: public, max-age=60` are unchanged; `requests_30d` can be up to 10
+minutes older than `generated_at`. Tests: `lapse_accounts/tests/test_status.py` (the 30-day figures kept 600 s and read again
+after, another file read at once, an error not kept; at the minute's end one computation for 16 requests, which all get
+the answer held at once; status.json serving the answer held while the next is computed; a worker's first answer
+computed once while its other threads wait; with the clock held, the same bytes of status.json and the page from the kept
+figures as from a fresh read, a minute later only the time fields changed, and the fields in their order as before).

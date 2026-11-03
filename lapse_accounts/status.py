@@ -17,7 +17,9 @@
       snapshot_current.json);
     - the nightly backup journal, the watchdog state and the alerts log;
     - disk and memory headroom read live.
-  Everything is computed at most once a minute per worker and served with Cache-Control max-age=60.
+  Everything is computed at most once a minute per worker (the 30-day request figures at most every 10 minutes,
+  figures_30d) and served with Cache-Control max-age=60. Past the minute a worker answers with the figures it holds
+  while one of its threads computes the next (cached()).
   Both public forms go through public_view(): no server paths, desk ids, disk or memory sizes, host names
   or load figures reach a keyless reader (2.11 re-audit 2026-10-08).
 
@@ -44,6 +46,7 @@ from django.views.decorators.http import require_GET, require_safe
 from lapse_accounts import public
 
 CACHE_SECONDS = 60
+FIGURES_30D_SECONDS = 600  # the 30-day request figures (nine scans of the request log, about 3.5 s on the box) are kept 10 minutes
 UPTIME_CLOCK_START = "2026-10-06T03:47:00Z"  # checklist 5.8: the weekly refresh task went live
 PROBE_CADENCE_MIN = 5
 MAX_DOWN_SPAN_MIN = 3 * PROBE_CADENCE_MIN  # a gap longer than this between two failed probes is a missing run, not an outage
@@ -53,7 +56,9 @@ EXTERNAL_FRESH_MIN = 15  # the UptimeRobot mirror is read every 2 minutes; a rea
 OBSERVER_SWITCH = "2026-10-15T02:57:08Z"
 
 _lock = threading.Lock()
+_first = threading.Lock()  # held while a worker computes its first answer; its other threads wait for that one
 _cache = {"at": 0.0, "data": None}
+_figures_30d = {"at": 0.0, "path": None, "data": None}
 _version_cache = {}
 
 
@@ -310,6 +315,20 @@ def request_figures(path, since, api_prefix="/api/v1/", meta_prefix="/api/v1/met
     except sqlite3.Error as exc:
         out["error"] = exc.__class__.__name__
     return out
+
+
+def figures_30d(path, now):
+    """request_figures() over the last 30 days, kept FIGURES_30D_SECONDS in this worker; an answer with an error is not kept.
+    The 24-hour figures are read on every computation (a few milliseconds)."""
+    with _lock:
+        m = _figures_30d
+        if m["data"] is not None and m["path"] == path and now - m["at"] < FIGURES_30D_SECONDS:
+            return dict(m["data"])
+    data = request_figures(path, now - 30 * 86400)
+    if "error" not in data:
+        with _lock:
+            m["at"], m["path"], m["data"] = now, path, dict(data)
+    return data
 
 
 def uptime_figures(history_path, now=None):
@@ -595,7 +614,7 @@ def collect():
         "external_check": external_check_figures(p["uptimerobot"], now),
         "uptime_official": None,
         "requests_24h": request_figures(p["request_log"], now - 86400),
-        "requests_30d": request_figures(p["request_log"], now - 30 * 86400),
+        "requests_30d": figures_30d(p["request_log"], now),
         "refresh": refresh_figures(p),
         "box": box_figures(p),
         "alerts": alert_figures(p["alerts"]),
@@ -659,14 +678,45 @@ def public_view(data):
     return d
 
 
+def _refresh(box):
+    """Compute the next answer into box (the cache this worker held when the computation began), then allow the next one."""
+    try:
+        at = time.time()
+        data = collect()
+        with _lock:
+            box["at"], box["data"] = at, data
+    finally:
+        with _lock:
+            box["busy"] = False
+
+
 def cached():
+    """The answer of the last CACHE_SECONDS. Past that, the request that finds it old starts one thread to compute the next,
+    and every request gets the answer the worker holds until the next is ready: no request waits on a computation while an
+    answer exists. A worker's first answer is computed in a request, once; its other threads wait for that one."""
     now = time.time()
     with _lock:
-        if _cache["data"] is not None and now - _cache["at"] < CACHE_SECONDS:
-            return _cache["data"]
-    data = collect()
-    with _lock:
-        _cache["at"], _cache["data"] = now, data
+        box, data = _cache, _cache["data"]
+        if data is not None and now - box["at"] < CACHE_SECONDS:
+            return data
+        start = data is not None and not box.get("busy")
+        if start:
+            box["busy"] = True
+    if data is None:
+        with _first:
+            with _lock:
+                if _cache["data"] is not None:
+                    return _cache["data"]
+            data = collect()
+            with _lock:
+                _cache["at"], _cache["data"] = now, data
+            return data
+    if start:
+        try:
+            threading.Thread(target=_refresh, args=(box,), name="status-refresh", daemon=True).start()
+        except RuntimeError:  # no thread to be had: the answer stays and the next request tries again
+            with _lock:
+                box["busy"] = False
     return data
 
 

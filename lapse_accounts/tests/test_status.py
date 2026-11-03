@@ -1,13 +1,21 @@
 """Gate 5.4: the health route, the per-request log and the status page figures."""
+import copy
 import json
 import os
 import sqlite3
+import threading
 import time
 
 import pytest
 from django.conf import settings
 
 from lapse_accounts import requestlog, status
+
+
+def _reset(monkeypatch):
+    """A worker's first request: no answer held and no 30-day figures kept."""
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    monkeypatch.setattr(status, "_figures_30d", {"at": 0.0, "path": None, "data": None})
 
 
 def test_health_no_key(client):
@@ -57,14 +65,14 @@ def test_external_check_figures(tmp_path):
 
 
 def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
                                                          "backup_journal": str(tmp_path / "bj.jsonl")})
     (tmp_path / "reports").mkdir()
     html = client.get("/api/v1/meta/status/").content.decode()
     assert "External check" in html and "its record is not set up yet" in html
     _ur_mirror(tmp_path, 60)
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     html = client.get("/api/v1/meta/status/").content.decode()
     assert "UptimeRobot checks <code>/api/v1/meta/health/</code> from its own network (region EU) every 5 minutes" in html
     assert '<span class="pill ok">up</span>' in html and "answered in 108 ms" in html and "stale" not in html
@@ -81,11 +89,11 @@ def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
     for banned in ("gate 5", "desk", "checklist", "ops/"):
         assert banned not in low, banned
     _ur_mirror(tmp_path, 60, state="down")
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     d = client.get("/api/v1/meta/status.json").json()
     assert d["state"] == ["degraded", "UptimeRobot reports the API down from its network; the box itself answers."]
     _ur_mirror(tmp_path, 30 * 60, state="down")  # an old reading never changes the state line
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     d = client.get("/api/v1/meta/status.json").json()
     assert d["state"][0] == "ok" and d["external_check"]["fresh"] is False
     assert "stale" in client.get("/api/v1/meta/status/").content.decode()
@@ -93,7 +101,7 @@ def test_status_page_shows_the_external_check(client, monkeypatch, tmp_path):
 
 def test_status_page_says_every_minute_at_60_s_checks(client, monkeypatch, tmp_path):
     # release W: UptimeRobot Solo checks every 60 s since 2026-10-28; the page said "every 1 minutes"
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
                                                          "backup_journal": str(tmp_path / "bj.jsonl")})
     (tmp_path / "reports").mkdir()
@@ -279,7 +287,7 @@ def test_status_page_shows_not_served_and_own_checks(client, monkeypatch, tmp_pa
     t = time.time()
     _log_rows(path, [(t, 501, 2.0, "userkey1", "/api/v1/publication/", "GET"), (t, 500, 4.0, "ownkey01", "/api/v1/patent/", "GET")])
     monkeypatch.setattr(settings, "USAGE_LOG_SQLITE_PATH", path)
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     monkeypatch.setattr(status, "_own_cache", {"at": time.time(), "prefixes": frozenset({"ownkey01"})})
     d = client.get("/api/v1/meta/status.json").json()["requests_24h"]
     assert d["requests"] == 1 and d["not_served"] == 1 and d["server_errors"] == 0 and d["own_requests"] == 1
@@ -380,7 +388,7 @@ def test_official_uptime_github_before_the_switch_uptimerobot_after(tmp_path):
 
 
 def test_status_page_tile_uses_the_official_figure(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
                                                          "backup_journal": str(tmp_path / "bj.jsonl")})
     (tmp_path / "reports").mkdir()
@@ -393,7 +401,7 @@ def test_status_page_tile_uses_the_official_figure(client, monkeypatch, tmp_path
 
 
 def test_status_page_and_json(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
                                                          "backup_journal": str(tmp_path / "bj.jsonl")})
     (tmp_path / "reports").mkdir()
@@ -418,7 +426,7 @@ def test_status_page_and_json(client, monkeypatch, tmp_path):
 def test_public_status_shows_no_paths_desk_ids_or_sizes(client, monkeypatch, tmp_path):
     """2.11 re-audit 2026-10-08: status.json is keyless and carried a server path, desk ids, disk and memory sizes.
     Both public forms now go through public_view()."""
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
                                                          "backup_journal": str(tmp_path / "bj.jsonl"), "disks": ["/"]})
     (tmp_path / "reports").mkdir()
@@ -466,7 +474,7 @@ def test_public_status_shows_no_paths_desk_ids_or_sizes(client, monkeypatch, tmp
 def test_status_page_names_the_build_checks_in_plain_words(client, monkeypatch, tmp_path):
     """Independent audit 3 of 2026-10-12, B4: the HTML page gives the build checks plain labels; status.json keeps the keys
     (stable field names)."""
-    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})
+    _reset(monkeypatch)
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
                                                          "backup_journal": str(tmp_path / "bj.jsonl")})
     (tmp_path / "reports").mkdir()
@@ -483,3 +491,198 @@ def test_status_page_names_the_build_checks_in_plain_words(client, monkeypatch, 
         assert code not in html, code
     d = client.get("/api/v1/meta/status.json").json()
     assert list(d["refresh"]["current"]["gates"]) == keys and d["refresh"]["current"]["gates"]["count_deltas"] == "pass"
+
+
+# ---------------------------------------------------------------- release AB: the status page under load
+# At each minute's end every thread of a worker computed the figures again, about 3.5 s with the 30-day request figures
+# (nine scans of the request log, 1.76 million rows on the box), so a status request could wait that long once a minute
+# in each worker. The 30-day figures are now kept 10 minutes, and past the minute one thread computes the next answer
+# while every request gets the answer the worker holds.
+
+STATUS_KEYS = ["generated_at", "cache_seconds", "service", "uptime", "external_check", "uptime_official", "requests_24h",
+               "requests_30d", "refresh", "box", "alerts", "state"]
+FIGURE_KEYS = ["requests", "meta_requests", "other_requests", "ok", "client_errors", "rejected", "server_errors", "not_served",
+               "admitted", "p50_ms", "p95_ms", "max_ms", "error_rate", "server_error_rate", "own_requests"]
+
+
+class _Clock:
+    """status.time for a test: time() answers the value set here, so the minute of the answer and the 10 minutes of the
+    30-day figures can be stepped through."""
+
+    def __init__(self, t):
+        self.t = t
+
+    def time(self):
+        return self.t
+
+
+def _join_refresh():
+    for th in threading.enumerate():
+        if th.name == "status-refresh":
+            th.join(10)
+
+
+def _ab_paths(monkeypatch, tmp_path):
+    """The status files in tmp_path and a usage log of three rows (one a documented 501); no own key file is read."""
+    monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
+                                                         "backup_journal": str(tmp_path / "bj.jsonl"), "disks": ["/"]})
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEY_FILES", [], raising=False)
+    monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
+    (tmp_path / "reports").mkdir(exist_ok=True)
+    path = str(tmp_path / "usage_ab.sqlite3")
+    t = time.time()
+    _log_rows(path, [(t - 3 * 86400, 200, 10.0, "userkey1", "/api/v1/patent/", "GET"),
+                     (t - 60, 200, 20.0, "userkey1", "/api/v1/patent/", "GET"),
+                     (t - 30, 501, 2.0, "userkey1", "/api/v1/publication/", "GET")])
+    monkeypatch.setattr(settings, "USAGE_LOG_SQLITE_PATH", path)
+    return path, t
+
+
+def _slow(answer, calls, started, gate):
+    """A collect() that waits for the test's word."""
+    def collect():
+        calls.append(1)
+        started.set()
+        assert gate.wait(10)
+        return answer() if callable(answer) else answer
+    return collect
+
+
+def test_the_30_day_figures_are_kept_ten_minutes(monkeypatch, tmp_path):
+    """The 30-day figures are read at most every FIGURES_30D_SECONDS in a worker, the 24-hour figures on every computation;
+    another usage-log file is read at once, and an answer with an error is not kept."""
+    _reset(monkeypatch)
+    path, t = _ab_paths(monkeypatch, tmp_path)
+    scans = []
+    real = status.request_figures
+    monkeypatch.setattr(status, "request_figures", lambda p, since, **kw: scans.append(since) or real(p, since, **kw))
+    assert status.FIGURES_30D_SECONDS == 600 and status.CACHE_SECONDS == 60
+    a = status.figures_30d(path, t)
+    assert a["requests"] == 3 and a["not_served"] == 1 and scans == [t - 30 * 86400]
+    _log_rows(path, [(t, 500, 30.0, "userkey1", "/api/v1/patent/", "GET")])
+    assert status.figures_30d(path, t + 599) == a and len(scans) == 1                     # kept: no scan
+    b = status.figures_30d(path, t + 600)                                                 # read again after its 600 s
+    assert b["requests"] == 4 and b["server_errors"] == 1 and scans[-1] == t + 600 - 30 * 86400
+    other = str(tmp_path / "usage_other.sqlite3")
+    _log_rows(other, [(t, 200, 1.0, "userkey2", "/api/v1/patent/", "GET")])
+    assert status.figures_30d(other, t + 601)["requests"] == 1 and len(scans) == 3        # another file: read at once
+    # through collect(): the 24-hour figures move each time, the 30-day ones after their 600 s
+    _reset(monkeypatch)
+    clock = _Clock(t + 700)
+    monkeypatch.setattr(status, "time", clock)
+    d1 = status.collect()
+    _log_rows(path, [(t + 650, 200, 5.0, "userkey1", "/api/v1/patent/", "GET")])
+    clock.t += 300
+    d2 = status.collect()
+    assert d2["requests_24h"]["requests"] == d1["requests_24h"]["requests"] + 1 and d2["requests_30d"] == d1["requests_30d"]
+    clock.t += 300
+    assert status.collect()["requests_30d"]["requests"] == d1["requests_30d"]["requests"] + 1
+    # an answer with an error is not kept: the next computation reads again
+    _reset(monkeypatch)
+    monkeypatch.setattr(status, "request_figures", lambda p, since, **kw: scans.append(since) or {"requests": 0, "error": "OperationalError"})
+    n = len(scans)
+    assert status.figures_30d(path, t)["error"] == "OperationalError" and status.figures_30d(path, t + 1)["error"] == "OperationalError"
+    assert len(scans) == n + 2 and status._figures_30d["data"] is None
+
+
+def test_at_expiry_one_thread_computes_and_every_request_gets_the_answer_held(monkeypatch):
+    clock = _Clock(1_800_000_000.0)
+    monkeypatch.setattr(status, "time", clock)
+    held = {"generated_at": "held"}
+    monkeypatch.setattr(status, "_cache", {"at": clock.t - status.CACHE_SECONDS, "data": held})   # just past its minute
+    calls, started, gate = [], threading.Event(), threading.Event()
+    monkeypatch.setattr(status, "collect", _slow({"generated_at": "next"}, calls, started, gate))
+    got = []
+    askers = [threading.Thread(target=lambda: got.append(status.cached())) for _ in range(16)]
+    for th in askers:
+        th.start()
+    for th in askers:
+        th.join(5)
+    assert started.wait(5)
+    assert not any(th.is_alive() for th in askers) and got == [held] * 16      # nobody waited on the computation
+    assert len(calls) == 1 and status._cache["busy"] is True                    # one computation, in a thread of its own
+    assert status.cached() is held and len(calls) == 1
+    gate.set()
+    _join_refresh()
+    assert status.cached() == {"generated_at": "next"} and len(calls) == 1 and status._cache["busy"] is False
+
+
+def test_status_json_serves_the_answer_held_while_one_thread_computes_the_next(client, monkeypatch, tmp_path):
+    _reset(monkeypatch)
+    _ab_paths(monkeypatch, tmp_path)
+    clock = _Clock(time.time())
+    monkeypatch.setattr(status, "time", clock)
+    first = client.get("/api/v1/meta/status.json").json()       # the worker's first answer, computed in the request
+    assert first["generated_at"] == status.iso(clock.t)
+    clock.t += status.CACHE_SECONDS
+    calls, started, gate = [], threading.Event(), threading.Event()
+    monkeypatch.setattr(status, "collect", _slow(status.collect, calls, started, gate))
+    for _ in range(3):
+        r = client.get("/api/v1/meta/status.json")
+        assert r.status_code == 200 and r.json()["generated_at"] == first["generated_at"] and r["Cache-Control"] == "public, max-age=60"
+    assert f"this page was generated at {first['generated_at']}" in client.get("/api/v1/meta/status/").content.decode()
+    assert started.wait(5) and len(calls) == 1
+    gate.set()
+    _join_refresh()
+    now = client.get("/api/v1/meta/status.json").json()
+    assert now["generated_at"] == status.iso(clock.t) != first["generated_at"] and len(calls) == 1
+
+
+def test_a_workers_first_answer_is_computed_once_and_its_other_threads_wait_for_it(monkeypatch):
+    _reset(monkeypatch)
+    calls, started, gate = [], threading.Event(), threading.Event()
+    monkeypatch.setattr(status, "collect", _slow({"generated_at": "first"}, calls, started, gate))
+    got = []
+    askers = [threading.Thread(target=lambda: got.append(status.cached())) for _ in range(8)]
+    for th in askers:
+        th.start()
+    assert started.wait(5)
+    time.sleep(0.2)
+    assert len(calls) == 1 and got == []                     # no answer to hold yet: one computes, the others wait
+    gate.set()
+    for th in askers:
+        th.join(5)
+    assert got == [{"generated_at": "first"}] * 8 and len(calls) == 1
+
+
+def test_the_answer_from_the_kept_figures_is_the_same_bytes(client, monkeypatch, tmp_path):
+    """Release AB changes when the figures are computed, not what they are. With the clock held, status.json and the page
+    built from the kept 30-day figures are the same bytes as when every figure is read fresh (the code of before read
+    request_figures over 30 days in every collect()); a minute later only the time fields differ; the fields and their
+    order are the ones of before."""
+    _reset(monkeypatch)
+    path, t = _ab_paths(monkeypatch, tmp_path)
+    clock = _Clock(t)
+    monkeypatch.setattr(status, "time", clock)
+    box = status.box_figures(status.paths())
+    monkeypatch.setattr(status, "box_figures", lambda p: copy.deepcopy(box))     # free disk and memory move between reads
+    scans = []
+    real = status.request_figures
+    monkeypatch.setattr(status, "request_figures", lambda p, since, **kw: scans.append(round(clock.t - since)) or real(p, since, **kw))
+    fresh_json = client.get("/api/v1/meta/status.json").content
+    fresh_html = client.get("/api/v1/meta/status/").content
+    assert sorted(scans) == [86400, 30 * 86400]                       # the first answer reads both windows
+    assert json.loads(fresh_json)["requests_30d"] == real(path, t - 30 * 86400)   # what the code of before put there
+    monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})   # a new answer; the 30-day figures stay kept
+    scans.clear()
+    kept_json = client.get("/api/v1/meta/status.json").content
+    kept_html = client.get("/api/v1/meta/status/").content
+    assert scans == [86400]                                            # only the 24-hour figures read
+    assert kept_json == fresh_json and kept_html == fresh_html         # the same bytes
+    d = json.loads(kept_json)
+    assert list(d) == STATUS_KEYS and list(d["requests_30d"]) == list(d["requests_24h"]) == FIGURE_KEYS and d["cache_seconds"] == 60
+    # a minute later: the answer held at once, then the next from its thread; only the time fields differ
+    clock.t += status.CACHE_SECONDS + 1
+    assert client.get("/api/v1/meta/status.json").content == kept_json
+    _join_refresh()
+    later = client.get("/api/v1/meta/status.json").json()
+    assert later["generated_at"] == status.iso(clock.t) != d["generated_at"] and later["requests_30d"] == d["requests_30d"]
+
+    def without_time(x):
+        x = copy.deepcopy(x)
+        x.pop("generated_at")
+        for k in ("uptime", "uptime_official"):
+            x[k].pop("elapsed_minutes")
+        return json.dumps(x)
+
+    assert without_time(later) == without_time(d)
