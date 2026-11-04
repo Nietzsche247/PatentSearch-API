@@ -1408,14 +1408,15 @@ figures as from a fresh read, a minute later only the time fields changed, and t
 
 ## 2026-11-04 pending approval: release AC, the status page computes its next answer in the request
 
-Since release AB's deploy (2026-11-03 08:06 UTC) every worker served the status answer it computed at 08:07 to 08:08 UTC,
-more than 36 hours old, with its relative fields ("0 min ago") frozen: release AB computed the next answer in a thread of
-its own (`status-refresh`), and no such thread ever stored one. Not deployed; branch `wave6-AC` from `sqlite-backend`
-8123c41. No migration, no new route, field or package; a worker reload of patentref-api.
+Since release AB's deploy (2026-11-03 08:06 UTC) the status page computed its next answer in a thread of its own
+(`status-refresh`) and served the answer held meanwhile: a visit got the figures stored at the previous visit to that
+server process, so with few visits most answers showed figures hours old (the first visit to each worker after the reload
+showed its warm-up figures of 08:07 to 08:08 UTC), their relative fields ("0 min ago") as old. Not deployed; branch
+`wave6-AC` from `sqlite-backend` 8123c41. No migration, no new route, field or package; a worker reload of patentref-api.
 
 | File | Change | Why |
 |---|---|---|
-| `lapse_accounts/status.py` | `cached()`: past `CACHE_SECONDS` the request that finds the answer old takes the busy flag and computes the next answer itself (`collect()`), while the worker's other requests get the answer held; no thread is started (`_refresh()` and the `_first` lock are gone; a `threading.Condition` on the same lock lets a request with nothing to serve wait up to `WAIT_SECONDS`, 30 s, for the computation another request runs, as a worker's first answer after a reload did) | the refresh thread never stored an answer on the box |
+| `lapse_accounts/status.py` | `cached()`: past `CACHE_SECONDS` the request that finds the answer old takes the busy flag and computes the next answer itself (`collect()`), while the worker's other requests get the answer held; no thread is started (`_refresh()` and the `_first` lock are gone; a `threading.Condition` on the same lock lets a request with nothing to serve wait up to `WAIT_SECONDS`, 30 s, for the computation another request runs, as a worker's first answer after a reload did) | a visit got the figures stored at the previous visit to that server process, so with few visits most answers showed figures hours old |
 | `lapse_accounts/status.py` | a flag held over `BUSY_SECONDS` (120 s) is taken over by the next request, and a computation taken over that ends late keeps the newer answer and the newer flag | a stuck computation cannot hold the answer back |
 | `lapse_accounts/status.py` | a failed `collect()` leaves the answer held, logs its error class once (no message, no path) until a computation succeeds again, and an answer `STALE_SECONDS` (600 s) old is never served: the page and status.json answer 503 "status temporarily unavailable" with `Cache-Control: no-store` (`unavailable()`) until one is computed; a worker whose first computation fails answers the same | release AB served a failing worker's last answer for ever (audit 17); release Z answered 500 |
 

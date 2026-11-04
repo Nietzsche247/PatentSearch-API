@@ -581,10 +581,11 @@ def test_the_30_day_figures_are_kept_ten_minutes(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------- release AC: the status page computes in the request
-# Release AB computed the next answer in a thread of its own (status-refresh). On the box every worker kept serving the
-# answer of 2026-11-03 08:07 to 08:08 UTC for more than 36 hours: no refresh thread ever stored an answer. The request that
-# finds the answer old now computes the next one itself, no thread is started, a computation held over BUSY_SECONDS is taken
-# over, a failed one leaves the answer held (its error class logged once), and an answer STALE_SECONDS old is never served.
+# Release AB computed the next answer in a thread of its own (status-refresh) and served the answer held meanwhile: a visit
+# got the figures stored at the previous visit to that server process, so with few visits most answers showed figures hours
+# old. The request that finds the answer old now computes the next one itself, no thread is started, a computation held over
+# BUSY_SECONDS is taken over, a failed one leaves the answer held (its error class logged once), and an answer STALE_SECONDS
+# old is never served.
 
 
 class _Warnings(logging.Handler):
