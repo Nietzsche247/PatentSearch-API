@@ -803,8 +803,7 @@ def test_no_answer_ten_minutes_old_is_served_as_current(monkeypatch):
     assert sorted(got) == [("computing", {"generated_at": "now"}), ("waiting", {"generated_at": "now"})] and len(calls) == 1
     # a computation that fails meanwhile: the waiting request gets nothing (503), never the old answer
     _held(monkeypatch, clock, 2 * 3600)
-    started.clear()
-    gate.clear()
+    started, gate = threading.Event(), threading.Event()
 
     def fails():
         started.set()
