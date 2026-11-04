@@ -1,6 +1,7 @@
 """Gate 5.4: the health route, the per-request log and the status page figures."""
 import copy
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -516,12 +517,6 @@ class _Clock:
         return self.t
 
 
-def _join_refresh():
-    for th in threading.enumerate():
-        if th.name == "status-refresh":
-            th.join(10)
-
-
 def _ab_paths(monkeypatch, tmp_path):
     """The status files in tmp_path and a usage log of three rows (one a documented 501); no own key file is read."""
     monkeypatch.setattr(settings, "LAPSE_STATUS_PATHS", {"lapse_data": str(tmp_path), "api_dir": str(tmp_path),
@@ -585,29 +580,259 @@ def test_the_30_day_figures_are_kept_ten_minutes(monkeypatch, tmp_path):
     assert len(scans) == n + 2 and status._figures_30d["data"] is None
 
 
-def test_at_expiry_one_thread_computes_and_every_request_gets_the_answer_held(monkeypatch):
+# ---------------------------------------------------------------- release AC: the status page computes in the request
+# Release AB computed the next answer in a thread of its own (status-refresh). On the box every worker kept serving the
+# answer of 2026-11-03 08:07 to 08:08 UTC for more than 36 hours: no refresh thread ever stored an answer. The request that
+# finds the answer old now computes the next one itself, no thread is started, a computation held over BUSY_SECONDS is taken
+# over, a failed one leaves the answer held (its error class logged once), and an answer STALE_SECONDS old is never served.
+
+
+class _Warnings(logging.Handler):
+    """The records status.log emits during a test."""
+
+    def __init__(self):
+        super().__init__(logging.DEBUG)
+        self.records = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+    def lines(self):
+        return [r.getMessage() for r in self.records]
+
+
+@pytest.fixture
+def warnings_log(monkeypatch):
+    h = _Warnings()
+    status.log.addHandler(h)
+    monkeypatch.setattr(status.log, "level", logging.DEBUG)
+    monkeypatch.setattr(status.log, "disabled", False)
+    yield h
+    status.log.removeHandler(h)
+
+
+def _answers():
+    """A collect() that gives a new answer on each call (n counts the calls) without reading anything."""
+    calls = []
+
+    def collect():
+        calls.append(1)
+        return {"generated_at": f"answer {len(calls)}", "n": len(calls)}
+    return collect, calls
+
+
+def _held(monkeypatch, clock, age, data=None):
+    """A worker that holds an answer `age` seconds old and runs no computation."""
+    data = data if data is not None else {"generated_at": "held", "n": 0}
+    monkeypatch.setattr(status, "_cache", {"at": clock.t - age, "data": data})
+    return data
+
+
+def test_cached_starts_no_thread(monkeypatch, warnings_log):
+    """No path of cached() starts a thread: the first answer, a hit, the minute's end, a failure, a 503 and a stuck flag
+    taken over all run in the request's own thread. The module has no Thread( left in it."""
+    import inspect
+
+    assert "Thread(" not in inspect.getsource(status) and not hasattr(status, "_refresh")
+    started = []
+    real_start = threading.Thread.start
+    monkeypatch.setattr(threading.Thread, "start", lambda self: started.append(self.name) or real_start(self))
     clock = _Clock(1_800_000_000.0)
     monkeypatch.setattr(status, "time", clock)
-    held = {"generated_at": "held"}
-    monkeypatch.setattr(status, "_cache", {"at": clock.t - status.CACHE_SECONDS, "data": held})   # just past its minute
+    _reset(monkeypatch)
+    collect, calls = _answers()
+    monkeypatch.setattr(status, "collect", collect)
+    before = {th.ident for th in threading.enumerate()}
+    assert status.cached()["n"] == 1                       # the first answer
+    assert status.cached()["n"] == 1                       # a hit
+    clock.t += status.CACHE_SECONDS
+    assert status.cached()["n"] == 2                       # the minute's end: computed in this request
+    monkeypatch.setattr(status, "collect", lambda: 1 / 0)
+    clock.t += status.CACHE_SECONDS
+    assert status.cached()["n"] == 2                       # a failure: the answer held
+    clock.t += status.STALE_SECONDS
+    assert status.cached() is None                         # stale: nothing served
+    status._cache["busy"] = (clock.t - status.BUSY_SECONDS, object())
+    monkeypatch.setattr(status, "collect", collect)
+    assert status.cached()["n"] == 3                       # a stuck flag taken over
+    assert started == [] and {th.ident for th in threading.enumerate()} == before
+    assert not [th for th in threading.enumerate() if th.name == "status-refresh"]
+
+
+def test_a_stale_answer_is_recomputed_by_the_next_request(monkeypatch):
+    clock = _Clock(1_800_000_000.0)
+    monkeypatch.setattr(status, "time", clock)
+    _reset(monkeypatch)
+    collect, calls = _answers()
+    monkeypatch.setattr(status, "collect", collect)
+    assert status.cached()["n"] == 1 and len(calls) == 1
+    clock.t += status.CACHE_SECONDS - 1
+    assert status.cached()["n"] == 1 and len(calls) == 1    # inside its minute: held, nothing computed
+    clock.t += 1
+    assert status.cached()["n"] == 2 and len(calls) == 2    # at its minute: the request that finds it old computes it
+    assert status.cached()["n"] == 2 and len(calls) == 2
+    assert status._cache["at"] == clock.t and status._cache.get("busy") is None and status._cache.get("failed") is None
+    clock.t += 3 * 3600                                     # a worker that answered nothing for hours
+    assert status.cached()["n"] == 3 and len(calls) == 3
+
+
+def test_other_requests_get_the_answer_held_while_one_computes(monkeypatch):
+    clock = _Clock(1_800_000_000.0)
+    monkeypatch.setattr(status, "time", clock)
+    held = _held(monkeypatch, clock, status.CACHE_SECONDS)             # just past its minute
     calls, started, gate = [], threading.Event(), threading.Event()
     monkeypatch.setattr(status, "collect", _slow({"generated_at": "next"}, calls, started, gate))
+    first = []
+    computing = threading.Thread(target=lambda: first.append(status.cached()))
+    computing.start()
+    assert started.wait(5) and status._cache["busy"][0] == clock.t
     got = []
-    askers = [threading.Thread(target=lambda: got.append(status.cached())) for _ in range(16)]
+    askers = [threading.Thread(target=lambda: got.append(status.cached())) for _ in range(15)]
     for th in askers:
         th.start()
     for th in askers:
         th.join(5)
-    assert started.wait(5)
-    assert not any(th.is_alive() for th in askers) and got == [held] * 16      # nobody waited on the computation
-    assert len(calls) == 1 and status._cache["busy"] is True                    # one computation, in a thread of its own
-    assert status.cached() is held and len(calls) == 1
+    assert not any(th.is_alive() for th in askers) and got == [held] * 15    # nobody waited on the computation
+    assert len(calls) == 1 and first == []                                   # the one computation, still running
     gate.set()
-    _join_refresh()
-    assert status.cached() == {"generated_at": "next"} and len(calls) == 1 and status._cache["busy"] is False
+    computing.join(5)
+    assert first == [{"generated_at": "next"}] and len(calls) == 1
+    assert status.cached() == {"generated_at": "next"} and status._cache.get("busy") is None and len(calls) == 1
 
 
-def test_status_json_serves_the_answer_held_while_one_thread_computes_the_next(client, monkeypatch, tmp_path):
+def test_a_stuck_computation_is_taken_over_after_120_s(monkeypatch, warnings_log):
+    clock = _Clock(1_800_000_000.0)
+    monkeypatch.setattr(status, "time", clock)
+    held = _held(monkeypatch, clock, status.CACHE_SECONDS)
+    calls, started, gate = [], threading.Event(), threading.Event()
+    monkeypatch.setattr(status, "collect", _slow({"generated_at": "late"}, calls, started, gate))
+    stuck = []
+    first = threading.Thread(target=lambda: stuck.append(status.cached()))
+    first.start()
+    assert started.wait(5)
+    assert status.BUSY_SECONDS == 120
+    clock.t += status.BUSY_SECONDS - 1
+    assert status.cached() is held and len(calls) == 1                     # 119 s: still its computation, the answer held
+    clock.t += 1
+    collect, more = _answers()
+    monkeypatch.setattr(status, "collect", collect)
+    taken = status.cached()                                                # 120 s: this request takes the flag over
+    assert taken["n"] == 1 and len(more) == 1 and status._cache["data"] is taken and status._cache.get("busy") is None
+    assert len(warnings_log.records) == 1 and "held the flag over 120 s" in warnings_log.lines()[0]
+    status._cache["busy"] = (clock.t, object())                            # a later computation holds the flag now
+    mine = status._cache["busy"]
+    gate.set()
+    first.join(5)
+    assert stuck == [taken]                                                # the late one keeps the newer answer
+    assert status._cache["data"] is taken and status._cache["busy"] is mine   # and leaves the newer flag alone
+
+
+def test_a_failed_computation_serves_the_answer_held_logs_once_then_503(client, monkeypatch, tmp_path, warnings_log):
+    _reset(monkeypatch)
+    _ab_paths(monkeypatch, tmp_path)
+    clock = _Clock(time.time())
+    monkeypatch.setattr(status, "time", clock)
+    ok = client.get("/api/v1/meta/status.json")
+    first = ok.json()
+    real = status.collect
+
+    def broken():
+        raise OSError("/data/lapse/secret path and internals")
+
+    monkeypatch.setattr(status, "collect", broken)
+    for age in (60, 120, 300, 599):                                       # under 10 minutes: the answer held
+        clock.t = status._cache["at"] + age
+        r = client.get("/api/v1/meta/status.json")
+        assert r.status_code == 200 and r.json()["generated_at"] == first["generated_at"] and r["Cache-Control"] == "public, max-age=60"
+        assert client.get("/api/v1/meta/status/").status_code == 200
+    assert warnings_log.lines() == ["status figures not computed (OSError); the answer held is served while under 10 minutes old"]
+    assert status._cache["failed"] == "OSError" and status._cache.get("busy") is None
+    for age in (600, 900, 3600):                                          # 10 minutes and more: never served
+        clock.t = status._cache["at"] + age
+        j = client.get("/api/v1/meta/status.json")
+        assert j.status_code == 503 and j.json() == {"error": "status temporarily unavailable"}
+        assert j["Cache-Control"] == "no-store" and j["Retry-After"] == "60" and j["Access-Control-Allow-Origin"] == "*"
+        p = client.get("/api/v1/meta/status/")
+        html = p.content.decode()
+        assert p.status_code == 503 and p["Cache-Control"] == "no-store" and p["Retry-After"] == "60"
+        assert "<h1>Status temporarily unavailable</h1>" in html and first["generated_at"] not in html
+        assert client.get("/api/v1/meta/status/?format=json").status_code == 503
+    assert len(warnings_log.records) == 1                                 # logged once, the class name only
+    assert "secret" not in "".join(warnings_log.lines()) and "/data" not in "".join(warnings_log.lines())
+    monkeypatch.setattr(status, "collect", real)                          # the next computation that works serves again
+    again = client.get("/api/v1/meta/status.json")
+    assert again.status_code == 200 and again.json()["generated_at"] == status.iso(clock.t) != first["generated_at"]
+    assert status._cache.get("failed") is None
+    monkeypatch.setattr(status, "collect", broken)                        # a new run of failures is logged once again
+    clock.t += status.CACHE_SECONDS
+    assert client.get("/api/v1/meta/status.json").json()["generated_at"] == again.json()["generated_at"]
+    assert len(warnings_log.records) == 2
+
+
+def test_a_workers_first_answer_failing_answers_503(client, monkeypatch, warnings_log):
+    _reset(monkeypatch)
+    monkeypatch.setattr(status, "collect", lambda: {}["missing"])
+    j = client.get("/api/v1/meta/status.json")
+    assert j.status_code == 503 and j.json() == {"error": "status temporarily unavailable"} and j["Cache-Control"] == "no-store"
+    p = client.get("/api/v1/meta/status/")
+    assert p.status_code == 503 and "Status temporarily unavailable" in p.content.decode()
+    assert status._cache["data"] is None and warnings_log.lines() == [
+        "status figures not computed (KeyError); the answer held is served while under 10 minutes old"]
+
+
+def test_no_answer_ten_minutes_old_is_served_as_current(monkeypatch):
+    """A worker that answered nothing for hours holds an answer hours old: the request that finds it computes the next one,
+    and a request that comes in meanwhile waits for it instead of getting the old one. Through every age, with
+    computations that fail, cached() gives an answer under STALE_SECONDS old or nothing."""
+    clock = _Clock(1_800_000_000.0)
+    monkeypatch.setattr(status, "time", clock)
+    _held(monkeypatch, clock, 2 * 3600)
+    calls, started, gate = [], threading.Event(), threading.Event()
+    monkeypatch.setattr(status, "collect", _slow({"generated_at": "now"}, calls, started, gate))
+    got = []
+    computing = threading.Thread(target=lambda: got.append(("computing", status.cached())))
+    computing.start()
+    assert started.wait(5)
+    waiting = threading.Thread(target=lambda: got.append(("waiting", status.cached())))
+    waiting.start()
+    time.sleep(0.3)
+    assert got == [] and waiting.is_alive()                     # it waits: the answer held is two hours old
+    gate.set()
+    computing.join(5)
+    waiting.join(5)
+    assert sorted(got) == [("computing", {"generated_at": "now"}), ("waiting", {"generated_at": "now"})] and len(calls) == 1
+    # a computation that fails meanwhile: the waiting request gets nothing (503), never the old answer
+    _held(monkeypatch, clock, 2 * 3600)
+    started.clear()
+    gate.clear()
+
+    def fails():
+        started.set()
+        assert gate.wait(10)
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(status, "collect", fails)
+    got[:] = []
+    computing = threading.Thread(target=lambda: got.append(status.cached()))
+    computing.start()
+    assert started.wait(5)
+    waiting = threading.Thread(target=lambda: got.append(status.cached()))
+    waiting.start()
+    time.sleep(0.3)
+    gate.set()
+    computing.join(5)
+    waiting.join(5)
+    assert got == [None, None]
+    # every age, computations failing: an answer under STALE_SECONDS old or nothing
+    monkeypatch.setattr(status, "collect", lambda: 1 / 0)
+    for age in (0, 1, 59, 60, 61, 119, 120, 599, 600, 601, 899, 900, 901, 7200):
+        held = _held(monkeypatch, clock, age)
+        got = status.cached()
+        assert (got is held) == (age < status.STALE_SECONDS) and (got is None) == (age >= status.STALE_SECONDS), age
+    assert status.STALE_SECONDS == 600 < 15 * 60
+
+
+def test_status_json_serves_the_answer_held_while_one_request_computes_the_next(client, monkeypatch, tmp_path):
     _reset(monkeypatch)
     _ab_paths(monkeypatch, tmp_path)
     clock = _Clock(time.time())
@@ -617,14 +842,18 @@ def test_status_json_serves_the_answer_held_while_one_thread_computes_the_next(c
     clock.t += status.CACHE_SECONDS
     calls, started, gate = [], threading.Event(), threading.Event()
     monkeypatch.setattr(status, "collect", _slow(status.collect, calls, started, gate))
+    out = []
+    computing = threading.Thread(target=lambda: out.append(status.cached()))   # the request that found it old
+    computing.start()
+    assert started.wait(5)
     for _ in range(3):
         r = client.get("/api/v1/meta/status.json")
         assert r.status_code == 200 and r.json()["generated_at"] == first["generated_at"] and r["Cache-Control"] == "public, max-age=60"
     html = client.get("/api/v1/meta/status/").content.decode()
     assert f"Figures refresh once a minute, the 30-day figures every 10 minutes; this page was generated at {first['generated_at']}." in html
-    assert started.wait(5) and len(calls) == 1
+    assert len(calls) == 1
     gate.set()
-    _join_refresh()
+    computing.join(5)
     now = client.get("/api/v1/meta/status.json").json()
     assert now["generated_at"] == status.iso(clock.t) != first["generated_at"] and len(calls) == 1
 
@@ -647,10 +876,10 @@ def test_a_workers_first_answer_is_computed_once_and_its_other_threads_wait_for_
 
 
 def test_the_answer_from_the_kept_figures_is_the_same_bytes(client, monkeypatch, tmp_path):
-    """Release AB changes when the figures are computed, not what they are. With the clock held, status.json and the page
-    built from the kept 30-day figures are the same bytes as when every figure is read fresh (the code of before read
-    request_figures over 30 days in every collect()); a minute later only the time fields differ; the fields and their
-    order are the ones of before."""
+    """Releases AB and AC change when the figures are computed, not what they are. With the clock held, status.json and the
+    page built from the kept 30-day figures are the same bytes as when every figure is read fresh (the code of before read
+    request_figures over 30 days in every collect()); a minute later only the time fields differ; the fields, their order
+    and the headers of an answer are the ones of before."""
     _reset(monkeypatch)
     path, t = _ab_paths(monkeypatch, tmp_path)
     clock = _Clock(t)
@@ -660,10 +889,13 @@ def test_the_answer_from_the_kept_figures_is_the_same_bytes(client, monkeypatch,
     scans = []
     real = status.request_figures
     monkeypatch.setattr(status, "request_figures", lambda p, since, **kw: scans.append(round(clock.t - since)) or real(p, since, **kw))
-    fresh_json = client.get("/api/v1/meta/status.json").content
+    fresh = client.get("/api/v1/meta/status.json")
+    fresh_json = fresh.content
     fresh_html = client.get("/api/v1/meta/status/").content
     assert sorted(scans) == [86400, 30 * 86400]                       # the first answer reads both windows
     assert json.loads(fresh_json)["requests_30d"] == real(path, t - 30 * 86400)   # what the code of before put there
+    assert fresh["Content-Type"] == "application/json" and fresh["Cache-Control"] == "public, max-age=60"
+    assert fresh["Access-Control-Allow-Origin"] == "*" and not fresh.has_header("Retry-After")
     monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})   # a new answer; the 30-day figures stay kept
     scans[:] = []
     kept_json = client.get("/api/v1/meta/status.json").content
@@ -672,10 +904,9 @@ def test_the_answer_from_the_kept_figures_is_the_same_bytes(client, monkeypatch,
     assert kept_json == fresh_json and kept_html == fresh_html         # the same bytes
     d = json.loads(kept_json)
     assert list(d) == STATUS_KEYS and list(d["requests_30d"]) == list(d["requests_24h"]) == FIGURE_KEYS and d["cache_seconds"] == 60
-    # a minute later: the answer held at once, then the next from its thread; only the time fields differ
+    # a minute later: the request that finds the answer old computes the next one and answers with it; only the time
+    # fields differ
     clock.t += status.CACHE_SECONDS + 1
-    assert client.get("/api/v1/meta/status.json").content == kept_json
-    _join_refresh()
     later = client.get("/api/v1/meta/status.json").json()
     assert later["generated_at"] == status.iso(clock.t) != d["generated_at"] and later["requests_30d"] == d["requests_30d"]
 

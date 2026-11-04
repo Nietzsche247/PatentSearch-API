@@ -18,8 +18,9 @@
     - the nightly backup journal, the watchdog state and the alerts log;
     - disk and memory headroom read live.
   Everything is computed at most once a minute per worker (the 30-day request figures at most every 10 minutes,
-  figures_30d) and served with Cache-Control max-age=60. Past the minute a worker answers with the figures it holds
-  while one of its threads computes the next (cached()).
+  figures_30d) and served with Cache-Control max-age=60. Past the minute the request that finds the answer old computes
+  the next one itself while the worker's other requests get the answer it holds; no thread is started, and an answer
+  10 minutes old is never served: the page and status.json answer 503 until one is computed (cached()).
   Both public forms go through public_view(): no server paths, desk ids, disk or memory sizes, host names
   or load figures reach a keyless reader (2.11 re-audit 2026-10-08).
 
@@ -29,6 +30,7 @@ counts as nothing; uptime = 1 - down minutes / minutes elapsed since the clock s
 """
 import copy
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -45,8 +47,14 @@ from django.views.decorators.http import require_GET, require_safe
 
 from lapse_accounts import public
 
+log = logging.getLogger("lapse_accounts")
+
 CACHE_SECONDS = 60
 FIGURES_30D_SECONDS = 600  # the 30-day request figures (nine scans of the request log, about 3.5 s on the box) are kept 10 minutes
+BUSY_SECONDS = 120  # a computation holding the busy flag this long is taken to be stuck: the next request takes the flag over
+STALE_SECONDS = 600  # an answer this old is stale and never served; the page and status.json answer 503 until one is computed
+WAIT_SECONDS = 30  # how long a request with no answer under STALE_SECONDS waits for the computation another request runs
+UNAVAILABLE = "status temporarily unavailable"
 UPTIME_CLOCK_START = "2026-10-06T03:47:00Z"  # checklist 5.8: the weekly refresh task went live
 PROBE_CADENCE_MIN = 5
 MAX_DOWN_SPAN_MIN = 3 * PROBE_CADENCE_MIN  # a gap longer than this between two failed probes is a missing run, not an outage
@@ -56,8 +64,8 @@ EXTERNAL_FRESH_MIN = 15  # the UptimeRobot mirror is read every 2 minutes; a rea
 OBSERVER_SWITCH = "2026-10-15T02:57:08Z"
 
 _lock = threading.Lock()
-_first = threading.Lock()  # held while a worker computes its first answer; its other threads wait for that one
-_cache = {"at": 0.0, "data": None}
+_computed = threading.Condition(_lock)  # notified when a computation ends, with a new answer or without one
+_cache = {"at": 0.0, "data": None}  # cached() adds "busy" (the computation running: its start and token) and "failed"
 _figures_30d = {"at": 0.0, "path": None, "data": None}
 _version_cache = {}
 
@@ -678,46 +686,57 @@ def public_view(data):
     return d
 
 
-def _refresh(box):
-    """Compute the next answer into box (the cache this worker held when the computation began), then allow the next one."""
-    try:
-        at = time.time()
-        data = collect()
-        with _lock:
-            box["at"], box["data"] = at, data
-    finally:
-        with _lock:
-            box["busy"] = False
+def _servable(box):
+    """The answer box holds while it is under STALE_SECONDS old, else None. Called with _lock held."""
+    if box["data"] is not None and time.time() - box["at"] < STALE_SECONDS:
+        return box["data"]
+    return None
 
 
 def cached():
-    """The answer of the last CACHE_SECONDS. Past that, the request that finds it old starts one thread to compute the next,
-    and every request gets the answer the worker holds until the next is ready: no request waits on a computation while an
-    answer exists. A worker's first answer is computed in a request, once; its other threads wait for that one."""
+    """The answer this worker holds while it is under CACHE_SECONDS old. Past that, the request that finds it old takes the
+    busy flag and computes the next answer (collect()) in its own thread, and the worker's other requests get the answer
+    held while it runs; no thread is started. A flag held over BUSY_SECONDS is taken over by the next request. A failed
+    computation leaves the answer held, and its error class is logged once until a computation succeeds again. An answer
+    STALE_SECONDS old is never served: a request with nothing younger to serve waits up to WAIT_SECONDS for the computation
+    another request runs (a worker's first answer, after a reload), and otherwise gets None, which the views answer 503."""
     now = time.time()
     with _lock:
-        box, data = _cache, _cache["data"]
-        if data is not None and now - box["at"] < CACHE_SECONDS:
-            return data
-        start = data is not None and not box.get("busy")
-        if start:
-            box["busy"] = True
-    if data is None:
-        with _first:
-            with _lock:
-                if _cache["data"] is not None:
-                    return _cache["data"]
-            data = collect()
-            with _lock:
-                _cache["at"], _cache["data"] = now, data
-            return data
-    if start:
-        try:
-            threading.Thread(target=_refresh, args=(box,), name="status-refresh", daemon=True).start()
-        except RuntimeError:  # no thread to be had: the answer stays and the next request tries again
-            with _lock:
-                box["busy"] = False
-    return data
+        box = _cache
+        if box["data"] is not None and now - box["at"] < CACHE_SECONDS:
+            return box["data"]
+        busy = box.get("busy")
+        if busy is not None and now - busy[0] < BUSY_SECONDS:  # another request of this worker computes the next answer
+            held = _servable(box)
+            if held is not None:
+                return held
+            _computed.wait_for(lambda: box.get("busy") is not busy, WAIT_SECONDS)
+            return _servable(box)
+        token = box["busy"] = (now, object())
+    if busy is not None:
+        log.warning("status figures: a computation held the flag over %d s; the next one runs in this request", BUSY_SECONDS)
+    try:
+        data = collect()
+    except Exception as exc:  # noqa: BLE001 - the answer held stays; the class name is logged once, no internals
+        with _lock:
+            if box.get("busy") is token:
+                box["busy"] = None
+            first = box.get("failed") is None
+            box["failed"] = exc.__class__.__name__
+            _computed.notify_all()
+            held = _servable(box)
+        if first:
+            log.warning("status figures not computed (%s); the answer held is served while under %d minutes old",
+                        exc.__class__.__name__, STALE_SECONDS // 60)
+        return held
+    with _lock:
+        if box["data"] is None or box["at"] <= now:  # a computation taken over that ends late keeps the newer answer
+            box["at"], box["data"] = now, data
+        if box.get("busy") is token:
+            box["busy"] = None
+        box["failed"] = None
+        _computed.notify_all()
+        return _servable(box)
 
 
 def _as_of(data_version):
@@ -729,9 +748,32 @@ def _as_of(data_version):
         return ""
 
 
+UNAVAILABLE_HTML = ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+                    '<meta name="viewport" content="width=device-width, initial-scale=1"><title>Status | PatentRef</title></head>\n'
+                    '<body><main><h1>Status temporarily unavailable</h1><p>The status figures cannot be computed at the moment. '
+                    'Try again in a minute; <a href="/api/v1/meta/health/">/api/v1/meta/health/</a> answers whether the API is up.'
+                    '</p></main></body></html>\n')
+
+
+def unavailable(as_json):
+    """503 when the worker has no answer under STALE_SECONDS old to serve (cached() gave None): an old answer is never
+    shown as current. Not cached; Retry-After the minute of an answer."""
+    if as_json:
+        resp = JsonResponse({"error": UNAVAILABLE}, status=503)
+        resp["Access-Control-Allow-Origin"] = "*"
+    else:
+        resp = HttpResponse(UNAVAILABLE_HTML, status=503, content_type="text/html; charset=utf-8")
+    resp["Cache-Control"] = "no-store"
+    resp["Retry-After"] = str(CACHE_SECONDS)
+    return resp
+
+
 @require_GET
 def status_json(request):
-    data = public_view(cached())
+    data = cached()
+    if data is None:
+        return unavailable(True)
+    data = public_view(data)
     resp = JsonResponse(data, json_dumps_params={"indent": 1})
     resp["Cache-Control"] = f"public, max-age={CACHE_SECONDS}"
     resp["Access-Control-Allow-Origin"] = "*"
@@ -771,7 +813,10 @@ def _coming():
 def status_page(request):
     if request.GET.get("format") == "json":
         return status_json(request)
-    data = public_view(cached())
+    data = cached()
+    if data is None:
+        return unavailable(False)
+    data = public_view(data)
     html = render_to_string("lapse_accounts/status.html", {
         "d": data, "state": data["state"][0], "state_text": data["state"][1],
         "data_version": data["service"]["data_version"] or "unversioned", "as_of": _as_of(data["service"]["data_version"]),
