@@ -757,14 +757,13 @@ UNAVAILABLE_HTML = ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8
 
 def unavailable(as_json):
     """503 when the worker has no answer under STALE_SECONDS old to serve (cached() gave None): an old answer is never
-    shown as current. Not cached; Retry-After the minute of an answer."""
+    shown as current, and this answer is not kept by any cache."""
     if as_json:
         resp = JsonResponse({"error": UNAVAILABLE}, status=503)
         resp["Access-Control-Allow-Origin"] = "*"
     else:
         resp = HttpResponse(UNAVAILABLE_HTML, status=503, content_type="text/html; charset=utf-8")
     resp["Cache-Control"] = "no-store"
-    resp["Retry-After"] = str(CACHE_SECONDS)
     return resp
 
 

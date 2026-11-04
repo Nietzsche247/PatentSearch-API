@@ -751,10 +751,10 @@ def test_a_failed_computation_serves_the_answer_held_logs_once_then_503(client, 
         clock.t = status._cache["at"] + age
         j = client.get("/api/v1/meta/status.json")
         assert j.status_code == 503 and j.json() == {"error": "status temporarily unavailable"}
-        assert j["Cache-Control"] == "no-store" and j["Retry-After"] == "60" and j["Access-Control-Allow-Origin"] == "*"
+        assert j["Cache-Control"] == "no-store" and j["Access-Control-Allow-Origin"] == "*"
         p = client.get("/api/v1/meta/status/")
         html = p.content.decode()
-        assert p.status_code == 503 and p["Cache-Control"] == "no-store" and p["Retry-After"] == "60"
+        assert p.status_code == 503 and p["Cache-Control"] == "no-store" and p["Content-Type"] == "text/html; charset=utf-8"
         assert "<h1>Status temporarily unavailable</h1>" in html and first["generated_at"] not in html
         assert client.get("/api/v1/meta/status/?format=json").status_code == 503
     assert len(warnings_log.records) == 1                                 # logged once, the class name only
@@ -895,7 +895,7 @@ def test_the_answer_from_the_kept_figures_is_the_same_bytes(client, monkeypatch,
     assert sorted(scans) == [86400, 30 * 86400]                       # the first answer reads both windows
     assert json.loads(fresh_json)["requests_30d"] == real(path, t - 30 * 86400)   # what the code of before put there
     assert fresh["Content-Type"] == "application/json" and fresh["Cache-Control"] == "public, max-age=60"
-    assert fresh["Access-Control-Allow-Origin"] == "*" and not fresh.has_header("Retry-After")
+    assert fresh["Access-Control-Allow-Origin"] == "*"
     monkeypatch.setattr(status, "_cache", {"at": 0.0, "data": None})   # a new answer; the 30-day figures stay kept
     scans[:] = []
     kept_json = client.get("/api/v1/meta/status.json").content
