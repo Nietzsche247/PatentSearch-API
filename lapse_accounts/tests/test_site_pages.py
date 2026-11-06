@@ -186,6 +186,10 @@ def test_the_tools_table_is_the_readmes_word_for_word(client):
                   "An error from the API comes back as the tool's error text: the HTTP status and the API's X-Status-Reason. The server does not retry."):
         assert words in plain(README) and words in v, words
     assert "Tool names, endpoints and descriptions as the patentref-mcp 0.4.0 README on PyPI prints them." in v
+    # each landmark has a name of its own (axe landmark-unique): the tools section is named by its heading, the table's scroll box by its own label
+    named = re.findall(r'<(?:section|div)[^>]*?(?:aria-labelledby="([^"]+)"|aria-label="([^"]+)")', h)
+    keys = [a or "label:" + b for a, b in named]
+    assert len(keys) == len(set(keys)) and "label:Tools table" in keys, keys
 
 
 def test_the_next_block_is_the_coordinators_text_between_the_tools_and_the_key_rule(client):
