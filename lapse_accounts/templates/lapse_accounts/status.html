@@ -156,7 +156,7 @@
       <h2>Alerts</h2>
       {% if alert_rows %}
       <div class="wrap" tabindex="0" role="region" aria-label="Open alerts"><table>
-        <tr><th>Check</th><th>What it watches</th><th>Since</th><th>State</th></tr>
+        <tr><th>Check</th><th>What it means</th><th>Since</th><th>State</th></tr>
         {% for a in alert_rows %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.label }}</td><td>{{ a.time }}</td><td>{{ a.state }}</td></tr>{% endfor %}
       </table></div>
       {% else %}<p class="muted">No open alerts. {% if d.alerts.recent %}Most recent line: {{ d.alerts.recent.0.time }} <code>{{ d.alerts.recent.0.check }}</code> {{ d.alerts.recent.0.state }}.{% endif %}</p>{% endif %}

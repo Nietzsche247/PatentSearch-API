@@ -375,8 +375,8 @@ def test_page_state_names_each_open_alert():
     d = {"state": ["degraded", "1 alert(s) open on the box."], "alerts": {"open": [alert]}, "external_check": {"fresh": True, "state": "up"}}
     assert status.page_state(d) == ("degraded", "API up, 1 alert open on the box",
                                     "The API answers its health check on the box and UptimeRobot reports it up. Open on the box: a scheduled "
-                                    "job on the box (a data refresh step, the backup, the contract probe or the pin check) ended in a failed "
-                                    "state (refresh_units, since 2026-11-05 10:15 UTC).")
+                                    "job of the box in a failed state, such as a data refresh step, the backup or a nightly check "
+                                    "(refresh_units, since 2026-11-05 10:15 UTC).")
     two = dict(d, state=["degraded", "2 alert(s) open on the box."], external_check={},
                alerts={"open": [alert, {"time": "2026-11-05T11:00:00Z", "check": "new_check", "state": "breach"}]})
     st, heading, sentence = status.page_state(two)
@@ -386,8 +386,10 @@ def test_page_state_names_each_open_alert():
                                                                                             + " (refresh_units, since 2026-11-05 10:15 UTC).")
     assert status.page_state({"state": ["ok", "All checks passing."], "alerts": {"open": []}}) == ("ok", "Operational", "All checks passing.")
     assert status.page_state({"state": ["down", "The last two external probes failed."], "alerts": {}})[1] == "Down"
-    for check, label in status.ALERT_LABELS.items():
-        assert not AD_WORDS.search(label) and "/data" not in label and "GB" not in label and "desk" not in label.lower(), check
+    for check, label in status.ALERT_LABELS.items():   # no internal machinery on the public page (test_status.py's lists)
+        assert not AD_WORDS.search(label) and "/data" not in label and "GB" not in label, check
+        for words in ("desk", "checklist", "scaffold", "ops/", "gate ", "contract", "deploy", "audit", "bundle", "operator key"):
+            assert words not in label.lower(), (check, words)
 
 
 def test_the_status_page_names_the_alert_and_explains_refused_requests(client, monkeypatch, tmp_path):
@@ -401,10 +403,10 @@ def test_the_status_page_names_the_alert_and_explains_refused_requests(client, m
     h = client.get("/api/v1/meta/status/").content.decode("utf-8")
     v = visible(h)
     assert "API up, 1 alert open on the box" in v and "Degraded" not in v
-    assert ("Open on the box: a scheduled job on the box (a data refresh step, the backup, the contract probe or the pin check) ended in a "
-            "failed state (refresh_units, since ") in v
-    assert "<th>Check</th><th>What it watches</th><th>Since</th><th>State</th>" in h
-    assert "<td><code>refresh_units</code></td><td>a scheduled job on the box" in h
+    assert ("Open on the box: a scheduled job of the box in a failed state, such as a data refresh step, the backup or a nightly check "
+            "(refresh_units, since ") in v
+    assert "<th>Check</th><th>What it means</th><th>Since</th><th>State</th>" in h
+    assert "<td><code>refresh_units</code></td><td>a scheduled job of the box in a failed state" in h
     assert "Refused: no key or an unknown key (403), over a limit (429)" in v and "Rejected" not in v and "rejected is" not in v
     assert ("A refused request is the key rule at work, not a failure of the service: every data request needs a key, a request "
             "without one is answered 403 at once without reading any data, and a key over its allowance is answered 429. Failures of "

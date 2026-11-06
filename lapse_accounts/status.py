@@ -810,7 +810,7 @@ ALERT_LABELS = {
     "disk_root": "free space on the system disk",
     "disk_data": "free space on the data disk",
     "memory": "available memory on the box",
-    "refresh_units": "a scheduled job on the box (a data refresh step, the backup, the contract probe or the pin check) ended in a failed state",
+    "refresh_units": "a scheduled job of the box in a failed state, such as a data refresh step, the backup or a nightly check",
     "refresh_build": "a data refresh build running for more than 8 hours",
     "backup": "the nightly backup: not ok, or more than 27 hours old",
     "probe_mirror": "the copy of the GitHub probe history on the box: not fetched for 30 minutes",
