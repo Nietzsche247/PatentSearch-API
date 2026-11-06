@@ -1429,3 +1429,26 @@ logged once with the class name only, then 503 from 10 minutes for status.json, 
 again once a computation works; a worker's first answer failing answers 503; an answer hours old never served while the
 next is computed, at every age from 0 to 2 hours; status.json serving the answer held while one request computes; a
 worker's first answer computed once; the same bytes, fields, order and headers as before).
+
+## 2026-11-06 pending approval: release AD, the page for agents and four site fixes (PatentRef 1.22.0)
+
+The page for agents at /agents/, from the Agents artboard of the re-skin canvas (2026-11-05) with the coordinator's changes,
+and the four small fixes marketing listed in its STATUS sheet on 2026-11-05 (the llms.txt version line, the as-of dates, the
+server-drawn triage example, the status page's labels), the key note beside the record page's API links, and /p/ without a
+number. Not deployed; branch `wave7-AD` from `sqlite-backend` 1955e1c (release AC, in service). No migration, no new package,
+no site file change; a worker reload of patentref-api. The patentref side (`wave7-AD`) carries 1.22.0: changes.txt,
+openapi.json's version, llms.txt, llms-full.txt and the docs pages.
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/site_pages.py` (new), `templates/lapse_accounts/agents.html` (new), `lapse_accounts/root_urls.py` | `GET /agents/` (and `/agents`): what an agent can get; patentref-mcp, a local stdio package from PyPI listed in the MCP Registry as io.github.patentref/patentref-mcp (no hosted MCP endpoint); its install lines for Claude Desktop, Claude Code, Cursor and a generic stdio client; its tools with their endpoints; the coordinator's Next block; the key rule and the Free plan's limits (`metering.plan_limits`); the machine-readable files; the data version, as-of date, text data version and structure version read when the page is made. The tool names, endpoints, descriptions, install lines and smoke test are word for word from the patentref-mcp 0.4.0 README on PyPI (`lapse_accounts/tests/fixtures/patentref_mcp_0.4.0_README.md`, which the tests read back). One inline style and one inline script (the client tabs, a menu below 720 px, and a copy button), allowed by their SHA-256 in the page's Content-Security-Policy (`triage_page.csp_for`); without the script every block shows under its client's name. Tokens only: no colour, font or image of its own | release AD's new page |
+| `lapse_accounts/site_pages.py`, `lapse_accounts/root_urls.py` | `GET /p/` and `/p` without a number: a temporary redirect (302) to `/docs/` | it answered 404 |
+| `lapse_accounts/public.py`, `lapse_accounts/views.py`, `lapse_accounts/status.py` | `release_and_as_of()` holds the build facts' rule for the as-of date, `build_as_of()` reads it for the build in service; `_data_version()` and the status page's `_as_of()` give that date to every page header | the headers gave the served file's modification day (2026-10-28 for build 20261027.2), the docs and `/api/v1/meta/` its as-of date (2026-10-27) |
+| `lapse_accounts/triage_page.py`, `templates/lapse_accounts/triage.html`, `templates/lapse_accounts/_triage.js` | `/triage/example/` draws its table in the HTML on the server (`example_rows()`, `example_summary()`, the words of the page script); the order menu and the export buttons show once the script runs, and the script draws the same table again | the table was drawn in the browser only, so a crawler or an agent fetching the page saw none |
+| `lapse_accounts/status.py`, `templates/lapse_accounts/status.html` | the page's state line names each open alert in plain words (`ALERT_LABELS`, after the watchdog's table in ops/monitoring.md) with its check and since when, and reads "API up, N alert(s) open on the box" when open alerts are the only reason for "degraded"; the alerts table has a "What it watches" column; "Rejected (403, 429)" reads "Refused: no key or an unknown key (403), over a limit (429)" with a sentence on what a refused request is. status.json is unchanged (`ALERTS_SENTENCE` keeps its state sentence) | the page showed "Degraded, 1 alert(s) open on the box" beside 100 percent uptime without naming the alert, and the 1.6 million refused requests read as failures |
+| `templates/lapse_accounts/record.html` | "(needs a free key)" beside each of the four API links, and a note that a click in a browser, which sends no key, is answered 403 | a keyless click answers 403 |
+
+Tests: `lapse_accounts/tests/test_site_pages.py` (new: the page, its policy, the README's lines and tools word for word, the
+Next block, the live values, the words, colours and fonts, the redirect, the as-of date on every page header against the
+build facts, the triage example drawn on the server and the same words as the page script, the status page's state line and
+refused row, the record page's key note) and `lapse_accounts/tests/test_status.py` (the state line of an open alert).

@@ -295,11 +295,13 @@ class UsageView(MetaAPIView):
 
 
 def _data_version():
-    """The served file's data_version (same source as the X-Data-Version header) and its date."""
+    """The served file's data_version (same source as the X-Data-Version header) and the as-of date of the build in service,
+    the as_of of GET /api/v1/meta/ (public.build_as_of: the newest release date among the build's inputs), so a page header
+    names the date the build facts and the docs name. Until release AD (PatentRef 1.22.0) the date was the served file's
+    modification day, the day the build was made: the headers read 2026-10-28 for build 20261027.2, the docs 2026-10-27."""
     path = settings.LAPSE_SQLITE.get("path", "") if getattr(settings, "LAPSE_SQLITE", None) else ""
-    as_of, version = "", ""
+    version = ""
     if path and os.path.exists(path):
-        as_of = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc).strftime("%Y-%m-%d")
         try:
             from API.search_sqlite import LapseSQLiteSearch
 
@@ -308,6 +310,10 @@ def _data_version():
             version = ""
     if not version:
         version = getattr(settings, "LAPSE_DATA_VERSION", "") or (os.path.splitext(os.path.basename(path))[0] if path else "beta")
+    try:
+        as_of = public.build_as_of(version) or ""
+    except Exception:  # noqa: BLE001 - a page header never fails on its date
+        as_of = ""
     return version, as_of
 
 

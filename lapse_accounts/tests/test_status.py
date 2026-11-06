@@ -412,7 +412,9 @@ def test_status_page_and_json(client, monkeypatch, tmp_path):
     assert r.status_code == 200 and r["Content-Type"].startswith("text/html")
     assert r["Cache-Control"] == "public, max-age=60"
     html = r.content.decode()
-    assert "Status | PatentRef" in html and "Degraded" in html and "disk_data" in html and "prefers-color-scheme: dark" in html
+    # release AD: an open alert of the box, with the API answering, reads "API up, 1 alert open on the box" and names the alert
+    assert "Status | PatentRef" in html and "API up, 1 alert open on the box" in html and "disk_data" in html and "prefers-color-scheme: dark" in html
+    assert "free space on the data disk (disk_data, since " in html
     assert "n/a" in html  # no probe history: the uptime tile says so instead of a number
     assert "—" not in html
     j = client.get("/api/v1/meta/status.json")

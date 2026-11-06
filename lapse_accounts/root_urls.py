@@ -3,7 +3,7 @@ unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream setti
 from django.urls import URLResolver, include, path, re_path
 
 from API import lapse_brief, lapse_extract, lapse_rules, lapse_structure, lapse_structure_counts, lapse_triage, lapse_views
-from lapse_accounts import demo, legal, mail, public, swagger, triage_page, waitlist
+from lapse_accounts import demo, legal, mail, public, site_pages, swagger, triage_page, waitlist
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
 
@@ -73,4 +73,8 @@ urlpatterns = [
     # example is built on read from a fixed list, without a key
     re_path(r"^triage/?$", triage_page.page, name="triage"),
     re_path(r"^triage/example/?$", triage_page.example, name="triage-example"),
+    # release AD (1.22.0; lapse_accounts/site_pages.py): the page for agents (the MCP server's install lines and tools, the key
+    # rule, the machine-readable files), and the record page's address without a number, a temporary redirect to the docs
+    re_path(r"^agents/?$", site_pages.agents, name="agents"),
+    re_path(r"^p/?$", site_pages.record_index, name="record-index"),
 ] + [p for p in upstream_urlpatterns if _ours(p) and _not_root(p) and getattr(p, "name", None) != "swagger-ui"]

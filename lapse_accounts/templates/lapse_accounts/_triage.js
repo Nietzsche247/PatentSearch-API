@@ -317,6 +317,7 @@
   function show(t, quiet) {
     current = t;
     byId("tt-result").hidden = false;
+    byId("tt-controls").hidden = false;   /* release AD: the order menu and the export work only with this script */
     summary(t);
     orderOptions(t);
     drawTable(t);

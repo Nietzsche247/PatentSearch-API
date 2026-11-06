@@ -55,6 +55,7 @@ BUSY_SECONDS = 120  # a computation holding the busy flag this long is taken to 
 STALE_SECONDS = 600  # an answer this old is stale and never served; the page and status.json answer 503 until one is computed
 WAIT_SECONDS = 30  # how long a request with no answer under STALE_SECONDS waits for the computation another request runs
 UNAVAILABLE = "status temporarily unavailable"
+ALERTS_SENTENCE = "{n} alert(s) open on the box."  # status.json's state sentence when open alerts are the only reason (unchanged)
 UPTIME_CLOCK_START = "2026-10-06T03:47:00Z"  # checklist 5.8: the weekly refresh task went live
 PROBE_CADENCE_MIN = 5
 MAX_DOWN_SPAN_MIN = 3 * PROBE_CADENCE_MIN  # a gap longer than this between two failed probes is a missing run, not an outage
@@ -637,7 +638,7 @@ def collect():
     elif ext.get("fresh") and ext.get("state") == "down":
         data["state"] = ("degraded", "UptimeRobot reports the API down from its network; the box itself answers.")
     elif data["alerts"]["open"]:
-        data["state"] = ("degraded", f"{len(data['alerts']['open'])} alert(s) open on the box.")
+        data["state"] = ("degraded", ALERTS_SENTENCE.format(n=len(data["alerts"]["open"])))
     elif up.get("last_probe") and not up["last_probe"]["ok"]:
         data["state"] = ("degraded", "The last external probe failed; one more failure counts as down.")
     else:
@@ -740,11 +741,11 @@ def cached():
 
 
 def _as_of(data_version):
-    cfg = getattr(settings, "LAPSE_SQLITE", None) or {}
-    path = cfg.get("path", "")
+    """The page header's as-of date: the as_of of GET /api/v1/meta/ for the build in service (public.build_as_of), as on
+    every page of the site (release AD; until then the served file's modification day, a day after the as-of date)."""
     try:
-        return datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc).strftime("%Y-%m-%d")
-    except OSError:
+        return public.build_as_of(data_version) or ""
+    except Exception:  # noqa: BLE001 - the status page never fails on its header's date
         return ""
 
 
@@ -798,6 +799,56 @@ def build_check_labels(gates):
     return [(BUILD_CHECK_LABELS.get(k, str(k).replace("_", " ")), v) for k, v in (gates or {}).items()]
 
 
+# Plain words for the watchdog's checks on the HTML page (release AD, PatentRef 1.22.0: the page showed "Degraded" and "1
+# alert(s) open on the box" beside 100 percent uptime and did not say what the alert was). Each label says what its check
+# watches, after the watchdog's table in ops/monitoring.md of the patentref repo. status.json keeps the check names and its
+# state pair as they were: they are stable fields. A check this table does not name shows its name with spaces.
+ALERT_LABELS = {
+    "api_local": "the API's health answer on the box",
+    "api_public": "the API's health answer at https://patentref.io",
+    "api_unit": "the API's service on the box",
+    "disk_root": "free space on the system disk",
+    "disk_data": "free space on the data disk",
+    "memory": "available memory on the box",
+    "refresh_units": "a scheduled job on the box (a data refresh step, the backup, the contract probe or the pin check) ended in a failed state",
+    "refresh_build": "a data refresh build running for more than 8 hours",
+    "backup": "the nightly backup: not ok, or more than 27 hours old",
+    "probe_mirror": "the copy of the GitHub probe history on the box: not fetched for 30 minutes",
+    "registry_api": "the registry's API on the box",
+    "registry_db": "the registry's database",
+    "registry_keys": "the registry's signing keys",
+    "uptimerobot": "UptimeRobot's record of the API: it reports the API down, or could not be read for 30 minutes",
+}
+
+
+def alert_label(check):
+    return ALERT_LABELS.get(check) or str(check or "").replace("_", " ")
+
+
+def _minute(t):
+    """2026-11-05T10:15:00Z as 2026-11-05 10:15 UTC; anything else as it is."""
+    t = str(t or "")
+    return f"{t[:10]} {t[11:16]} UTC" if len(t) >= 16 and t[10] == "T" else t
+
+
+def page_state(data):
+    """The HTML page's state line, (class, heading, sentence); status.json keeps its state pair as it was. When open alerts
+    of the box's watchdog are the only reason for "degraded" (the API answers its health check on the box, and neither the
+    external probes nor UptimeRobot report it down), the heading says the API is up and how many alerts are open; in every
+    state the sentence names each open alert in plain words, with its check and since when."""
+    state, text = data["state"]
+    alerts = (data.get("alerts") or {}).get("open") or []
+    named = "; ".join(f"{alert_label(a.get('check'))} ({a.get('check')}, since {_minute(a.get('time'))})" for a in alerts)
+    n = len(alerts)
+    if state == "degraded" and n and text == ALERTS_SENTENCE.format(n=n):
+        ext = data.get("external_check") or {}
+        seen = " and UptimeRobot reports it up" if ext.get("fresh") and ext.get("state") == "up" else ""
+        return state, f"API up, {n} alert{'' if n == 1 else 's'} open on the box", \
+            f"The API answers its health check on the box{seen}. Open on the box: {named}."
+    heading = {"ok": "Operational", "degraded": "Degraded"}.get(state, "Down")
+    return state, heading, text + (f" Open on the box: {named}." if n else "")
+
+
 def _coming():
     """Legal documents posted ahead of their effective date (the notice the Privacy Policy promises on this page)."""
     from lapse_accounts import legal
@@ -816,8 +867,10 @@ def status_page(request):
     if data is None:
         return unavailable(False)
     data = public_view(data)
+    state, heading, sentence = page_state(data)
     html = render_to_string("lapse_accounts/status.html", {
-        "d": data, "state": data["state"][0], "state_text": data["state"][1],
+        "d": data, "state": state, "state_heading": heading, "state_text": sentence,
+        "alert_rows": [dict(a, label=alert_label(a.get("check"))) for a in (data.get("alerts") or {}).get("open") or []],
         "data_version": data["service"]["data_version"] or "unversioned", "as_of": _as_of(data["service"]["data_version"]),
         "json_url": "/api/v1/meta/status.json",
         "build_checks": build_check_labels(((data.get("refresh") or {}).get("current") or {}).get("gates")),

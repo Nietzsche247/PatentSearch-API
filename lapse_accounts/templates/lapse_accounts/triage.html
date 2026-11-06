@@ -19,6 +19,7 @@
     button.quiet { background: var(--bg); color: var(--accent); }
     button[disabled] { cursor: progress; }
     .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+    .row[hidden] { display: none; }
     .row a { display: inline-block; padding: var(--s-1) 0; }
     .msg:empty { display: none; }
     .msg { padding: var(--s-2) var(--s-3); border-radius: var(--radius); margin: 0 0 var(--s-3); }
@@ -55,7 +56,7 @@
     <h1>{% if example %}Triage table: an example{% else %}Triage table{% endif %}</h1>
     <p class="lead">Up to {{ max_patents }} US patents in one table. For each one: its expiry and fee status with the basis, where each component you name sits in its claims, and each independent claim as a list of its parts. Every quote comes with its claim and its offsets in the claim text.</p>
     <p>Mark a part have or lacks as your own note. The marks stay in this browser and go into your CSV or JSON export. PatentRef never receives them, and the table describes the patent text only.</p>
-    <noscript><p class="msg warn">This page builds the table in your browser and needs JavaScript. The API answers the same table: POST /api/v1/structure/triage/ (<a href="/docs/structure.html#triage">how</a>).</p></noscript>
+    <noscript><p class="msg warn">{% if example %}The example table below comes drawn from the server. A table of your own is built in your browser and needs JavaScript.{% else %}This page builds the table in your browser and needs JavaScript.{% endif %} The API answers the same table: POST /api/v1/structure/triage/ (<a href="/docs/structure.html#triage">how</a>).</p></noscript>
 {% if problem %}    <p class="msg warn" role="alert">{{ problem }}</p>
 {% endif %}
     <form id="tt-form" class="card">
@@ -101,9 +102,9 @@
     <p id="tt-status" class="muted" role="status" aria-live="polite"></p>
     <p id="tt-alert" class="msg warn" role="alert"></p>
 
-    <section id="tt-result" aria-labelledby="tt-result-h" hidden>
+    <section id="tt-result" aria-labelledby="tt-result-h"{% if not example %} hidden{% endif %}>
       <h2 id="tt-result-h" tabindex="-1">The table</h2>
-      <p id="tt-summary"></p>
+      <p id="tt-summary">{% if example %}{{ example_summary }}{% endif %}</p>
       <dl class="legend">
         <dt>Every independent claim</dt><dd>each independent claim mentions the component</dd>
         <dt>Some independent claims</dt><dd>at least one independent claim mentions it, not every one</dd>
@@ -111,7 +112,7 @@
         <dt>Not in the claims</dt><dd>no claim mentions it</dd>
         <dt>Partial</dt><dd>the claim's term and the component end with the same words, as drive motor and electric drive motor</dd>
       </dl>
-      <div class="row">
+      <div class="row" id="tt-controls" hidden>
         <label for="tt-order">Order</label>
         <select id="tt-order"></select>
         <button type="button" id="tt-csv">Download CSV</button>
@@ -119,7 +120,7 @@
         <button type="button" id="tt-unmark" class="quiet">Remove the marks of this table</button>
       </div>
       <div class="pr-scroll" role="region" aria-labelledby="tt-caption" tabindex="0">
-        <table id="tt-table"></table>
+        <table id="tt-table">{% if example %}{% with comps=example.components %}<caption id="tt-caption">The status of {{ example_rows|length }} patent{{ example_rows|length|pluralize }} and where their claims mention each component. Scroll sideways for every column.</caption><thead><tr><th>Patent</th><th>Status</th>{% for c in comps %}<th>{{ c.key }}<span class="small">{% if c.from == "table" %}picked by the table{% else %}from your list{% endif %}</span></th>{% endfor %}<th>Claims</th><th>Parts</th></tr></thead><tbody>{% for r in example_rows %}<tr id="tt-row-{{ r.pid }}"><th><a class="pid" href="{{ r.permalink }}">US {{ r.pid }}</a>{% if r.title %}<span class="small">{{ r.title }}</span>{% endif %}</th><td>{% for kind, text in r.status %}{% if kind == "strong" %}<strong>{{ text }}</strong>{% elif kind == "small" %}<span class="small">{{ text }}</span>{% else %}<span>{{ text }}</span>{% endif %}{% endfor %}</td>{% if r.cells is not None %}{% for c in r.cells %}<td class="pos-{{ c.position }}">{% for kind, text in c.bits %}<span class="{% if kind == "label" %}pos-label{% else %}small{% endif %}">{{ text }}</span>{% endfor %}</td>{% endfor %}{% elif comps %}<td colspan="{{ comps|length }}">{{ r.note }}</td>{% endif %}<td>{{ r.claims }}</td><td>{% if r.parts %}<span class="small">{{ r.parts }}</span>{% elif not comps %}<span class="small">{{ r.note }}</span>{% endif %}</td></tr>{% endfor %}</tbody>{% endwith %}{% endif %}</table>
       </div>
       <section id="tt-panel" aria-labelledby="tt-panel-h" hidden></section>
     </section>

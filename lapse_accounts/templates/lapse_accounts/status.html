@@ -43,7 +43,7 @@
     </div>
     {% endfor %}
     <div class="state {{ state }}" role="status">
-      {% if state == "ok" %}Operational{% elif state == "degraded" %}Degraded{% else %}Down{% endif %}
+      {{ state_heading }}
       <small>{{ state_text }} Code {{ d.service.code_version }}, data {{ d.service.data_version }}, health check on the box: {{ d.service.health_detail }}.</small>
     </div>
 
@@ -100,14 +100,14 @@
 
     <section class="card">
       <h2>Requests, errors, latency</h2>
-      <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account, health and status endpoints). Client errors are 4xx other than 403 and 429; rejected is 403 (no or bad key) and 429 (a limit); latency is measured over admitted requests, inside the app, without the network. Not served is the documented 501 of an endpoint whose data set is not in this release (<a href="/api/v1/meta/">/api/v1/meta/</a> lists them under deferred): it is not counted as a server error. Requests the service sends to check itself are not in these figures; they are counted on the last row.</p>
+      <p class="muted">From the per-request log on the box (every response under <code>/api/v1/</code> except the account, health and status endpoints). Client errors are 4xx other than 403 and 429; refused is 403 (no key, or a key PatentRef does not know) and 429 (over a limit); latency is measured over admitted requests, inside the app, without the network. Not served is the documented 501 of an endpoint whose data set is not in this release (<a href="/api/v1/meta/">/api/v1/meta/</a> lists them under deferred): it is not counted as a server error. Requests the service sends to check itself are not in these figures; they are counted on the last row.</p>
       <div class="wrap" tabindex="0" role="region" aria-label="Requests, errors, latency"><table>
         <tr><th scope="col">Figure</th><th class="num">last 24 h</th><th class="num">last 30 days</th></tr>
         {% with a=d.requests_24h b=d.requests_30d %}
         <tr><td>Requests</td><td class="num">{{ a.requests|intcomma }}</td><td class="num">{{ b.requests|intcomma }}</td></tr>
         <tr><td>Answered 2xx or 3xx</td><td class="num">{{ a.ok|intcomma }}</td><td class="num">{{ b.ok|intcomma }}</td></tr>
         <tr><td>Client errors (4xx)</td><td class="num">{{ a.client_errors|intcomma }}</td><td class="num">{{ b.client_errors|intcomma }}</td></tr>
-        <tr><td>Rejected (403, 429)</td><td class="num">{{ a.rejected|intcomma }}</td><td class="num">{{ b.rejected|intcomma }}</td></tr>
+        <tr><td>Refused: no key or an unknown key (403), over a limit (429)</td><td class="num">{{ a.rejected|intcomma }}</td><td class="num">{{ b.rejected|intcomma }}</td></tr>
         <tr><td>Server errors (5xx)</td><td class="num">{{ a.server_errors|intcomma }}</td><td class="num">{{ b.server_errors|intcomma }}</td></tr>
         <tr><td>Not served (documented 501)</td><td class="num">{{ a.not_served|intcomma }}</td><td class="num">{{ b.not_served|intcomma }}</td></tr>
         <tr><td>Error rate (4xx plus 5xx, of all)</td><td class="num">{% if a.error_rate != None %}{{ a.error_rate }}%{% else %}n/a{% endif %}</td><td class="num">{% if b.error_rate != None %}{{ b.error_rate }}%{% else %}n/a{% endif %}</td></tr>
@@ -120,6 +120,7 @@
         <tr><td>The service's own checks (not in the figures above)</td><td class="num">{{ a.own_requests|intcomma }}</td><td class="num">{{ b.own_requests|intcomma }}</td></tr>
         {% endwith %}
       </table></div>
+      <p class="muted" id="refused-note">A refused request is the key rule at work, not a failure of the service: every data request needs a key, a request without one is answered 403 at once without reading any data, and a key over its allowance is answered 429. Failures of the service are the server errors (5xx).</p>
       {% if d.requests_30d.error %}<p class="warn-t">Request log unreadable: {{ d.requests_30d.error }}.</p>{% endif %}
     </section>
 
@@ -153,10 +154,10 @@
 
     <section class="card">
       <h2>Alerts</h2>
-      {% if d.alerts.open %}
+      {% if alert_rows %}
       <div class="wrap" tabindex="0" role="region" aria-label="Open alerts"><table>
-        <tr><th>Check</th><th>Since</th><th>State</th></tr>
-        {% for a in d.alerts.open %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.time }}</td><td>{{ a.state }}</td></tr>{% endfor %}
+        <tr><th>Check</th><th>What it watches</th><th>Since</th><th>State</th></tr>
+        {% for a in alert_rows %}<tr><td><code>{{ a.check }}</code></td><td>{{ a.label }}</td><td>{{ a.time }}</td><td>{{ a.state }}</td></tr>{% endfor %}
       </table></div>
       {% else %}<p class="muted">No open alerts. {% if d.alerts.recent %}Most recent line: {{ d.alerts.recent.0.time }} <code>{{ d.alerts.recent.0.check }}</code> {{ d.alerts.recent.0.state }}.{% endif %}</p>{% endif %}
       <p class="muted">The on-box watchdog runs every 2 minutes: API and public health, disk and memory headroom, the refresh and backup timers. A breach alerts the operator (once per 24 hours per check) and adds a line here.</p>

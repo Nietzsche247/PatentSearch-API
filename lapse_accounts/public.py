@@ -333,6 +333,44 @@ def _rules_version():
         return None
 
 
+def release_and_as_of(version, rows, side):
+    """(release, as_of) of the build in service, by the one rule GET /api/v1/meta/ and every page header follow: the release
+    (YYYYMMDD, the newest release date among the build's inputs) of the runner's sidecar when the sidecar describes the
+    served file, else the served file's _lapse_build row, else the date part of the data version; as_of is that date as
+    YYYY-MM-DD, or None."""
+    if side.get("data_version") not in (None, version):
+        side = {}
+    release = side.get("release") or rows.get("release") or (version.split(".")[0] if version[:8].isdigit() else "")
+    as_of = f"{release[:4]}-{release[4:6]}-{release[6:8]}" if len(release) == 8 and release.isdigit() else None
+    return release, as_of
+
+
+_as_of_cache = {"key": None, "as_of": None}
+
+
+def build_as_of(version=None):
+    """The as_of of GET /api/v1/meta/ for the build in service (YYYY-MM-DD, or None), read as meta_facts() reads it. Every
+    page header shows it beside the data version (release AD, PatentRef 1.22.0: until then the headers showed the served
+    file's modification day, the day the build was made, while the build facts and the docs showed the as-of date, a day
+    earlier for build 20261027.2). The sidecar is read again when the data version, the build row or the sidecar's
+    modification time changes."""
+    p = getattr(settings, "LAPSE_STATUS_PATHS", {})
+    api_dir = p.get("api_dir", "/data/api")
+    sidecar = p.get("current_sidecar", f"{api_dir}/snapshot_current.json")
+    rows, served = _build_rows()
+    version = version or served or rows.get("data_version") or "unversioned"
+    try:
+        mtime = os.path.getmtime(sidecar)
+    except OSError:
+        mtime = None
+    key = (version, rows.get("release"), sidecar, mtime)
+    if _as_of_cache["key"] == key:
+        return _as_of_cache["as_of"]
+    as_of = release_and_as_of(version, rows, _read_json(sidecar) or {})[1]
+    _as_of_cache.update(key=key, as_of=as_of)
+    return as_of
+
+
 def meta_facts():
     p = getattr(settings, "LAPSE_STATUS_PATHS", {})
     api_dir = p.get("api_dir", "/data/api")
@@ -343,8 +381,7 @@ def meta_facts():
     if side.get("data_version") not in (None, version):
         side = {}  # the sidecar describes another file; show only what the served file says
     versions = _read_json(f"{lapse_data}/refresh_versions.json") or {"builds": []}
-    release = side.get("release") or rows.get("release") or (version.split(".")[0] if version[:8].isdigit() else "")
-    as_of = f"{release[:4]}-{release[4:6]}-{release[6:8]}" if len(release) == 8 and release.isdigit() else None
+    release, as_of = release_and_as_of(version, rows, side)
     superseded = superseded_versions(versions.get("builds", []), version, served_versions(api_dir))
     delta = []
     for row in (side.get("counts") or {}).get("api", []):

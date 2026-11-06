@@ -113,6 +113,102 @@ def example_table(request):
     return body, None
 
 
+# The example table drawn on the server (release AD, PatentRef 1.22.0: until then /triage/example/ drew its table only in the
+# browser, so a crawler or an agent fetching the page saw no table). The words are the page script's (_triage.js: POS_TEXT,
+# STATUS_TEXT, NOTE_TEXT, statusBits, cellBits, drawTable and summary, for the list the example sends); when the script runs it
+# draws the same table again, with its order menu, its marks and its export. A test compares the two.
+POS_TEXT = {"every_independent": "Every independent claim", "some_independent": "Some independent claims",
+            "only_dependent": "Dependent claims only", "absent": "Not in the claims"}
+STATUS_TEXT = {"active": "Active", "expired_term": "Expired: term ended", "expired_fee_nonpayment": "Expired: fees not paid",
+               "withdrawn": "Withdrawn", "unknown": "Unknown"}
+NOTE_TEXT = {
+    "not_in_data": "The data in service has no patent with this number.",
+    "no_claim_text": "The long-text file in service has no claims for this patent (granted after its last grant date).",
+    "work_cap": "Its claims are over the claim tree's work cap (1,000 claim rows, 1,000,000 characters).",
+    "offset_check": "Its claim tree failed its offset check, so nothing of it is shown.",
+    "time_limit": "Not read: the table reached its time limit. Send this patent again.",
+}
+MARKABLE = ("preamble", "element", "wherein_clause")
+
+
+def _short_list(a):
+    a = [str(x) for x in a]
+    return ", ".join(a[:8]) + f" and {len(a) - 8} more" if len(a) > 8 else ", ".join(a)
+
+
+def _yes_no(v):
+    return "yes" if v is True else "no" if v is False else str(v)
+
+
+def _status_bits(p):
+    """[(kind, text)]: the status cell of one row, as statusBits() draws it."""
+    s = p.get("status")
+    if not s:
+        return [("", "Not available" if p.get("found") else "Not in the data")]
+    bits = [("strong", STATUS_TEXT.get(s.get("status")) or str(s.get("status")))]
+    basis = s.get("basis")
+    if basis:
+        bits.append(("small", "Basis: " + (", ".join(str(b) for b in basis) if isinstance(basis, list) else str(basis))))
+    for name, label in (("expiry_date_estimated", "Term end, computed: "), ("lapse_date", "Fee lapse: "), ("reinstated_date", "Reinstated: ")):
+        if s.get(name):
+            bits.append(("small", label + str(s[name])))
+    bits.append(("small", "Reinstatement possible: " + _yes_no(s.get("reinstatement_possible"))))
+    return bits
+
+
+def _cell_bits(c):
+    """[(kind, text)]: one component's cell, as cellBits() draws it."""
+    bits = [("label", POS_TEXT.get(c.get("position")) or str(c.get("position")))]
+    where = []
+    if c.get("independent_claims"):
+        where.append("independent " + _short_list(c["independent_claims"]))
+    if c.get("dependent_claims"):
+        where.append("dependent " + _short_list(c["dependent_claims"]))
+    if where:
+        bits.append(("small", "Claims: " + "; ".join(where)))
+    if c.get("match") == "partial":
+        bits.append(("small", "Partial: " + ", ".join(str(k) for k in c.get("claim_keys") or [])))
+    return bits
+
+
+def example_rows(t):
+    """The example's rows in the order given, as drawTable() draws them before any mark: the patent's link and title, its
+    status, one cell a component (or the note of a patent without a tree), its claim count and its number of parts."""
+    rows = []
+    for p in t.get("patents") or []:
+        built = bool(p.get("built"))
+        claims = p.get("claims") or None
+        parts = sum(1 for cl in p.get("claim_parts") or [] for part in cl.get("parts") or [] if part.get("part") in MARKABLE)
+        rows.append({"pid": p.get("patent_id"), "permalink": p.get("permalink"), "title": p.get("title"), "status": _status_bits(p),
+                     "cells": [{"position": c.get("position"), "bits": _cell_bits(c)} for c in p.get("cells") or []] if built else None,
+                     "note": "" if built else NOTE_TEXT.get(p.get("note"), ""),
+                     "claims": f"{claims['total']} claims, {len(claims['independent'])} independent" if claims else "",
+                     "parts": f"{parts} parts" if built else ""})
+    return rows
+
+
+def example_summary(t):
+    """The sentence above the table, as summary() writes it for a list of patents (the example's input)."""
+    c, inp, s = t.get("counts") or {}, t.get("input") or {}, []
+    n = c.get("patents", 0)
+    s.append(f"{n} patent{'' if n == 1 else 's'} in the table, {c.get('built', 0)} with a claim tree.")
+    if n - c.get("found", 0):
+        s.append(f"{n - c.get('found', 0)} not in the data in service.")
+    if c.get("not_built"):
+        s.append(f"{c['not_built']} without a tree; their rows say why.")
+    if not t.get("complete"):
+        s.append(f"The table reached its time limit of {t.get('time_limit_seconds')} s: build it again for the rest.")
+    if inp.get("kind") == "list" and inp.get("unread_count"):
+        k = inp["unread_count"]
+        s.append(f"{k} piece{'' if k == 1 else 's'} of the list read as no patent number: {', '.join(str(u) for u in inp.get('unread') or [])}.")
+    if inp.get("unread_components"):
+        s.append("Read as no component: " + ", ".join(str(u) for u in inp["unread_components"]) + ".")
+    if not t.get("status_available"):
+        s.append("The status is not available on the server right now.")
+    s.append(f"Data version {t.get('data_version')}, claims from {t.get('text_data_version')}, as of {t.get('as_of')}.")
+    return " ".join(s)
+
+
 @csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page
 @require_safe
 def example(request):
@@ -120,4 +216,5 @@ def example(request):
     if body is None:
         return render(request, _ctx(problem="The example table cannot be built right now. Try again in a few minutes."), 503,
                       cache="no-store")
-    return render(request, _ctx(example=body), cache=EXAMPLE_CACHE if body["complete"] else "no-store")
+    return render(request, _ctx(example=body, example_rows=example_rows(body), example_summary=example_summary(body)),
+                  cache=EXAMPLE_CACHE if body["complete"] else "no-store")

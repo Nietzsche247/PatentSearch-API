@@ -1,0 +1,197 @@
+{% extends "lapse_accounts/base.html" %}
+{% block title %}Agents: the MCP server and the machine-readable files{% endblock %}
+{% block head %}<meta name="description" content="patentref-mcp, a local stdio MCP server from PyPI for the PatentRef API: install lines for Claude Desktop, Claude Code and Cursor, its tools with their endpoints, the key rule and the machine-readable files.">
+  <link rel="canonical" href="{{ site }}/agents/">{% endblock %}
+{% block css %}
+    /* the Agents page (release AD, from the re-skin canvas's Agents artboard): tokens only, so light and dark come from
+       _tokens.css; no colour, font or image of its own */
+    .pr-header, .pr-main, .pr-footer { max-width: 1200px; }
+    .ag-grid { display: grid; grid-template-columns: minmax(0, 72ch) minmax(0, 300px); gap: var(--s-5); align-items: start; }
+    @media (max-width: 1100px) { .ag-grid { grid-template-columns: minmax(0, 1fr); } }
+    .ag-main > * { margin-bottom: var(--s-4); }
+    .ag-main h1 { margin-bottom: var(--s-2); }
+    .ag-lead { margin-bottom: var(--s-2); }
+    .ag-reg { font-family: var(--mono); font-size: var(--t-sm); color: var(--muted); overflow-wrap: anywhere; }
+    .ag-code { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin: 0 0 var(--s-2); }
+    .ag-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s-1); border-bottom: 1px solid var(--border); padding: 0 var(--s-1); }
+    .ag-tabs { display: flex; flex-wrap: wrap; }
+    .ag-tab, .ag-copy { font: inherit; font-size: var(--t-sm); background: none; border: 0; border-bottom: 2px solid transparent; min-height: 44px; padding: var(--s-2); color: var(--muted); cursor: pointer; }
+    .ag-tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+    .ag-tab:hover { color: var(--fg); }
+    .ag-copy { margin-left: auto; color: var(--accent); }
+    .ag-tab:focus-visible, .ag-copy:focus-visible, .ag-panel:focus-visible, .ag-pick select:focus-visible, .ag-scroll:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .ag-pick { display: none; align-items: center; gap: var(--s-2); padding: var(--s-1) var(--s-2); font-size: var(--t-sm); }
+    .ag-pick select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--muted); border-radius: var(--radius); padding: var(--s-1) var(--s-2); min-height: 32px; }
+    @media (max-width: 719px) { .ag-js .ag-tabs { display: none; } .ag-js .ag-pick { display: flex; } }
+    .ag-panel h3 { font-size: var(--t-sm); margin: 0; padding: var(--s-2) var(--s-3) 0; }
+    .ag-js .ag-panel h3 { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .ag-panel pre { margin: 0; padding: var(--s-3); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+    .ag-panel + .ag-panel { border-top: 1px solid var(--border); }
+    .ag-js .ag-panel + .ag-panel { border-top: 0; }
+    .ag-said { font-size: var(--t-sm); color: var(--muted); margin: 0; min-height: 0; }
+    .ag-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); margin: 0 0 var(--s-2); }
+    .ag-tools { width: 100%; min-width: 520px; border-collapse: collapse; font-size: 13px; }
+    .ag-tools th, .ag-tools td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+    .ag-tools thead th { background: var(--surface); font-weight: 600; }
+    .ag-tools tbody tr:last-child td { border-bottom: 0; }
+    .ag-tools .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .ag-tools td.ep { color: var(--muted); }
+    .ag-note { font-size: var(--t-sm); color: var(--muted); }
+    .ag-next { border-left: 3px solid var(--border); padding-left: var(--s-3); }
+    .ag-rail { display: grid; gap: var(--s-4); font-size: var(--t-sm); }
+    .ag-card { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); }
+    .ag-card h2 { font-size: var(--t-sm); color: var(--muted); margin: 0 0 var(--s-2); }
+    .ag-card ul { list-style: none; padding: 0; margin: 0; }
+    .ag-card a { display: inline-block; padding: var(--s-1) 0; font-family: var(--mono); text-decoration: none; overflow-wrap: anywhere; }
+    .ag-card a:hover { text-decoration: underline; }
+    .ag-trust { border-top: 1px solid var(--border); margin-top: var(--s-4); padding-top: var(--s-3); font-size: var(--t-sm); color: var(--muted); }
+    .ag-trust p { margin: 0 0 var(--s-2); }
+    code { overflow-wrap: anywhere; }
+{% endblock %}
+{% block body %}
+    <div class="ag-grid">
+    <div class="ag-main">
+      <div>
+        <h1>PatentRef for agents</h1>
+        <p class="ag-lead">An agent can get a claim tree, a brief, a status record, a search over US grants, the patents nearest to a text, rows of patent office rules and the build facts of the data it is reading, each answer stamped with <code>X-Data-Version</code>. Nothing PatentRef returns is a legal conclusion; every answer describes the text as printed.</p>
+        <p class="ag-reg">Registry: {{ registry_name }} (listed {{ registry_listed }}) · <a href="{{ pypi_url }}">PyPI patentref-mcp {{ mcp_version }}</a> · {{ mcp_license }} · a local stdio package, no hosted endpoint</p>
+      </div>
+
+      <section aria-labelledby="ag-install-h">
+        <h2 id="ag-install-h">Install</h2>
+        <div class="ag-code" id="ag-install">
+{% for id, name, block in install %}          <div class="ag-panel" id="{{ id }}"><h3>{{ name }}</h3><pre><code>{{ block }}</code></pre></div>
+{% endfor %}        </div>
+        <p class="ag-said" id="ag-said" role="status" aria-live="polite"></p>
+        <p class="ag-note">Check an install: <code>{{ smoke }}</code> starts the server over stdio, lists its tools, makes two tool calls and prints the transcript. Environment: <code>PATENTREF_API_KEY</code> (sent by every tool but <code>build_facts</code> and <code>search_disclosures</code>), <code>PATENTREF_BASE</code> (default <code>https://patentref.io</code>), <code>PATENTREF_TIMEOUT</code> (seconds, default 30).</p>
+      </section>
+
+      <section aria-labelledby="ag-tools-h">
+        <h2 id="ag-tools-h">Tools</h2>
+        <div class="ag-scroll" role="region" aria-labelledby="ag-tools-h" tabindex="0">
+          <table class="ag-tools">
+            <thead><tr><th>Tool</th><th>Endpoint</th><th>Description</th></tr></thead>
+            <tbody>
+{% for call, endpoint, description in tools %}              <tr><td class="mono">{{ call }}</td><td class="mono ep">{{ endpoint }}</td><td>{{ description }}</td></tr>
+{% endfor %}            </tbody>
+          </table>
+        </div>
+        <p class="ag-note">Tool names, endpoints and descriptions as the patentref-mcp {{ mcp_version }} <a href="{{ pypi_url }}">README on PyPI</a> prints them. Each tool sends one HTTPS request to the public API with the key from its environment and returns the API's JSON as the API sent it. An error from the API comes back as the tool's error text: the HTTP status and the API's <code>X-Status-Reason</code>. The server does not retry.</p>
+      </section>
+
+      <p class="ag-next" id="ag-next"><strong>Next:</strong> {{ next_text }} <a href="mailto:{{ next_mail }}">{{ next_mail }}</a>.</p>
+
+      <section aria-labelledby="ag-key-h">
+        <h2 id="ag-key-h">Key rule and limits</h2>
+        <p>Every data request carries <code>X-Api-Key</code>; without it the API answers 403. A <a href="/api/v1/meta/signup/">free key</a> allows {{ monthly }} requests a month and {{ per_minute }} a minute. Identify a scripted client in its <code>User-Agent</code> with a name and a way to reach you, so the operator can contact a runaway client.</p>
+      </section>
+    </div>
+
+    <div class="ag-rail">
+      <div class="ag-card">
+        <h2 id="ag-files-h">Machine-readable</h2>
+        <ul aria-labelledby="ag-files-h">
+{% for path in machine_readable %}          <li><a href="{{ path }}">{{ path }}</a></li>
+{% endfor %}        </ul>
+      </div>
+    </div>
+    </div>
+
+    <div class="ag-trust">
+      <p>Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}{% if text_data_version %}; text data version {{ text_data_version }}{% endif %}{% if structure_version %}; claim trees by structure version {{ structure_version }}{% endif %}. Build facts: <a href="/api/v1/meta/">/api/v1/meta/</a>. What changed: <a href="/changes.txt">/changes.txt</a>.</p>
+      <p>Every page and every answer describes the text as the USPTO printed it. A status, a flag or a category is a fact about the record with its basis and its as-of date, not legal advice.</p>
+    </div>
+{% endblock %}
+{% block scripts %}<script>
+(function () {
+  "use strict";
+  /* the Agents page (release AD): the install blocks as client tabs (a menu below 720 px) and a copy button; without this
+     script every block shows under its client's name */
+  var box = document.getElementById("ag-install");
+  var said = document.getElementById("ag-said");
+  if (!box || !said) { return; }
+  var panels = Array.prototype.slice.call(box.querySelectorAll(".ag-panel"));
+  if (!panels.length) { return; }
+  var bar = document.createElement("div");
+  bar.className = "ag-bar";
+  var tabs = document.createElement("div");
+  tabs.className = "ag-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "MCP client");
+  var pick = document.createElement("div");
+  pick.className = "ag-pick";
+  var label = document.createElement("label");
+  label.setAttribute("for", "ag-client");
+  label.textContent = "Client";
+  var menu = document.createElement("select");
+  menu.id = "ag-client";
+  pick.appendChild(label);
+  pick.appendChild(menu);
+  var copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "ag-copy";
+  copy.textContent = "Copy";
+  var buttons = [];
+  var current = 0;
+  function choose(i, focus) {
+    current = i;
+    buttons.forEach(function (b, k) {
+      b.setAttribute("aria-selected", k === i ? "true" : "false");
+      b.tabIndex = k === i ? 0 : -1;
+    });
+    panels.forEach(function (p, k) { p.hidden = k !== i; });
+    menu.value = String(i);
+    copy.textContent = "Copy";
+    said.textContent = "";
+    if (focus) { buttons[i].focus(); }
+  }
+  panels.forEach(function (p, i) {
+    var h = p.querySelector("h3");
+    var name = h ? h.textContent : "Client " + (i + 1);
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "ag-tab";
+    b.id = p.id + "-tab";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-controls", p.id);
+    b.textContent = name;
+    b.addEventListener("click", function () { choose(i, false); });
+    b.addEventListener("keydown", function (ev) {
+      var k = ev.key, n = buttons.length, to = -1;
+      if (k === "ArrowRight") { to = (i + 1) % n; } else if (k === "ArrowLeft") { to = (i - 1 + n) % n; }
+      else if (k === "Home") { to = 0; } else if (k === "End") { to = n - 1; }
+      if (to >= 0) { ev.preventDefault(); choose(to, true); }
+    });
+    tabs.appendChild(b);
+    buttons.push(b);
+    var o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = name;
+    menu.appendChild(o);
+    p.setAttribute("role", "tabpanel");
+    p.setAttribute("aria-labelledby", b.id);
+    p.tabIndex = 0;
+  });
+  menu.addEventListener("change", function () { choose(parseInt(menu.value, 10) || 0, false); });
+  copy.addEventListener("click", function () {
+    var pre = panels[current].querySelector("pre");
+    var text = pre ? pre.textContent : "";
+    function done(ok) {
+      copy.textContent = ok ? "Copied" : "Copy";
+      said.textContent = ok ? "Copied to the clipboard." : "The browser did not allow copying: select the text and copy it.";
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else {
+      done(false);
+    }
+  });
+  bar.appendChild(tabs);
+  bar.appendChild(pick);
+  bar.appendChild(copy);
+  box.insertBefore(bar, box.firstChild);
+  box.className += " ag-js";
+  choose(0, false);
+})();
+</script>
+{% endblock %}

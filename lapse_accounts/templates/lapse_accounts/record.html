@@ -72,13 +72,14 @@
     <h2>Links</h2>
     <ul>
       {% if claims.state == "ok" %}<li><a href="#claims">The claims</a>, below on this page</li>
-      {% endif %}<li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (key required)</li>
-      <li><a href="/api/v1/lapse/status/{{ pid }}/">This verdict as JSON</a> (key required)</li>
-      <li><a href="/api/v1/structure/claims/{{ pid }}/">The claim tree as JSON</a> (key required)</li>
-      <li><a href="/api/v1/structure/brief/{{ pid }}/">A short brief of this patent as JSON</a> (key required)</li>
+      {% endif %}<li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (needs a free key)</li>
+      <li><a href="/api/v1/lapse/status/{{ pid }}/">This verdict as JSON</a> (needs a free key)</li>
+      <li><a href="/api/v1/structure/claims/{{ pid }}/">The claim tree as JSON</a> (needs a free key)</li>
+      <li><a href="/api/v1/structure/brief/{{ pid }}/">A short brief of this patent as JSON</a> (needs a free key)</li>
       <li><a href="https://patentcenter.uspto.gov/applications?patentNumber={{ pid }}">USPTO Patent Center</a></li>
       <li><a href="{{ rec.permalink }}">Permalink to this version</a></li>
     </ul>
+    <p class="muted" id="key-note">The four API links answer JSON to a client that sends a free key in the X-Api-Key header. A click in a browser sends no key, so the API answers it with 403. <a href="/api/v1/meta/signup/">Get a free key</a>.</p>
     <h2>Record</h2>
     <pre>{{ status_json }}</pre>
     <h2 id="claims">Claims</h2>
