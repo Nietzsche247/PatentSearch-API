@@ -28,6 +28,9 @@ title and abstract). mode=structured ranks patents by the claim terms they share
 
 Deterministic code only: regular expressions, the FTS5 index and claimgraph; no model call. The score describes shared
 wording in the published text and nothing more.
+
+The mode is experimental, and the answer says so itself: experimental, always true, after mode (release AD; the documents
+name where the ranking is weakest).
 """
 import math
 import threading
@@ -283,7 +286,7 @@ def structured_answer(searcher, text, n):
     neighbors = [{"rank": i + 1, "patent_id": pid, "patent_title": title, "patent_date": date, "score": s, "shared_terms": shared}
                  for i, (_a, _b, pid, title, date, s, shared) in enumerate(scored[:n])]
     body = {"error": False, "data_version": data_version, "text_data_version": text_version, "as_of": as_of, "method": METHOD,
-            "mode": "structured", "structure_version": claimgraph.STRUCTURE_VERSION, "generator": lapse_structure.GENERATOR, "n": n,
+            "mode": "structured", "experimental": True, "structure_version": claimgraph.STRUCTURE_VERSION, "generator": lapse_structure.GENERATOR, "n": n,
             "terms": keep, "term_keys": [{"key": k, "weight": w} for k, w, *_ in weighed], "key_phrases": phrases,
             "candidates": {"title_abstract": n_text, "key_phrases": n_keys, "with_claim_text": built}, "neighbors": neighbors}
     resp = Response(body)

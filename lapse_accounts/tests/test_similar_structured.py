@@ -198,7 +198,7 @@ def test_shape_versions_and_the_texts_keys(client, keys, env):
     r = get(client, keys(), text=QUERY, n=5, mode="structured")
     assert r.status_code == 200, r.content
     js = r.json()
-    assert list(js) == ["error", "data_version", "text_data_version", "as_of", "method", "mode", "structure_version", "generator",
+    assert list(js) == ["error", "data_version", "text_data_version", "as_of", "method", "mode", "experimental", "structure_version", "generator",
                         "n", "terms", "term_keys", "key_phrases", "candidates", "neighbors"]
     assert js["error"] is False and js["method"] == "claim_term_keys" and js["mode"] == "structured" and js["n"] == 5
     assert js["data_version"] == DATA_VERSION == r["X-Data-Version"] if "X-Data-Version" in r else js["data_version"] == DATA_VERSION
@@ -210,6 +210,16 @@ def test_shape_versions_and_the_texts_keys(client, keys, env):
     assert js["term_keys"] == [{"key": "drive motor", "weight": w2}, {"key": "filter bag", "weight": w2}, {"key": "pool cleaner", "weight": w4}]
     assert js["key_phrases"] == []                                   # six patents make every word too common for a phrase query
     assert js["candidates"]["title_abstract"] >= 1 and js["candidates"]["key_phrases"] == 0
+
+
+def test_the_structured_answer_says_it_is_experimental(client, keys, env):
+    """The answer itself says the mode is experimental (the coordinator, 2026-11-07), not only the documents: a field of its own,
+    always true, right after mode; the text mode's answer has no such field and is unchanged."""
+    js = get(client, keys(), text=QUERY, n=5, mode="structured").json()
+    assert js["experimental"] is True and list(js)[list(js).index("mode") + 1] == "experimental"
+    for params in ({"text": QUERY}, {"text": QUERY, "mode": "text"}):
+        r = get(client, keys(), **params)
+        assert r.status_code == 200 and "experimental" not in r.json(), params
 
 
 def test_scores_order_and_shared_terms(client, keys, env, phrases_on):
