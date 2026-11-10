@@ -269,15 +269,24 @@ class RecordPage(APIView):
         from API import lapse_permalinks
 
         claims = lapse_permalinks.page_claims(searcher, pid)  # the claims with a link to each claim and element (gate S0.4)
+        from API import lapse_record
+        from lapse_accounts import metering
+        from lapse_accounts.triage_page import csp_for
+
+        monthly, _per_minute = metering.plan_limits(metering.PLAN_FREE)
         html = render_to_string("lapse_accounts/record.html", {
             "rec": rec, "pid": pid, "title": title, "superseded": sup, "data_version": data_version,
             "as_of": rec.get("as_of"), "footer_lines": lines, "family": fam,
             "basis_text": lapse_wording.basis_text(rec.get("basis"), engine_rec),
             "term_end_text": lapse_wording.term_end_text(engine_rec),
+            "term_end": lapse_wording.term_end_row(rec, engine_rec),
+            "fee_lapse": lapse_wording.fee_lapse_row(rec),
+            "reinstatement_possible": lapse_record.json_word(rec.get("reinstatement_possible")),
             "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1),
-            "claims": claims,
+            "claims": claims, "ident": lapse_record.identity(searcher, pid),
+            "elsewhere": lapse_record.elsewhere(pid, fam), "free_monthly": f"{monthly:,}" if monthly else "",
         })
-        bad = lapse_wording.check_banned(html.split('data-user-content="true"')[0])
+        bad = lapse_wording.check_banned(lapse_record.own_text(html))   # all the page's own words, none of the patent's
         if bad:
             logger.error("record page %s: wording check failed: %s", pid, ", ".join(bad))
             return _record_page_error(500, "This page could not be shown", "PatentRef held this page back because its wording failed a check.",
@@ -285,4 +294,5 @@ class RecordPage(APIView):
         resp = HttpResponse(html, content_type="text/html; charset=utf-8")
         resp["Cache-Control"] = "public, max-age=300"
         resp["X-Data-Version"] = data_version
+        resp["Content-Security-Policy"] = csp_for(html)   # its own inline style and script by hash, as on /agents/ and /triage/
         return resp

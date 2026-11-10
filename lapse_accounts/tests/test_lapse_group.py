@@ -459,8 +459,9 @@ REVIEW_SENTENCES = {
     "4338317": "As of 2026-10-06, the USPTO list of patent terms extended under 35 USC 156 gives US 4338317 an original expiration date of 1997-07-06 and an extension of 2 years, which puts its term end at 1999-07-06, a date that has passed; the term end computed from the dates in the USPTO record, before any extension, is later, 2001-03-16 (data version 20261006.5).",
     "7208489": "As of 2026-10-06, the term end computed from the dates in the USPTO record for US 7208489 is 2023-01-16 (20 years from the filing of a parent application on 2003-01-16), a date that has passed, but the USPTO record shows it reissued as US RE47739, a patent the USPTO list of patent terms extended under 35 USC 156, updated through 2026-09-08, names (data version 20261006.5).",
     "7515981": "As of 2026-10-06, the USPTO record for US 7515981 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record is 2026-10-06 (20 years from filing), a date not yet passed (data version 20261006.5).",
-    "X1": "As of 2026-10-06, the USPTO record for US X1 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record is 2029-03-22 (20 years from the filing of a parent application on 2009-02-10, plus 40 days of patent term adjustment, not counting a terminal disclaimer on record, which can end the term earlier), a date not yet passed (data version 20261006.5).",
-    "X2": "As of 2026-10-06, the USPTO record for US X2 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record is 2028-01-15 (20 years from filing, plus 100 days of patent term adjustment, cut to this date by a terminal disclaimer), a date not yet passed (data version 20261006.5).",
+    # release AD (the coordinator's item of 2026-11-10): X1 and X2 in the new wording, which reopens the reviews (rule 5)
+    "X1": "As of 2026-10-06, the USPTO record for US X1 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record, leaving out a terminal disclaimer it shows without a date, is 2029-03-22 (20 years from the filing of a parent application on 2009-02-10, plus 40 days of patent term adjustment), a date not yet passed; that disclaimer can only make the term end earlier (data version 20261006.5).",
+    "X2": "As of 2026-10-06, the USPTO record for US X2 shows no unresolved maintenance-fee lapse, and the term end computed from the dates in that record is 2028-01-15 (the date a terminal disclaimer on record sets, no later than 20 years from filing, plus 100 days of patent term adjustment), a date not yet passed (data version 20261006.5).",
     "X3": "As of 2026-10-06, the USPTO record for US X3 shows no unresolved maintenance-fee lapse (a reinstatement dated 2019-10-01 ended an earlier lapse), and the term end computed from the dates in that record is 2032-05-13 (20 years from filing, plus 12 days of patent term adjustment), a date not yet passed (data version 20261006.5).",
 }
 # the engine's inputs for each (the live snapshot's values the reviews used; X1 to X3 are the first review's made-up dates);
@@ -516,8 +517,9 @@ def test_review_sentences_render_byte_for_byte(lapse_env):
     rec = expiry.expiry_record(patent_id="US6671888", as_of="2026-10-06", **REVIEW_INPUTS["6671888"])
     assert lapse_wording.basis_text(rec["basis"], rec) == "20 years from filing, plus 129 days of patent term adjustment, reinstatement dated 2017-08-30"
     rec = expiry.expiry_record(patent_id="US11086507", as_of="2026-10-06", **REVIEW_INPUTS["11086507"])
-    assert lapse_wording.basis_text(rec["basis"], rec) == ("20 years from the filing of a parent application on 2005-12-23, not counting a "
-                                                           "terminal disclaimer on record, which can end the term earlier")
+    assert lapse_wording.basis_text(rec["basis"], rec) == ("20 years from the filing of a parent application on 2005-12-23, a terminal "
+                                                           "disclaimer on record without a date, which can only make the term end "
+                                                           "earlier than the date computed from the other dates")
     rec = expiry.expiry_record(patent_id="US8087108", as_of="2026-10-06", **REVIEW_INPUTS["8087108"])
     assert lapse_wording.basis_text(rec["basis"], rec).startswith("fee-lapse entry dated 2016-01-03, 20 years from filing")
     # withdrawn from issue: no term at all (review section 4)
@@ -645,7 +647,7 @@ def test_bundle4_wording_review_read_date_and_disputed_term_end(lapse_env):
         "As of 2026-10-06, the USPTO maintenance-fee record for US 9580461 has an entry dated 2025-04-07 recording that the "
         "patent expired for nonpayment of a maintenance fee, and no reinstatement after it (data version 20261006.5).")
     page = render_to_string("lapse_accounts/record.html", {"rec": rec, "pid": "9580461", "term_end_text": text, "basis_text": ""})
-    assert "<dt>Term end, computed from the record's dates</dt><dd>" + text.replace("'", "&#x27;") + "</dd>" in page
+    assert "<dt>Term end</dt><dd>" + text.replace("'", "&#x27;") + "</dd>" in page   # the canvas's label (release AD)
     assert "not derivable from this record" not in page
     rec = expiry.expiry_record(patent_id="US8158616", as_of="2026-10-06", **REVIEW_INPUTS["8158616"])
     assert rec["status"] == "unknown" and lapse_wording.term_end_text(rec) == (

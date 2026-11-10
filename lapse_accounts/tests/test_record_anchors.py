@@ -7,7 +7,9 @@ anchor on the page and the anchor holds exactly that text (the claim text read b
 equal to text[start:end]); the anchors are unique and of the documented form and come out the same after a rebuild; the
 page and the claim tree endpoint share one cache; the page's script reads anchors with the module's own pattern; the
 page's other states (no claims for the patent, no long-text file, over the work cap, a claim set it cannot lay out);
-markup in a claim stays text; the page keeps its existing checks; the wording of what the page adds.
+markup in a claim stays text; the page keeps its existing checks; the wording of what the page adds. Release AD (the
+re-skin of 2026-11-05): the claims as a tree, each dependent claim under the independent claim its chain reaches, in a
+collapsed details, so a claim's own text is read without the claims nested in it, and the ids come in the tree's order.
 
   python -m pytest lapse_accounts/tests/test_record_anchors.py -q -p no:cacheprovider -p no:django -o addopts=""
 """
@@ -89,8 +91,11 @@ class Page(HTMLParser):
         claim_text = bool(classes & {"claim-lead", "el-line"})
         if in_list and not claim_text:
             self.own.append(data)   # what the page writes inside the claims: headings, dependency lines, link labels
-        for _t, a in self.stack:
+        for n, (_t, a) in enumerate(self.stack):
             i = a.get("id")
+            deeper = self.stack[n + 1:]
+            if any("claim" in (b.get("class") or "").split() for _u, b in deeper):
+                continue   # a claim nested in this one (a dependent claim under its independent claim): its own text
             if i and i in self.ids:
                 if claim_text:
                     self.ids[i]["text"].append(data)
@@ -112,6 +117,17 @@ def anchors_of(g):
     return out
 
 
+def anchors_in_tree_order(g):
+    """The anchors as the page lays them out: each independent claim and its elements, then its dependent claims and
+    theirs, in claim order (lapse_permalinks.tree_of)."""
+    out = []
+    for top, deps in lapse_permalinks.tree_of(g):
+        for c in [top] + [d for d, _depth in deps]:
+            out.append(lapse_permalinks.claim_anchor(c))
+            out += [lapse_permalinks.element_anchor(c, el) for el in sorted(c["elements"], key=lambda e: e["start"])]
+    return out
+
+
 def claims_section(text):
     return text.split('<div class="claims" id="claims-list"', 1)[1].split("\n    </div>", 1)[0]
 
@@ -127,7 +143,9 @@ def test_every_claim_and_element_has_its_anchor_and_its_text(env):
         g = expected(pid)
         for c in g["claims"]:
             a = lapse_permalinks.claim_anchor(c)
-            assert a in p.ids and p.ids[a]["tag"] == "div" and p.ids[a]["class"] == "claim", (pid, a)
+            assert a in p.ids and p.ids[a]["tag"] == "div" and "claim" in p.ids[a]["class"].split(), (pid, a)   # the hooks the verbatim checker reads
+            tops = {lapse_permalinks.claim_anchor(t) for t, _d in lapse_permalinks.tree_of(g)}
+            assert ("top" in p.ids[a]["class"].split()) == (a in tops), (pid, a)   # a box for each claim at the top of the tree
             assert "".join(p.ids[a]["text"]) == c["text"], (pid, a)   # the claim text reads back from the page exactly
             n_claims += 1
             for el in c["elements"]:
@@ -135,8 +153,9 @@ def test_every_claim_and_element_has_its_anchor_and_its_text(env):
                 assert ea in p.ids and p.ids[ea]["tag"] == "li", (pid, ea)
                 assert "".join(p.ids[ea]["el"]) == el["text"] == c["text"][el["start"]:el["end"]], (pid, ea)
                 n_els += 1
-        inside = p.order[p.order.index("claims-list") + 1:]
-        assert inside == anchors_of(g), pid                            # nothing else in the claims carries an id
+        inside = p.order[p.order.index("claims-list") + 1:p.order.index("claims-printed")]   # the As printed view has no ids
+        assert inside == anchors_in_tree_order(g), pid                 # nothing else in the claims carries an id
+        assert sorted(inside) == sorted(anchors_of(g)), pid            # every claim and element once, in the tree's order
         assert len(set(p.order)) == len(p.order), pid                  # every id on the page once
     assert n_claims == sum(m["claims"] for m in sf.MANIFEST.values()) + len(sf.MARKUP_ROWS) and n_els > 1000
 
@@ -231,13 +250,14 @@ def test_a_patent_without_claim_text(env):
     r, text = page(sf.NO_TEXT)
     assert r.status_code == 200
     assert f"The long-text file in service (text data version {sf.TEXT_VERSION}) has no claims for this patent" in text
-    assert 'id="claims-list"' not in text and "<script>" not in text and 'href="#claims"' not in text
+    # the page script is the same on every record page (release AD); it lands no anchor where there is no claims list
+    assert '<div class="claims" id="claims-list"' not in text and 'href="#claims"' not in text and 'id="claims-printed"' not in text
 
 
 def test_no_long_text_file(no_text_env):
     r, text = page("10034028")
     assert r.status_code == 200 and "The claims are not on this page right now: no long-text file is in service." in text
-    assert 'id="claims-list"' not in text and "<script>" not in text
+    assert '<div class="claims" id="claims-list"' not in text and 'id="claims-printed"' not in text
 
 
 def test_over_the_work_cap_and_a_claim_set_the_page_cannot_lay_out(env, monkeypatch):
@@ -301,3 +321,89 @@ def test_wording_of_what_the_page_adds(env):
         assert not [b for b in lapse_brief.BANNED if b in low], [b for b in lapse_brief.BANNED if b in low]
         assert lapse_wording.check_banned(t) == []
     assert "Independent claim." in texts[0] and "Depends on claim" in "".join(texts)
+
+
+# ------------------------------------------------------------------ release AD: the record page's re-skin (2026-11-05)
+
+def _cup_tree():
+    rows = [lapse_claimgraph.ClaimRow("1234567", "0", "1. A cup comprising: a handle; and a base.", "", "1"),
+            lapse_claimgraph.ClaimRow("1234567", "1", "2. The cup of claim 1, wherein the handle is round.", "claim 1", "2"),
+            lapse_claimgraph.ClaimRow("1234567", "2", "3. The cup of claim 2, wherein the base is blue.", "claim 2", "3"),
+            lapse_claimgraph.ClaimRow("1234567", "3", "4. A method of making a cup, comprising: shaping a handle.", "", "4"),
+            lapse_claimgraph.ClaimRow("1234567", "4", "5. The cup of claim 1, wherein the base is wide.", "claim 1", "5"),
+            lapse_claimgraph.ClaimRow("1234567", "5", "6. The method of claim 4, further comprising: firing the cup.", "claim 4", "6"),
+            lapse_claimgraph.ClaimRow("1234567", "6", "7. The cup of claim 3, wherein the handle is blue.", "claim 3", "7")]
+    return json.loads(json.dumps(lapse_claimgraph.build_patent("1234567", rows)))
+
+
+def test_the_tree_nests_each_dependent_under_its_independent_claim():
+    g = _cup_tree()
+    tree = lapse_permalinks.tree_of(g)
+    assert [(t["number"], [(d["number"], depth) for d, depth in deps]) for t, deps in tree] == [
+        (1, [(2, 1), (3, 2), (5, 1), (7, 3)]), (4, [(6, 1)])]
+    assert lapse_permalinks.deps_summary(*tree[0]) == "4 dependent claims: 2, 3, 5 and 7 (2, 5 on claim 1; 3 on 2; 7 on 3)"
+    assert lapse_permalinks.deps_summary(*tree[1]) == "1 dependent claim: 6 (6 on claim 4)"
+    assert lapse_permalinks._numbers_text([2, 3, 4, 5, 6, 7, 8, 9]) == "2 to 9"
+    assert lapse_permalinks._numbers_text([2, 3, 5, 6, 7, 21]) == "2, 3, 5 to 7 and 21"
+    out = lapse_permalinks.render_claims(g)
+    p = parse('<div class="claims" id="claims-list">' + out + '</div><div id="claims-printed"></div>')
+    assert p.ids["c1"]["class"] == "claim top" and p.ids["c4"]["class"] == "claim top" and '<p class="claim-dep">Independent claim.</p>' in out
+    assert p.ids["c2"]["tag"] == "div" and "d1" in p.ids["c2"]["class"] and "d2" in p.ids["c3"]["class"] and "d3" in p.ids["c7"]["class"]
+    assert out.index('id="c7"') < out.index('id="c4"')   # claim 7 sits in claim 1's box, before claim 4's
+    assert out.count('<details class="deps"><summary>') == 2 and "<details open" not in out   # collapsed, as the canvas shows
+    for c in g["claims"]:
+        assert "".join(p.ids[lapse_permalinks.claim_anchor(c)]["text"]) == c["text"]   # each claim's own text, nothing nested
+    assert out.count('class="el-copy" type="button" hidden') == len(g["claims"][0]["elements"]) + len(g["claims"][3]["elements"])
+    printed = lapse_permalinks.render_printed(g)
+    assert printed.count('<p class="cp">') == 7 and "1. A cup comprising: a handle; and a base." in printed and " id=" not in printed
+
+
+def test_a_chain_to_no_claim_stands_at_the_top():
+    rows = [lapse_claimgraph.ClaimRow("7654321", "0", "1. A lid.", "", "1"),
+            lapse_claimgraph.ClaimRow("7654321", "1", "2. The lid of claim 9, wherein it is round.", "claim 9", "2")]
+    g = json.loads(json.dumps(lapse_claimgraph.build_patent("7654321", rows)))
+    tree = lapse_permalinks.tree_of(g)
+    assert [t["number"] for t, _d in tree] == [1, 2] and all(not d for _t, d in tree)
+    assert '<div class="claim top" id="c2">' in lapse_permalinks.render_claims(g)
+
+
+def test_the_page_order_and_the_six_points(env):
+    """The owner's six points of 2026-11-09 on the fixture pages: identity at the top, the claims above the status, the key note
+    beside the API links, the term-end row as the canvas words it, nothing raw above the claims, and the rules that keep
+    1200 px and 390 px readable."""
+    for pid in ("10034028", "10049105"):
+        r, text = page(pid)
+        assert r.status_code == 200
+        body = text.split("<main", 1)[1]
+        order = [body.index(s) for s in ('<h1 class="rec-num">US ' + pid + "</h1>", 'id="claims-list"', '<h2 id="status">',
+                                         '<h2 id="citations">', '<details class="rec-json" id="json">')]
+        assert order == sorted(order), (pid, order)
+        above = body.split('id="claims-list"', 1)[0]
+        assert "<pre" not in above and '{"patent_id"' not in above and "&quot;patent_id&quot;" not in above
+        rail = body.split('<h2 id="get-data">', 1)[1].split("</section>", 1)[0]
+        for path in (f"/api/v1/patent/{pid}/", f"/api/v1/lapse/status/{pid}/", f"/api/v1/structure/claims/{pid}/", f"/api/v1/structure/brief/{pid}/"):
+            assert f'<a href="{path}">' in rail, path
+        assert 'id="key-note">These four links need a free key' in rail and "they answer 403" in rail
+        assert '<a href="/api/v1/meta/signup/">Get a free key</a>' in rail
+        status = body.split('<h2 id="status">', 1)[1].split("</section>", 1)[0]
+        assert "<dt>Term end</dt>" in status and "Computed from the dates in the USPTO record" in status
+        css = text.split("<style>", 1)[1].split("</style>", 1)[0]
+        assert ".pr-header, .pr-main, .pr-footer { max-width: 1200px; }" in css and "@media (max-width: 719px)" in css
+        assert "@media (min-width: 1100px)" in css and "grid-template-columns: minmax(0, 860px) 280px;" in css
+        assert r["Content-Security-Policy"].startswith("default-src 'none'; script-src 'sha256-")
+
+
+def test_the_page_words_pass_the_release_word_list(env):
+    """The page's own words (lapse_record.own_text: everything but the patent's text) use none of the release's barred words
+    and no em-dash; the view runs check_banned on the same text."""
+    from API import lapse_record
+
+    bar = re.compile(r"\b(risk\w*|clear\w*|safe\w*|free to use|invalid\w*|valid\w*|scope\w*|breadth\w*|strength\w*|broad\w*|"
+                     r"narrow\w*|infring\w*|no other|first)\b", re.I)
+    for pid in list(sf.patent_ids())[:6] + [sf.NO_TEXT]:
+        _r, text = page(pid)
+        own = html.unescape(lapse_record.own_text(text))
+        assert not bar.search(own), (pid, bar.search(own).group(0))
+        assert chr(0x2014) not in own and lapse_wording.check_banned(own) == []
+        script = "".join(parse(text).scripts)
+        assert not bar.search(script) and chr(0x2014) not in script

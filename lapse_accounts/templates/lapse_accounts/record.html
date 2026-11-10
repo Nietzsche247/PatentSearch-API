@@ -1,60 +1,211 @@
 {% extends "lapse_accounts/base.html" %}
 {% block title %}US {{ pid }} record{% endblock %}
-{% block head %}<meta name="description" content="The USPTO record for US {{ pid }} as of {{ as_of }}: status, basis and maintenance-fee facts (data version {{ data_version }}).">
+{% block head %}<meta name="description" content="The USPTO record for US {{ pid }} as of {{ as_of }}: its claims as printed, its status, basis and maintenance-fee facts (data version {{ data_version }}).">
   <link rel="canonical" href="{{ rec.permalink }}">{% endblock %}
 {% block css %}
-    /* the record page's own rules */
-    h2 { margin: var(--s-4) 0 var(--s-2); }
-    .card { margin-bottom: var(--s-3); }
-    .banner { background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); }
-    .status { font-size: var(--t-lg); margin: 0 0 var(--s-3); }
-    dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--s-1) var(--s-3); margin: 0; }
-    dt { color: var(--muted); font-size: var(--t-sm); }
-    dd { margin: 0; }
+    /* the record page's own rules (release AD, the re-skin of 2026-11-05): the number, title and identity, then the claims
+       as a tree, then the status; a rail with the API links and their key note beside the main column from 1100 px, under
+       it below that; tokens only, plus two page tones (the element rule and the chip fill) mapped for both schemes */
+    :root { --el-rule: #c9d6ee; --chip: #eef0f3; --serif: Charter, Georgia, "Times New Roman", serif; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --el-rule: #3a4a66; --chip: #22262d; } }
+    :root[data-theme="dark"] { --el-rule: #3a4a66; --chip: #22262d; }
+    .pr-header, .pr-main, .pr-footer { max-width: 1200px; }
+    [hidden] { display: none !important; }
+    .pr-footer p { max-width: 76ch; }
+    .rec { display: flex; flex-direction: column; gap: var(--s-4); }
+    .rec-main { min-width: 0; max-width: 860px; display: flex; flex-direction: column; gap: var(--s-4); }
+    .rec-main > * { margin: 0; }
+    .rec-rail { display: flex; flex-direction: column; gap: var(--s-4); font-size: var(--t-sm); min-width: 0; }
+    @media (min-width: 1100px) {
+      .rec { display: grid; grid-template-columns: minmax(0, 860px) 280px; grid-template-rows: auto 1fr; column-gap: var(--s-5); justify-content: start; align-items: start; }
+      .rec-main { grid-column: 1; grid-row: 1 / span 2; }
+      .rec-rail { grid-column: 2; grid-row: 1; }
+      .onpage { grid-column: 2; grid-row: 2; position: sticky; top: var(--s-3); align-self: start; }
+    }
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .serif { font-family: var(--serif); font-size: 17px; line-height: 1.6; }
+    .banner { background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius); padding: var(--s-2) var(--s-3); }
+    .rec-head { display: flex; flex-direction: column; gap: var(--s-2); }
+    .rec-head > * { margin: 0; }
+    .crumbs { font-size: 13px; color: var(--muted); }
+    .crumbs a { display: inline-block; padding: 2px 0; }
+    h1.rec-num { font-family: var(--mono); font-size: var(--t-lg); font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
+    .rec-title { font-size: var(--t-xl); line-height: 1.25; font-weight: 600; overflow-wrap: anywhere; }
+    .rec-ident { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+    dl { margin: 0; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: var(--s-1) var(--s-3); }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    dd ul { list-style: none; padding: 0; margin: 0; }
+    .facts { font-size: 15px; }
+    h2 { font-size: var(--t-lg); font-weight: 600; margin: 0; }
+    h2.small { font-size: var(--t-base); }
+    h2[id], .claim, ol.claim-els li { scroll-margin-top: var(--s-3); }
+    section { display: flex; flex-direction: column; gap: var(--s-2); }
+    section > * { margin: 0; }
+    {% comment %}The claims (structure layer, gate S0.4; API/lapse_permalinks.py): each independent claim in a box, its opening
+    words, then one row for each element with its link, its offsets and a copy button; its dependent claims in a collapsed
+    details under it, indented by depth. Long words wrap so nothing scrolls sideways at 320 px; an element's link is a 24 px
+    target (WCAG 2.5.8); the claim or element a link names is outlined.{% endcomment %}
+    .claims-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+    .claims-count { font-size: 13px; color: var(--muted); }
+    .view-toggle { margin-left: auto; display: flex; }
+    .view-toggle button { font: inherit; font-size: 13px; padding: 6px 12px; min-height: 36px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; }
+    .view-toggle button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+    .view-toggle button:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: 0; }
+    .view-toggle button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    .claims-note { font-size: 13px; color: var(--muted); }
+    .claims { overflow-wrap: anywhere; word-break: break-word; }
+    .claims, .deps-list { display: flex; flex-direction: column; gap: 14px; }
+    .claim { scroll-margin-top: var(--s-3); }
+    .claim.top { border: 1px solid var(--border); border-radius: 6px; padding: var(--s-3) 18px; display: flex; flex-direction: column; gap: 10px; }
+    .claim-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1) 10px; }
+    .claim h3 { font-family: var(--mono); font-size: 13px; font-weight: 600; margin: 0; }
+    .claim h3 a { display: inline-block; padding: 2px 0; min-height: 24px; }
+    .claim-dep { color: var(--muted); font-size: 13px; margin: 0; }
+    .claim-id { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-left: auto; }
+    .claim-lead { margin: 0; font-family: var(--serif); font-size: 17px; line-height: 1.6; }
+    .claim-no { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+    ol.claim-els { list-style: none; padding-left: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+    ol.claim-els li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; column-gap: var(--s-3); align-items: baseline; border-left: 2px solid var(--el-rule); padding-left: 10px; margin-left: var(--s-4); min-height: 24px; scroll-margin-top: var(--s-3); }
+    .el-link { min-width: 24px; min-height: 24px; line-height: 24px; font-family: var(--mono); font-size: 12px; display: inline-block; }
+    .el-line { font-family: var(--serif); font-size: 17px; line-height: 1.6; }
+    .el-sep { color: var(--muted); }
+    .el-off { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .el-copy, .small-btn { font: inherit; font-size: 12px; padding: 4px 8px; min-height: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--muted); cursor: pointer; white-space: nowrap; }
+    .el-copy:hover, .small-btn:hover { color: var(--fg); border-color: var(--muted); }
+    @media (hover: hover) and (pointer: fine) {
+      .el-copy { opacity: 0; }
+      ol.claim-els li:hover .el-copy, ol.claim-els li:focus-within .el-copy { opacity: 1; }
+    }
+    details.deps { margin-left: var(--s-4); font-size: var(--t-sm); }
+    details.deps > summary { color: var(--accent); cursor: pointer; padding: 2px 0; min-height: 24px; }
+    .deps-list { padding-top: 10px; }
+    .claim.dep { display: flex; flex-direction: column; gap: 6px; border-left: 1px solid var(--border); padding-left: 12px; }
+    .claim.dep ol.claim-els li { margin-left: 0; }
+    .claim.d2 { margin-left: 20px; } .claim.d3 { margin-left: 40px; } .claim.d4 { margin-left: 60px; }
+    .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .claim:target, ol.claim-els li:target { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .printed { border: 1px solid var(--border); border-radius: 6px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; overflow-wrap: anywhere; }
+    .printed p { margin: 0; font-family: var(--serif); font-size: 17px; line-height: 1.6; }
+    .printed p.claims-note { font-family: var(--font); font-size: 13px; }
+    .status-card { border: 1px solid var(--border); border-radius: 6px; padding: var(--s-3) 18px; display: flex; flex-direction: column; gap: 10px; }
+    .status-card > * { margin: 0; }
+    .status { font-size: 17px; }
+    .status-card dl { font-size: var(--t-sm); }
+    .chip { display: inline-block; font-family: var(--mono); font-size: var(--t-sm); font-weight: 600; padding: 2px 8px; border-radius: 3px; background: var(--chip); color: var(--fg); border: 1px solid var(--border); }
+    .chip-expired_term, .chip-withdrawn, .chip-unknown { color: var(--muted); }
+    .chip-expired_fee_nonpayment { background: var(--warn-bg); color: var(--warn-fg); }
+    .pill { font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 6px; }
+    .row-note { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+    .fact-note { font-size: 13px; color: var(--muted); }
     {% comment %}The record as JSON wraps, as on the docs and sign-up pages: a block that scrolls sideways at 320 px is a
     scroll region a keyboard cannot reach (axe scrollable-region-focusable, serious; checklist 7.6, the live run of
     2026-10-23).{% endcomment %}
-    pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); white-space: pre-wrap; word-break: break-word; }
-    .user { border-left: 3px solid var(--border); padding-left: var(--s-3); color: var(--muted); }
+    pre { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); white-space: pre-wrap; word-break: break-word; margin: 10px 0 0; }
+    details.rec-json { border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+    details.rec-json > summary { font-weight: 600; cursor: pointer; min-height: 24px; }
     table.fam { border-collapse: collapse; font-size: var(--t-sm); min-width: 100%; }
     table.fam th, table.fam td { text-align: left; padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
     table.fam th { color: var(--muted); font-weight: 600; }
     .credit { color: var(--muted); font-size: var(--t-sm); }
-    {% comment %}The claims (structure layer, gate S0.4; API/lapse_permalinks.py): a block for each claim, its elements one
-    to a line. Long words wrap so nothing scrolls sideways at 320 px; an element's link is a 24 px target (WCAG 2.5.8);
-    the claim or element a link names is outlined.{% endcomment %}
-    .claims { overflow-wrap: anywhere; word-break: break-word; }
-    .claim { border-top: 1px solid var(--border); padding-top: var(--s-2); margin-top: var(--s-3); scroll-margin-top: var(--s-3); }
-    .claim h3 { font-size: var(--t-base); margin: 0; }
-    .claim h3 a { display: inline-block; padding: var(--s-1) 0; }
-    .claim-dep { color: var(--muted); font-size: var(--t-sm); margin: 0 0 var(--s-1); }
-    .claim-lead { margin: 0 0 var(--s-1); }
-    ol.claim-els { list-style: none; padding-left: 0; margin: 0 0 var(--s-2); }
-    ol.claim-els li { position: relative; padding-left: var(--s-5); margin: 0 0 var(--s-1); min-height: 24px; scroll-margin-top: var(--s-3); }
-    .el-link { position: absolute; left: 0; top: 0; min-width: 24px; min-height: 24px; line-height: 24px; font-size: var(--t-sm); }
-    .vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-    .claim:target, ol.claim-els li:target { outline: 2px solid var(--focus); outline-offset: 2px; }
-    @media (max-width: 420px) { dl { grid-template-columns: 1fr; } }
+    .rail-card { border: 1px solid var(--border); border-radius: 6px; padding: 14px var(--s-3); display: flex; flex-direction: column; gap: var(--s-2); }
+    .rail-card > *, .rail-plain > * { margin: 0; }
+    .rail-plain { display: flex; flex-direction: column; gap: 6px; }
+    .rec-rail h2, .onpage h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; }
+    .rec-rail ul, .onpage ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+    .rec-rail a, .onpage a { display: inline-block; padding: 2px 0; }
+    .api-links li { display: flex; flex-direction: column; }
+    .api-links code { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+    .key-note { font-size: 13px; color: var(--fg); border-top: 1px solid var(--border); padding-top: var(--s-2); }
+    .cite { background: var(--surface); }
+    .cite-url { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+    .cite-meta { font-size: 12px; color: var(--muted); }
+    .cite-btns { display: flex; gap: 6px; }
+    .cite-out { font-size: 12px; color: var(--muted); }
+    .cite-out p { margin: 0; }
+    .cite-out pre { font-size: 12px; margin-top: var(--s-1); }
+    .onpage { font-size: var(--t-sm); display: flex; flex-direction: column; gap: 6px; }
+    .trust { font-size: 13px; }
+    .cites { overflow-wrap: anywhere; }
+    @media (max-width: 719px) {
+      html { scroll-padding-bottom: 72px; }
+      dl { grid-template-columns: 1fr; gap: 0 var(--s-3); }
+      dd { margin-bottom: var(--s-2); }
+      .rec-title { font-size: 24px; }
+      .view-toggle { margin-left: 0; width: 100%; }
+      .view-toggle button { flex: 1 1 50%; min-height: 44px; }
+      .claim.top { padding: 12px; }
+      ol.claim-els li { grid-template-columns: 28px minmax(0, 1fr); margin-left: 0; }
+      .el-off { grid-column: 2; }
+      .el-copy { grid-column: 2; justify-self: start; }
+      details.deps { margin-left: 0; }
+      .claim.d2 { margin-left: 10px; } .claim.d3 { margin-left: 20px; } .claim.d4 { margin-left: 30px; }
+      .claim-id { margin-left: 0; }
+      .onpage { position: sticky; bottom: 0; z-index: 1; background: var(--bg); border-top: 1px solid var(--border); padding: var(--s-1) 0; }
+      .onpage h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      .onpage ul { flex-direction: row; flex-wrap: wrap; gap: 0 var(--s-3); }
+      .onpage a { padding: 6px 0; min-height: 24px; }
+    }
 {% endblock %}
 {% block body %}
+    <div class="rec">
+    <div class="rec-main">
     {% if superseded %}<div class="banner" role="status">You asked for data version {{ superseded.requested }}, which has been superseded. This page shows the current version, {{ superseded.current }}. Older snapshot files are listed in the <a href="/LICENSES.md">license register</a>.</div>{% endif %}
-    <h1>US {{ pid }}</h1>
-    {% if title %}<p class="user"><span data-user-content="true">{{ title }}</span></p>{% endif %}
-    <p class="status">{{ rec.plain }}</p>
-    <div class="card">
-      <dl>
-        <dt>Status</dt><dd><code>{{ rec.status }}</code></dd>
-        <dt>Basis</dt><dd>{% for b in rec.basis %}<code>{{ b }}</code> {% empty %}none{% endfor %}{% if basis_text %} ({{ basis_text }}){% endif %}</dd>
-        <dt>Term end, computed from the record's dates</dt><dd>{% if term_end_text %}{{ term_end_text }}{% else %}{{ rec.expiry_date_estimated|default:"not derivable from this record" }}{% endif %}</dd>
-        <dt>Fee lapse</dt><dd>{{ rec.lapse_date|default:"none on record" }}</dd>
-        <dt>Reinstatement on record</dt><dd>{{ rec.reinstated_date|default:"none" }}</dd>
-        <dt>Reinstatement possible</dt><dd><code>{{ rec.reinstatement_possible }}</code>: {{ rec.reinstatement_basis }}</dd>
-        <dt>As of</dt><dd>{{ rec.as_of }}</dd>
-        <dt>Data version</dt><dd>{{ rec.data_version }}{% if rec.catalog_data_version and rec.catalog_data_version != rec.data_version %} (fee data {{ rec.catalog_data_version }}){% endif %}</dd>
-      </dl>
+    <div class="rec-head">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="/">PatentRef</a> <span aria-hidden="true">&#8250;</span> Records <span aria-hidden="true">&#8250;</span> <span aria-current="page">US {{ pid }}</span></nav>
+      <h1 class="rec-num">US {{ pid }}</h1>
+      {% if title %}<p class="rec-title"><span data-user-content="true">{{ title }}</span></p>{% endif %}
+      {% if ident.line %}<p class="rec-ident">{{ ident.line }}</p>{% endif %}
+      {% if ident.assignees or ident.inventors or ident.cpc %}<dl class="facts">
+        {% if ident.assignees %}<dt>{% if ident.assignee_printed %}Assignee as printed{% else %}Assignee, PatentsView label{% endif %}</dt><dd><ul>{% for a in ident.assignees %}<li><span data-user-content="true">{% if a.printed %}{{ a.printed }}{% else %}{{ a.label }}{% endif %}</span>{% if a.place %}, {{ a.place }}{% endif %}{% if a.printed and a.label %} <span class="fact-note">&#183; PatentsView label: <span data-user-content="true">{{ a.label }}</span></span>{% endif %}</li>{% endfor %}{% if ident.assignees_more %}<li class="fact-note">and {{ ident.assignees_more }} more</li>{% endif %}</ul></dd>{% endif %}
+        {% if ident.inventors %}<dt>Inventors</dt><dd><span data-user-content="true">{{ ident.inventors|join:"; " }}</span>{% if ident.inventors_more %} <span class="fact-note">and {{ ident.inventors_more }} more</span>{% endif %}</dd>{% endif %}
+        {% if ident.cpc %}<dt>CPC, current</dt><dd class="mono">{{ ident.cpc|join:"; " }}{% if ident.cpc_more %} <span class="fact-note">and {{ ident.cpc_more }} more</span>{% endif %}</dd>{% endif %}
+      </dl>{% endif %}
+      {% if ident.abstract %}<h2 class="small" id="abstract">Abstract</h2>
+      <p class="serif"><span data-user-content="true">{{ ident.abstract }}</span></p>{% endif %}
     </div>
-    {% if rec.status == "expired_fee_nonpayment" %}<p>A petition under 37 CFR 1.378 has no fixed time limit; the record does not show whether one would be granted.</p>{% endif %}
+    <section class="claims-sec" aria-labelledby="claims">
+      <div class="claims-bar"><h2 id="claims">Claims</h2>{% if claims.state == "ok" %}<span class="claims-count">{{ claims.count }} claim{{ claims.count|pluralize }}{% if claims.independent %} &#183; {{ claims.independent }}{% endif %}</span>
+        <div class="view-toggle" role="group" aria-label="Claim view" hidden><button type="button" data-view="tree" aria-pressed="true">Tree</button><button type="button" data-view="printed" aria-pressed="false">As printed</button></div>{% endif %}</div>
+    {% if claims.state == "ok" %}
+      <p class="claims-note">The claims as the USPTO long-text file prints them (text data version {{ claims.text_data_version }}), split by PatentRef's claim parser (structure version {{ claims.structure_version }}): each claim's opening words, then one row for each element with its character offsets in the claim text, and the dependent claims under the claim they refer to. The split describes the text; it is not a reading of it. Each claim and each element has a link of its own. <a href="/docs/structure.html#links">How the links are made</a>.</p>
+      <div class="claims" id="claims-list" data-user-content="true" data-text-version="{{ claims.text_data_version }}" data-pid="{{ pid }}" data-permalink="{{ rec.permalink }}">
+{{ claims.html }}
+      </div>
+      <div class="printed" id="claims-printed" hidden><div data-user-content="true">
+{{ claims.printed }}
+      </div><p class="claims-note">The text of each claim as printed, for pasting a claim word for word. The links in the tree view name the same claims and elements.</p></div>
+    {% elif claims.state == "no_claims" %}
+      <p>The long-text file in service (text data version {{ claims.text_data_version }}) has no claims for this patent: it holds the claims of grants up to its last grant date.</p>
+    {% elif claims.state == "no_text_file" %}
+      <p>The claims are not on this page right now: no long-text file is in service.</p>
+    {% else %}
+      <p>The claims of this patent are not on this page right now.</p>
+    {% endif %}
+    </section>
+    <section aria-labelledby="status">
+      <h2 id="status">Status</h2>
+      <div class="status-card">
+        <p><span class="chip chip-{{ rec.status }}">{{ rec.status }}</span></p>
+        <p class="status">{{ rec.plain }}</p>
+        <dl>
+          <dt>Basis</dt><dd><span class="mono">{% for b in rec.basis %}{{ b }}{% if not forloop.last %} &#183; {% endif %}{% empty %}none{% endfor %}</span>{% if basis_text %} ({{ basis_text }}){% endif %}</dd>
+          <dt>Term end</dt><dd>{% if term_end %}{% if term_end.date %}<span class="mono">{{ term_end.date }}</span> <span class="pill">{{ term_end.label }}</span>{% if term_end.note %}<span class="row-note">{{ term_end.note }}</span>{% endif %}{% else %}{{ term_end.text }}{% endif %}{% elif term_end_text %}{{ term_end_text }}{% else %}{{ rec.expiry_date_estimated|default:"not derivable from this record" }}{% endif %}</dd>
+          <dt>Fee lapse</dt><dd>{% if fee_lapse %}{{ fee_lapse }}{% else %}{{ rec.lapse_date|default:"none on record" }}{% endif %}</dd>
+          <dt>Reinstatement</dt><dd>{{ rec.reinstated_date|default:"none on record" }}; <span class="mono">reinstatement_possible: {% if reinstatement_possible %}{{ reinstatement_possible }}{% else %}{{ rec.reinstatement_possible }}{% endif %}</span>, {{ rec.reinstatement_basis }}</dd>
+          <dt>As of</dt><dd class="mono">{{ rec.as_of }}</dd>
+          <dt>Data version</dt><dd class="mono">{{ rec.data_version }}{% if rec.catalog_data_version and rec.catalog_data_version != rec.data_version %} (fee data {{ rec.catalog_data_version }}){% endif %}</dd>
+        </dl>
+        {% if rec.status == "expired_fee_nonpayment" %}<p>A petition under 37 CFR 1.378 has no fixed time limit; the record does not show whether one would be granted.</p>{% endif %}
+        <p class="fact-note">A fact about the record with its basis and its as-of date, not legal advice.</p>
+      </div>
+    </section>
+    <section aria-labelledby="citations">
+      <h2 id="citations">Citations</h2>
+      <p class="cites">{% if ident.cited is not None %}References cited on the grant: <span class="mono">{{ ident.cited }}</span> US patent document{{ ident.cited|pluralize }} &#183; {% endif %}{% if ident.cited_by is not None %}Cited by: <span class="mono">{{ ident.cited_by }}</span> US patent{{ ident.cited_by|pluralize }} in this data &#183; {% endif %}Lists through the API: <a class="mono" href="/api/v1/patent/us_patent_citation/{{ pid }}/">/api/v1/patent/us_patent_citation/{{ pid }}/</a> (needs a free key, as the links under Get this as data)</p>
+    </section>
     {% if family %}
+    <section aria-labelledby="family">
     <h2 id="family">Family outside the US</h2>
     {% if family.members %}
     <p>Publications outside the US that Google Patents Public Datasets lists in the same patent family as US {{ pid }}{% if family.retrieved_at %} (read {{ family.retrieved_at }}){% endif %}. Their legal status is not shown here.</p>
@@ -62,46 +213,118 @@
       <thead><tr><th scope="col">Office</th><th scope="col">Number</th><th scope="col">Kind</th><th scope="col">Published</th></tr></thead>
       <tbody>{% for m in family.members %}<tr><td>{{ m.office }}</td><td>{{ m.number }}</td><td>{{ m.kind }}</td><td>{{ m.published|default:"" }}</td></tr>{% endfor %}</tbody>
     </table></div>
-    {% if family.more %}<p>The first 200 are shown.</p>{% endif %}
+    {% if family.more %}<p>200 of them are shown, in order of office and publication date.</p>{% endif %}
     {% else %}
     <p>Google Patents Public Datasets lists no publication outside the US in this patent's family{% if family.retrieved_at %} (read {{ family.retrieved_at }}){% endif %}.</p>
     {% endif %}
     {% if family.global_dossier_url %}<p><a href="{{ family.global_dossier_url }}">This patent's family on USPTO Global Dossier</a></p>{% endif %}
     <p class="credit">{{ family.credit }}</p>
+    </section>
     {% endif %}
-    <h2>Links</h2>
-    <ul>
-      {% if claims.state == "ok" %}<li><a href="#claims">The claims</a>, below on this page</li>
-      {% endif %}<li><a href="/api/v1/patent/{{ pid }}/">Full record through the API</a> (needs a free key)</li>
-      <li><a href="/api/v1/lapse/status/{{ pid }}/">This verdict as JSON</a> (needs a free key)</li>
-      <li><a href="/api/v1/structure/claims/{{ pid }}/">The claim tree as JSON</a> (needs a free key)</li>
-      <li><a href="/api/v1/structure/brief/{{ pid }}/">A short brief of this patent as JSON</a> (needs a free key)</li>
-      <li><a href="https://patentcenter.uspto.gov/applications?patentNumber={{ pid }}">USPTO Patent Center</a></li>
-      <li><a href="{{ rec.permalink }}">Permalink to this version</a></li>
-    </ul>
-    <p class="muted" id="key-note">The four API links answer JSON to a client that sends a free key in the X-Api-Key header. A click in a browser sends no key, so the API answers it with 403. <a href="/api/v1/meta/signup/">Get a free key</a>.</p>
-    <h2>Record</h2>
+    <details class="rec-json" id="json"><summary>Record JSON</summary>
     <pre>{{ status_json }}</pre>
-    <h2 id="claims">Claims</h2>
-    {% if claims.state == "ok" %}
-    <p>The claims as the USPTO long-text file prints them (text data version {{ claims.text_data_version }}), split into their parts by PatentRef's claim parser (structure version {{ claims.structure_version }}): each claim's text up to its first element, then one line for each element. Each claim and each element has a link of its own, made from the claim's number and, for an element, its place in the claim and its character offsets in the claim text, so a link stays the same as long as the data does. <a href="/docs/structure.html#links">How the links are made</a>.</p>
-    <div class="claims" id="claims-list" data-user-content="true" data-text-version="{{ claims.text_data_version }}">
-{{ claims.html }}
+    </details>
     </div>
-    {% elif claims.state == "no_claims" %}
-    <p>The long-text file in service (text data version {{ claims.text_data_version }}) has no claims for this patent: it holds the claims of grants up to its last grant date.</p>
-    {% elif claims.state == "no_text_file" %}
-    <p>The claims are not on this page right now: no long-text file is in service.</p>
-    {% else %}
-    <p>The claims of this patent are not on this page right now.</p>
-    {% endif %}
+    <div class="rec-rail">
+      <section class="rail-card" aria-labelledby="get-data">
+        <h2 id="get-data">Get this as data</h2>
+        <ul class="api-links">
+          <li><a href="/api/v1/patent/{{ pid }}/">Full record</a> <code>/api/v1/patent/{{ pid }}/</code></li>
+          <li><a href="/api/v1/lapse/status/{{ pid }}/">Status record</a> <code>/api/v1/lapse/status/{{ pid }}/</code></li>
+          <li><a href="/api/v1/structure/claims/{{ pid }}/">Claim tree</a> <code>/api/v1/structure/claims/{{ pid }}/</code></li>
+          <li><a href="/api/v1/structure/brief/{{ pid }}/">Brief</a> <code>/api/v1/structure/brief/{{ pid }}/</code></li>
+        </ul>
+        <p class="key-note" id="key-note">These four links need a free key{% if free_monthly %} ({{ free_monthly }} requests a month){% endif %}. Opened in a browser, which sends no key, they answer 403. <a href="/api/v1/meta/signup/">Get a free key</a> on the sign-up page, then send it in the X-Api-Key header. To see the shape of an answer without a key, open <a href="/try/">Try it</a>.</p>
+      </section>
+      <section class="rail-plain" aria-labelledby="elsewhere-h">
+        <h2 id="elsewhere-h">Elsewhere</h2>
+        <ul>{% for name, url in elsewhere %}<li><a href="{{ url }}">{{ name }}</a></li>{% empty %}<li><a href="https://patentcenter.uspto.gov/applications?patentNumber={{ pid }}">USPTO Patent Center</a></li>{% endfor %}</ul>
+      </section>
+      <section class="rail-card cite" id="cite" aria-labelledby="cite-h" data-pid="{{ pid }}" data-v="{{ rec.data_version }}" data-as-of="{{ rec.as_of }}" data-url="{{ rec.permalink }}" data-title="{{ title|default:'' }}">
+        <h2 id="cite-h">Cite this record</h2>
+        <p class="cite-url"><a href="{{ rec.permalink }}">{{ rec.permalink }}</a></p>
+        <p class="cite-meta">Data {{ rec.data_version }} &#183; as of {{ rec.as_of }}</p>
+        <div class="cite-btns" hidden><button class="small-btn" type="button" data-cite="url">Copy</button><button class="small-btn" type="button" data-cite="bibtex">BibTeX</button></div>
+        <div class="cite-out" id="cite-out" aria-live="polite"></div>
+      </section>
+    </div>
+    <nav class="onpage" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>{% if claims.state == "ok" %}<li><a href="#claims">Claims</a></li>{% endif %}<li><a href="#status">Status</a></li><li><a href="#citations">Citations</a></li>{% if family %}<li><a href="#family">Family</a></li>{% endif %}<li><a href="#json">Record JSON</a></li><li><a href="#get-data">Get this as data</a></li></ul>
+    </nav>
+    </div>
 {% endblock %}
-{% block footer_extra %}    <p>This page states what the USPTO record shows as of the date above, and the term end computed from the dates in it. It is not advice.</p>{% endblock %}
-{% block scripts %}{% if claims.state == "ok" %}{% comment %}A link to a claim or element anchor the page does not have (the data
-changed after the link was made) lands on the claim the anchor names, with a note; with no such claim, on the claims, with
-the note. The pattern is API/lapse_permalinks.ANCHOR_PATTERN (a test checks they are the same).{% endcomment %}  <script>
+{% block footer_extra %}    <p class="trust">Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}{% if claims.text_data_version %}; text data version {{ claims.text_data_version }}; claim trees by structure version {{ claims.structure_version }}{% endif %}. Build facts: <a href="/api/v1/meta/">/api/v1/meta/</a>. What changed: <a href="/changes.txt">/changes.txt</a>.</p>
+    <p>This page states what the USPTO record shows as of the date above, and the term end computed from the dates in it. It is not advice.</p>{% endblock %}
+{% block scripts %}{% comment %}One script, the same on every record page (its hash is in the page's Content-Security-Policy). Without it every
+claim shows in the tree, the dependent claims open by a click on their summary, and the toggle and the copy buttons stay
+hidden. A link to a claim or element anchor the page does not have (the data changed after the link was made) lands on the
+claim the anchor names, with a note; with no such claim, on the claims, with the note. The pattern is
+API/lapse_permalinks.ANCHOR_PATTERN (a test checks they are the same).{% endcomment %}  <script>
   (function () {
     var box = document.getElementById("claims-list");
+    var printed = document.getElementById("claims-printed");
+    var toggle = document.querySelector(".view-toggle");
+    var out = document.getElementById("cite-out");
+    function say(text, block) {
+      if (!out) { return; }
+      out.textContent = "";
+      var p = document.createElement(block ? "pre" : "p");
+      p.textContent = text;
+      out.appendChild(p);
+    }
+    function copy(text, done) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { say(done); }, function () { say(text, true); });
+      } else { say(text, true); }
+    }
+    function show(view) {
+      if (!box || !printed || !toggle) { return; }
+      box.hidden = view !== "tree";
+      printed.hidden = view === "tree";
+      var bs = toggle.querySelectorAll("button");
+      for (var i = 0; i < bs.length; i++) { bs[i].setAttribute("aria-pressed", bs[i].getAttribute("data-view") === view ? "true" : "false"); }
+    }
+    function openTo(el) {
+      for (var p = el.parentNode; p; p = p.parentNode) { if (p.tagName === "DETAILS" && !p.open) { p.open = true; } }
+    }
+    if (toggle && box && printed) {
+      toggle.hidden = false;
+      toggle.addEventListener("click", function (ev) {
+        var b = ev.target.closest ? ev.target.closest("button") : null;
+        if (b) { show(b.getAttribute("data-view")); }
+      });
+    }
+    if (box) {
+      var bs = box.querySelectorAll(".el-copy");
+      for (var i = 0; i < bs.length; i++) {
+        bs[i].hidden = false;
+        bs[i].addEventListener("click", function (ev) {
+          var li = ev.currentTarget.parentNode;
+          var m = /^c([0-9]+)(?:-s[0-9]+)?-e([0-9]+)-([0-9]+)-([0-9]+)$/.exec(li.id);
+          if (!m) { return; }
+          var text = li.querySelector(".el-text").textContent;
+          var url = (box.getAttribute("data-permalink") || location.href.split("#")[0]) + "#" + li.id;
+          copy("US " + box.getAttribute("data-pid") + ", claim " + m[1] + ", element " + m[2] + ", characters " + m[3] + " to " + m[4] +
+               " of the claim text (text data version " + box.getAttribute("data-text-version") + "): " + text + "\n" + url,
+               "Copied claim " + m[1] + ", element " + m[2] + " with its position.");
+        });
+      }
+    }
+    var cite = document.getElementById("cite");
+    if (cite) {
+      var btns = cite.querySelector(".cite-btns");
+      btns.hidden = false;
+      btns.addEventListener("click", function (ev) {
+        var b = ev.target.closest ? ev.target.closest("button") : null;
+        if (!b) { return; }
+        var url = cite.getAttribute("data-url"), pid = cite.getAttribute("data-pid");
+        if (b.getAttribute("data-cite") === "url") { copy(url, "Copied the link to this version of the record."); return; }
+        var t = (cite.getAttribute("data-title") || "").replace(/[{}]/g, "");
+        copy("@misc{patentref_us" + pid.toLowerCase() + ",\n  title = {US " + pid + (t ? ": " + t : "") + "},\n  howpublished = {PatentRef record, data version " +
+             cite.getAttribute("data-v") + ", as of " + cite.getAttribute("data-as-of") + "},\n  url = {" + url + "}\n}", "Copied a BibTeX entry for this record.");
+      });
+    }
     if (!box) { return; }
     var form = /^c([0-9]+)(?:-s([0-9]+))?(?:-e([0-9]+)-([0-9]+)-([0-9]+))?$/;
     function land() {
@@ -109,9 +332,15 @@ the note. The pattern is API/lapse_permalinks.ANCHOR_PATTERN (a test checks they
       if (old) { old.parentNode.removeChild(old); }
       var id = location.hash.slice(1);
       try { id = decodeURIComponent(id); } catch (e) { return; }
-      if (!id || document.getElementById(id)) { return; }
+      if (!id) { return; }
+      var hit = document.getElementById(id);
+      if (hit) {
+        if (box.contains(hit)) { show("tree"); openTo(hit); hit.scrollIntoView(); }
+        return;
+      }
       var m = form.exec(id);
       if (!m) { return; }
+      show("tree");
       var claim = document.getElementById("c" + m[1] + (m[2] ? "-s" + m[2] : "")) || document.getElementById("c" + m[1]);
       var tv = box.getAttribute("data-text-version");
       var note = document.createElement("p");
@@ -120,6 +349,7 @@ the note. The pattern is API/lapse_permalinks.ANCHOR_PATTERN (a test checks they
       note.setAttribute("role", "status");
       note.tabIndex = -1;
       if (claim) {
+        openTo(claim);
         note.textContent = "The part of claim " + m[1] + " this link names is not on this page now (the claims here are as split from text data version " + tv + "). Claim " + m[1] + " is shown in full below.";
         claim.insertBefore(note, claim.children[1] || null);
         claim.scrollIntoView();
@@ -134,4 +364,4 @@ the note. The pattern is API/lapse_permalinks.ANCHOR_PATTERN (a test checks they
     land();
   })();
   </script>
-{% endif %}{% endblock %}
+{% endblock %}

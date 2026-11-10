@@ -422,18 +422,23 @@ def test_the_status_page_names_the_alert_and_explains_refused_requests(client, m
 # ---------------------------------------------------------------- the record page's key note
 
 def test_the_record_page_says_its_api_links_need_a_free_key():
+    """Release AD (the re-skin of 2026-11-05 and the coordinator's item of 2026-11-10): the four API links stay, in the rail's Get this
+    as data box, and the note beside them says plainly that they need a free key, that a browser (no key) gets 403, and where
+    to get one, so a 403 is never the visitor's surprise."""
     rec = {"plain": "As of 2026-10-27, a sentence (data version 20261027.2).", "status": "active", "basis": ["term_20y"],
            "permalink": "https://patentref.io/p/12514139?v=20261027.2", "as_of": "2026-10-27", "data_version": "20261027.2",
            "reinstatement_possible": False, "reinstatement_basis": "none"}
     h = render_to_string("lapse_accounts/record.html", {"rec": rec, "pid": "12514139", "title": None, "superseded": None,
                                                         "data_version": "20261027.2", "as_of": "2026-10-27", "footer_lines": ["x"],
                                                         "family": None, "basis_text": "", "term_end_text": "", "status_json": "{}",
-                                                        "claims": {"state": "no_text_file"}})
-    for path, words in (("/api/v1/patent/12514139/", "Full record through the API"), ("/api/v1/lapse/status/12514139/", "This verdict as JSON"),
-                        ("/api/v1/structure/claims/12514139/", "The claim tree as JSON"),
-                        ("/api/v1/structure/brief/12514139/", "A short brief of this patent as JSON")):
-        assert f'<li><a href="{path}">{words}</a> (needs a free key)</li>' in h, path
-    assert h.count("(needs a free key)") == 4 and "(key required)" not in h
-    assert ('<p class="muted" id="key-note">The four API links answer JSON to a client that sends a free key in the X-Api-Key header. '
-            'A click in a browser sends no key, so the API answers it with 403. <a href="/api/v1/meta/signup/">Get a free key</a>.</p>') in h
-    assert not lapse_wording.check_banned(h) and not AD_WORDS.search(visible(h.split("<h2>Links</h2>", 1)[1].split("<h2>Record</h2>", 1)[0]))
+                                                        "claims": {"state": "no_text_file"}, "free_monthly": "1,000"})
+    box = h.split('<h2 id="get-data">Get this as data</h2>', 1)[1].split("</section>", 1)[0]
+    for path, words in (("/api/v1/patent/12514139/", "Full record"), ("/api/v1/lapse/status/12514139/", "Status record"),
+                        ("/api/v1/structure/claims/12514139/", "Claim tree"), ("/api/v1/structure/brief/12514139/", "Brief")):
+        assert f'<li><a href="{path}">{words}</a> <code>{path}</code></li>' in box, path
+    assert ('<p class="key-note" id="key-note">These four links need a free key (1,000 requests a month). Opened in a browser, which '
+            'sends no key, they answer 403. <a href="/api/v1/meta/signup/">Get a free key</a> on the sign-up page, then send it in the '
+            'X-Api-Key header. To see the shape of an answer without a key, open <a href="/try/">Try it</a>.</p>') in box
+    assert box.index("</ul>") < box.index('id="key-note"')   # the note right under the links, in the same box
+    assert h.count('id="key-note"') == 1 and "(key required)" not in h
+    assert not lapse_wording.check_banned(h) and not AD_WORDS.search(visible(box))

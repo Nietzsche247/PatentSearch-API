@@ -157,46 +157,167 @@ def dependency_text(claim):
     return "Depends on claims " + ", ".join(str(d) for d in deps[:-1]) + f" and {deps[-1]}."
 
 
+def tree_of(graph):
+    """The record page's claim tree (release AD, the re-skin of 2026-11-05): [(independent claim, [(dependent, depth), ...]),
+    ...] in claim order, each dependent under the independent claim its dependency chain reaches (by its first claim
+    reference at each step), in claim order, with its depth (1: it refers to the independent claim itself). A claim whose
+    chain reaches no independent claim on the page (a reference to a number the data does not have, or a loop) stands at the
+    top as a group of its own, with its dependency line."""
+    claims = graph["claims"]
+    by_num = {}
+    for c in claims:
+        by_num.setdefault(c["number"], c)
+
+    def root(c):
+        seen, depth, cur = set(), 0, c
+        while (cur.get("depends_on") or []) and not cur.get("independent"):
+            if id(cur) in seen:
+                return None, 0
+            seen.add(id(cur))
+            nxt = by_num.get(cur["depends_on"][0])
+            if nxt is None or nxt is cur:
+                return None, 0
+            cur, depth = nxt, depth + 1
+        return cur, depth
+
+    groups, index = [], {}
+    for c in claims:
+        r, depth = (c, 0) if (c.get("independent") or not (c.get("depends_on") or [])) else root(c)
+        if r is c or r is None:
+            index[id(c)] = len(groups)
+            groups.append((c, []))
+            continue
+        if id(r) not in index:   # an independent claim that comes after its dependent in the data: its group starts there
+            index[id(r)] = len(groups)
+            groups.append((r, []))
+        groups[index[id(r)]][1].append((c, depth))
+    seen_top, out = set(), []
+    for top, deps in groups:   # a root reached before its own place in the data is listed once, where its group began
+        if id(top) in seen_top:
+            continue
+        seen_top.add(id(top))
+        out.append((top, deps))
+    return out
+
+
+def _numbers_text(nums):
+    """2 to 9; 2, 4 and 7; 2, 3, 5 to 9 and 21: runs of three or more as a span, the rest listed."""
+    nums = sorted(set(nums))
+    pieces, i = [], 0
+    while i < len(nums):
+        j = i
+        while j + 1 < len(nums) and nums[j + 1] == nums[j] + 1:
+            j += 1
+        if j - i >= 2:
+            pieces.append(f"{nums[i]} to {nums[j]}")
+        else:
+            pieces.extend(str(n) for n in nums[i:j + 1])
+        i = j + 1
+    return pieces[0] if len(pieces) == 1 else ", ".join(pieces[:-1]) + " and " + pieces[-1]
+
+
+def deps_summary(top, deps):
+    """The line that opens a claim's dependents: "8 dependent claims: 2 to 9 (2, 4, 6, 7, 9 on claim 1; 3 on 2; 5 on 4; 8
+    on 7)". The parenthesis groups them by the claims they refer to, the claim at the top first; it is left out past six
+    groups, where the nested claims say it better."""
+    n = len(deps)
+    head = f"{n} dependent claim{'s' if n != 1 else ''}: {_numbers_text([c['number'] for c, _ in deps])}"
+    groups = {}
+    for c, _ in deps:
+        groups.setdefault(tuple(c.get("depends_on") or []), []).append(c["number"])
+    order = sorted(groups, key=lambda k: (k != (top["number"],), k))
+    if not order or len(order) > 6:
+        return head
+    bits = []
+    for i, k in enumerate(order):
+        targets = str(k[0]) if len(k) == 1 else ", ".join(str(t) for t in k[:-1]) + " and " + str(k[-1])
+        word = ("claims " if len(k) > 1 else "claim ") if i == 0 else ""
+        bits.append(", ".join(str(x) for x in groups[k]) + f" on {word}{targets}")
+    return f"{head} ({'; '.join(bits)})"
+
+
+def _claim_html(c, depth, copy):
+    """One claim: its heading row, its text up to its first element (.claim-lead, the claim number in it as printed), and one
+    row per element (.el-line, the element itself in .el-text, its trailing separator in .el-sep), with the element's link,
+    its offsets and, on an independent claim, a copy button the page script shows. lead and every .el-line, joined, are the
+    claim text exactly."""
+    e = html.escape
+    a = e(claim_anchor(c))
+    n = c["number"]
+    lead, lines = layout(c)
+    head = f"Claim {n}" + (" (this number appears more than once in the data)" if "-s" in a else "")
+    tag = "div"   # every claim a div.claim with its anchor as id (an outside checker of the claim text reads these hooks)
+    cls = "claim top" if depth == 0 else f"claim dep d{min(depth, 4)}"
+    parts = [f'<{tag} class="{cls}" id="{a}"><div class="claim-head"><h3><a href="#{a}">{e(head)}</a></h3>'
+             f'<p class="claim-dep">{e(dependency_text(c))}</p><span class="claim-id" aria-hidden="true">#{a}</span></div>']
+    if lead:
+        body = int(c.get("body_start") or 0)
+        no = lead[:body] if 0 < body <= len(lead) and lead[:body].strip().rstrip(".").isdigit() else ""
+        num = '<span class="claim-no">' + e(no) + "</span>" if no else ""
+        parts.append('<p class="claim-lead">' + num + e(lead[len(no):]) + "</p>")
+    if lines:
+        parts.append('<ol class="claim-els">')
+        for ln in lines:
+            x = e(ln["anchor"])
+            m = ANCHOR_RE.match(ln["anchor"])
+            off = f"{m.group(4)}–{m.group(5)}" if m and m.group(4) else ""
+            btn = (f'<button class="el-copy" type="button" hidden aria-label="Copy claim {n}, element {e(ln["k"])} with its position">'
+                   f"Copy with position</button>") if copy else ""
+            parts.append(f'<li id="{x}"><a class="el-link" href="#{x}"><span class="vh">Claim {n}, element </span>e{e(ln["k"])}</a>'
+                         f'<span class="el-line">{e(ln["head"])}<span class="el-text">{e(ln["text"])}</span>'
+                         f'<span class="el-sep">{e(ln["tail"])}</span></span><span class="el-off">{off}</span>{btn}</li>')
+        parts.append("</ol>")
+    return parts, tag
+
+
 def render_claims(graph):
-    """The claims as HTML for the record page, one line of HTML a claim, in claim order. Every text from the claim tree
-    goes through html.escape; every claim and element gets its anchor as its id. Inside a claim the only text is the
-    heading, the dependency line, the link numbers and the claim text itself (.claim-lead and each .el-line), so the claim
-    text reads back from the page exactly."""
+    """The claims as HTML for the record page, as a tree (release AD, the re-skin of 2026-11-05): each independent claim in
+    a box of its own (div.claim.top), its dependent claims under it in a collapsed details element (its summary names them and the
+    claims they refer to), each dependent indented by its depth in the chain. Every text from the claim tree goes through
+    html.escape; every claim and element gets its anchor as its id. Inside a claim the only text is the heading, the
+    dependency line, the anchor, the link labels, the offsets, the copy button and the claim text itself (.claim-lead and
+    each .el-line), so the claim text reads back from the page exactly."""
     e = html.escape
     out = []
-    for c in graph["claims"]:
-        a = e(claim_anchor(c))
-        n = c["number"]
-        lead, lines = layout(c)
-        head = f"Claim {n}" + (" (this number appears more than once in the data)" if "-s" in a else "")
-        parts = [f'<div class="claim" id="{a}"><h3><a href="#{a}">{e(head)}</a></h3>',
-                 f'<p class="claim-dep">{e(dependency_text(c))}</p>']
-        if lead:
-            parts.append(f'<p class="claim-lead">{e(lead)}</p>')
-        if lines:
-            parts.append('<ol class="claim-els">')
-            for ln in lines:
-                x = e(ln["anchor"])
-                parts.append(f'<li id="{x}"><a class="el-link" href="#{x}"><span class="vh">Claim {n}, element </span>{e(ln["k"])}</a>'
-                             f'<span class="el-line">{e(ln["head"])}<span class="el-text">{e(ln["text"])}</span>{e(ln["tail"])}</span></li>')
-            parts.append("</ol>")
-        parts.append("</div>")
+    for top, deps in tree_of(graph):
+        parts, tag = _claim_html(top, 0, copy=True)
+        if deps:
+            parts.append(f'<details class="deps"><summary>{e(deps_summary(top, deps))}</summary><div class="deps-list">')
+            for c, depth in deps:
+                sub, subtag = _claim_html(c, depth, copy=False)
+                parts.extend(sub)
+                parts.append(f"</{subtag}>")
+            parts.append("</div></details>")
+        parts.append(f"</{tag}>")
         out.append("".join(parts))
     return "\n".join(out)
 
 
+def render_printed(graph):
+    """The claims as printed, for the page's As printed view: one paragraph a claim, its text as the long-text file prints it
+    (the claim number included), escaped. No ids: the anchors are the tree's, and the page script shows the tree when a
+    link names one."""
+    e = html.escape
+    return "\n".join(f'<p class="cp">{e(c["text"])}</p>' for c in graph["claims"])
+
+
 def page_claims(searcher, pid):
-    """The record page's claims section: {"state", "html", "count", "text_data_version", "structure_version"}, state ok,
-    no_text_file, no_claims or not_shown. Never raises: the record page stays as it was when its claims cannot be shown."""
-    out = {"state": "not_shown", "html": "", "count": 0, "text_data_version": None, "structure_version": cg.STRUCTURE_VERSION}
+    """The record page's claims section: {"state", "html", "printed", "count", "independent", "text_data_version",
+    "structure_version"}, state ok, no_text_file, no_claims or not_shown. Never raises: the record page stays as it was
+    when its claims cannot be shown."""
+    out = {"state": "not_shown", "html": "", "printed": "", "count": 0, "independent": "", "text_data_version": None,
+           "structure_version": cg.STRUCTURE_VERSION}
     try:
         tree = graph_for(searcher, pid)
         out["text_data_version"] = searcher.text_data_version()
         out["state"] = PAGE_STATES.get(tree.state, "not_shown")
         if tree.state == OK:
             out["html"] = mark_safe(render_claims(tree.graph))  # every text in it went through html.escape
+            out["printed"] = mark_safe(render_printed(tree.graph))
             out["count"] = len(tree.graph["claims"])
+            ind = [top["number"] for top, _ in tree_of(tree.graph) if top.get("independent") or not top.get("depends_on")]
+            out["independent"] = ("independent " + _numbers_text(ind)) if ind else ""
     except Exception:  # noqa: BLE001  (a claim set the page cannot lay out must not take the record down)
         logger.exception("record page %s: the claims are not shown", pid)
-        out.update(state="not_shown", html="", count=0)
+        out.update(state="not_shown", html="", printed="", count=0, independent="")
     return out

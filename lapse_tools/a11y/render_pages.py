@@ -19,6 +19,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.template.loader import render_to_string
 from django.test import Client
+from django.utils.safestring import mark_safe
 
 # importing the tests conftest sets the test environment and calls django.setup()
 from lapse_accounts.tests import conftest
@@ -99,10 +100,31 @@ def main(out, repo=None):
                           {"office": "GB", "number": "2058000", "kind": "A", "published": "1981-04-08"}],
               "global_dossier_url": "https://globaldossier.uspto.gov/result/application/US/06060492/1",
               "credit": "Family data from Google Patents Public Datasets.", "retrieved_at": "2026-10-15", "more": False}
+    # release AD (the re-skin of 2026-11-05): the identity block, the claims as a tree (an independent claim with dependents
+    # three deep, a second independent claim) and the As printed view, the status card's term-end row, the rail
+    from API import lapse_claimgraph, lapse_permalinks, lapse_record, lapse_wording
+
+    rows = [lapse_claimgraph.ClaimRow("4310730", "0", "1. A lamp comprising: a base having a socket; a shade carried by the base; and a "
+                                      "switch electrically connected to the socket, the switch having a pull chain.", "", "1"),
+            lapse_claimgraph.ClaimRow("4310730", "1", "2. The lamp of claim 1, wherein the shade is glass.", "claim 1", "2"),
+            lapse_claimgraph.ClaimRow("4310730", "2", "3. The lamp of claim 2, wherein the glass is frosted.", "claim 2", "3"),
+            lapse_claimgraph.ClaimRow("4310730", "3", "4. The lamp of claim 3, wherein the frosting is on an inner face of the glass.", "claim 3", "4"),
+            lapse_claimgraph.ClaimRow("4310730", "4", "5. A method of making a lamp, comprising: forming a base; and fixing a shade to the base.", "", "5"),
+            lapse_claimgraph.ClaimRow("4310730", "5", "6. The method of claim 5, further comprising: wiring a switch.", "claim 5", "6")]
+    g = json.loads(json.dumps(lapse_claimgraph.build_patent("4310730", rows)))
+    claims = {"state": "ok", "html": mark_safe(lapse_permalinks.render_claims(g)), "printed": mark_safe(lapse_permalinks.render_printed(g)),
+              "count": 6, "independent": "independent 1 and 5", "text_data_version": "20261013.3", "structure_version": "2"}
+    ident = {"line": "Granted 1982-01-12 \u00b7 Filed 1980-06-09 \u00b7 Application 06/158,000 \u00b7 Utility \u00b7 Kind A",
+             "assignees": [{"printed": "Example Lamp Company", "place": "Springfield, IL (US)", "label": "EXAMPLE LAMP CO"}],
+             "assignee_printed": True, "inventors": ["Ann Example, Springfield, IL (US)"], "cpc": ["F21V3/04", "F21V23/04"],
+             "abstract": "A lamp with a base, a shade and a pull-chain switch.", "cited": 8, "cited_by": 3}
     html = render_to_string("lapse_accounts/record.html", {
         "rec": rec, "pid": "4310730", "title": "Example title as printed", "superseded": {"requested": "20261006.4", "current": "20261013.3"},
         "data_version": "20261013.3", "as_of": "2026-10-13", "footer_lines": public.footer_lines() + [family["credit"]],
         "family": family, "basis_text": "20 years from the filing date", "term_end_text": "",
+        "term_end": {"date": "1999-01-12", "label": lapse_wording.TERM_END_LABEL, "note": lapse_wording.TERM_END_NOTES["undated_disclaimer"], "text": ""},
+        "fee_lapse": "none on record", "reinstatement_possible": "false", "claims": claims, "ident": ident,
+        "elsewhere": lapse_record.elsewhere("4310730", family), "free_monthly": "1,000",
         # the record as JSON, built as the view builds it: its long lines are what a 320 px screen has to wrap
         "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1)})
     (out / "record.html").write_text(html, encoding="utf-8")
