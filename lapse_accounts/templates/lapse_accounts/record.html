@@ -128,7 +128,6 @@
     .trust { font-size: 13px; }
     .cites { overflow-wrap: anywhere; }
     @media (max-width: 719px) {
-      html { scroll-padding-bottom: 72px; }
       dl { grid-template-columns: 1fr; gap: 0 var(--s-3); }
       dd { margin-bottom: var(--s-2); }
       .rec-title { font-size: 24px; }
@@ -141,8 +140,9 @@
       details.deps { margin-left: 0; }
       .claim.d2 { margin-left: 10px; } .claim.d3 { margin-left: 20px; } .claim.d4 { margin-left: 30px; }
       .claim-id { margin-left: 0; }
-      .onpage { position: sticky; bottom: 0; z-index: 1; background: var(--bg); border-top: 1px solid var(--border); padding: var(--s-1) 0; }
-      .onpage h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      {% comment %}The phone note's sticky bottom bar is left out: a bar over the page covers the links under it (axe
+      target-size, serious, at 320 px; WCAG 2.4.11), so On this page is a row of links after the rail.{% endcomment %}
+      .onpage { border-top: 1px solid var(--border); padding-top: var(--s-2); }
       .onpage ul { flex-direction: row; flex-wrap: wrap; gap: 0 var(--s-3); }
       .onpage a { padding: 6px 0; min-height: 24px; }
     }
