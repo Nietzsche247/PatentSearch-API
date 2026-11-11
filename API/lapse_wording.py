@@ -43,16 +43,22 @@ NEEDS_EXPIRY_DATE = ("active", "expired_term")
 ACTIVE_UNDATED_DISCLAIMER = "As of {as_of}, the USPTO record for US {id} shows no unresolved maintenance-fee lapse{reinstated_text}, and the term end computed from the dates in that record, leaving out a terminal disclaimer it shows without a date, is {expiry_date} ({basis_text}), a date not yet passed; that disclaimer can only make the term end earlier (data version {v})."
 # the basis clause of a dated terminal disclaimer that set the date: the rule the other dates give follows it, as a bound
 DISCLAIMER_SET = "the date a terminal disclaimer on record sets, no later than {rule}"
-# the record page's Basis row gloss of an undated terminal disclaimer (any status), and of a dated one whose date is later
+# the record page's Basis row gloss of an undated terminal disclaimer (any status), of a dated one whose date is after the
+# term end computed from the other dates, and (the audit of 2026-11-11, W1) of a dated one the computation does not use for
+# another reason: its date is on or before the grant date, the record has no grant date, or no term end is computed
 DISCLAIMER_UNDATED_GLOSS = "a terminal disclaimer on record without a date, which can only make the term end earlier than the date computed from the other dates"
 DISCLAIMER_LATER_GLOSS = "a terminal disclaimer on record dated {date}, later than the date computed from the other dates"
+DISCLAIMER_UNUSED_GLOSS = "a terminal disclaimer on record dated {date}, which this computation does not use"
 # The record page's term-end row (the re-skin of 2026-11-05: the date, then the label "Computed from the dates in the USPTO
-# record"), with one note where the date alone would read against the rest of the page.
+# record"), with one note where the date alone would read against the rest of the page. A date from the USPTO 35 USC 156
+# list carries its own label (the audit of 2026-11-11, W2).
 TERM_END_LABEL = "Computed from the dates in the USPTO record"
+TERM_END_LABEL_156 = "From the dates on the USPTO list of patent terms extended under 35 USC 156"
 TERM_END_NOTES = {
     "undated_disclaimer": "This date leaves out a terminal disclaimer on record that has no date; that disclaimer can only make the term end earlier.",
     "disclaimer_set": "A terminal disclaimer on record sets this date.",
-    "fee_lapse": "The maintenance-fee entry dated {lapse_date} records an expiry for nonpayment; the grace period of the unpaid fee ran out on or before this date.",
+    "disclaimer_unused": "This date does not use a terminal disclaimer on record dated {date}.",
+    "fee_lapse": "The maintenance-fee entry dated {lapse_date} records an expiry for nonpayment; the date in this row is computed without the maintenance-fee record.",
 }
 # the record page's fee-lapse row when a reinstatement ended the lapse
 FEE_LAPSE_REINSTATED = "{lapse_date}, ended by a reinstatement dated {reinstated_date}"
@@ -214,18 +220,35 @@ def basis_text(basis, record=None, sentence=False):
                          f"{pte_original_text(row)} plus {row['period']}" if row.get("period")
                          else f"on the USPTO list of patent terms extended under 35 USC 156: {b[8:]} days of extension")
     if "terminal_disclaimer" in basis and not listed and not sentence:
-        # the Basis row glosses the disclaimer: a dated one that did not set the date (its date is later) by its date; an
-        # undated one by what it can do. The sentence names an undated one outside the parenthesis (active only,
-        # ACTIVE_UNDATED_DISCLAIMER), since it cannot change a date that has passed.
+        # the Basis row glosses the disclaimer: a dated one that did not set the date by its date, as later than the computed
+        # date only when it is (disclaimer_later), else as not used; an undated one by what it can do. The sentence names an
+        # undated one outside the parenthesis (active only, ACTIVE_UNDATED_DISCLAIMER), since it cannot change a date that has
+        # passed.
         dated = record.get("disclaimer_dated")
-        parts.append(DISCLAIMER_LATER_GLOSS.format(date=dated) if dated else DISCLAIMER_UNDATED_GLOSS)
+        if not dated:
+            parts.append(DISCLAIMER_UNDATED_GLOSS)
+        elif disclaimer_later(record):
+            parts.append(DISCLAIMER_LATER_GLOSS.format(date=dated))
+        else:
+            parts.append(DISCLAIMER_UNUSED_GLOSS.format(date=dated))
     return ", ".join(parts) if parts else "term rule"
+
+
+def disclaimer_later(record):
+    """True when the record shows a dated terminal disclaimer the date does not use (disclaimer_dated, the fork's wording-only
+    key from lapse_group.record_for) whose date is after the term end computed from the other dates; False when its date is
+    on or before the grant date, the record has no grant date, no term end is computed, or the date is the 35 USC 156
+    list's (the audit of 2026-11-11, W1)."""
+    record = record or {}
+    dated, end = record.get("disclaimer_dated"), record.get("expiry_date_estimated")
+    listed = any(b.startswith("pte_156:") for b in (record.get("basis") or []))
+    return bool(dated and end and not listed and not record.get("pte_156") and str(dated) > str(end))
 
 
 def undated_disclaimer(record):
     """True when the record shows a terminal disclaimer with no date (so the date is computed without it) and the date is
-    the record's own, not the 35 USC 156 list's. A dated disclaimer either set the date (disclaimer_applied) or has a later
-    date (disclaimer_dated, the fork's wording-only key from lapse_group.record_for) and changes nothing."""
+    the record's own, not the 35 USC 156 list's. A dated disclaimer either set the date (disclaimer_applied) or is one the
+    date does not use (disclaimer_dated, the fork's wording-only key from lapse_group.record_for) and changes nothing."""
     record = record or {}
     basis = record.get("basis") or []
     return ("terminal_disclaimer" in basis and not record.get("disclaimer_applied") and not record.get("disclaimer_dated")
@@ -236,8 +259,8 @@ def term_end_row(rec, record):
     """The record page's term-end row: {"date", "label", "note", "text"}. `rec` is the served record (expiry_date_estimated,
     status, lapse_date), `record` the engine's (expiry.expiry_record output, with the wording-only keys). "text" is the row's
     words when there is no date (term_end_text, or "not derivable from this record"); "note" is the one sentence the row adds
-    where the date alone would read against the rest of the page: a disclaimer it leaves out or that set it, or a fee lapse
-    whose grace period ran out on or before it."""
+    where the date alone would read against the rest of the page: a disclaimer it leaves out, does not use or that set it, or
+    a fee lapse. "label" names where the date comes from: the record's dates, or the 35 USC 156 list."""
     rec, record = rec or {}, record or {}
     date = rec.get("expiry_date_estimated")
     if not date:
@@ -249,7 +272,11 @@ def term_end_row(rec, record):
         note = TERM_END_NOTES["disclaimer_set"]
     elif undated_disclaimer(record):
         note = TERM_END_NOTES["undated_disclaimer"]
-    return {"date": date, "label": TERM_END_LABEL, "note": note, "text": ""}
+    elif (record.get("disclaimer_dated") and "terminal_disclaimer" in (record.get("basis") or []) and not record.get("pte_156")
+          and not disclaimer_later(record)):
+        note = TERM_END_NOTES["disclaimer_unused"].format(date=record["disclaimer_dated"])
+    label = TERM_END_LABEL_156 if record.get("pte_156") else TERM_END_LABEL
+    return {"date": date, "label": label, "note": note, "text": ""}
 
 
 def fee_lapse_row(rec):

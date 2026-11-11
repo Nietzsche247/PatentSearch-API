@@ -308,8 +308,9 @@ def record_for(expiry, cat, pid, d):
     if d.get("pte_reissue"):
         rec["pte_reissue"] = d["pte_reissue"]  # wording only (review 2): the listed reissue of this patent, never in an answer
     if flags.get("disclaimer_date") and not rec.get("disclaimer_applied"):
-        # wording only (release AD): a dated terminal disclaimer whose date is later than the computed term end, so the
-        # sentence does not call it undated and the Basis row gives its date; never in an answer
+        # wording only (release AD): a dated terminal disclaimer the computed date does not use (its date is after that
+        # date, on or before the grant date, or there is no grant date or no computed date; lapse_wording.disclaimer_later
+        # tells them apart), so the sentence does not call it undated and the Basis row gives its date; never in an answer
         rec["disclaimer_dated"] = str(flags["disclaimer_date"])
     return rec
 
