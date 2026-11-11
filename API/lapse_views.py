@@ -270,7 +270,7 @@ class RecordPage(APIView):
 
         claims = lapse_permalinks.page_claims(searcher, pid)  # the claims with a link to each claim and element (gate S0.4)
         from API import lapse_record
-        from lapse_accounts import metering
+        from lapse_accounts import metering, previews
         from lapse_accounts.triage_page import csp_for
 
         monthly, _per_minute = metering.plan_limits(metering.PLAN_FREE)
@@ -293,6 +293,7 @@ class RecordPage(APIView):
             "status_json": json.dumps({k: v for k, v in rec.items() if k != "plain"}, indent=1),
             "claims": claims, "ident": lapse_record.identity(searcher, pid),
             "elsewhere": lapse_record.elsewhere(pid, fam), "free_monthly": f"{monthly:,}" if monthly else "",
+            "preview": previews.record_page(pid, title),   # release AE: the link preview (our text, a static card)
         })
         bad = lapse_wording.check_banned(lapse_record.own_text(html))   # all the page's own words, none of the patent's
         if bad:

@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}PatentRef{% endblock %} | PatentRef</title>
-  {% block head %}{% endblock %}
+  {% block head %}{% endblock %}{% if preview %}
+{% include "lapse_accounts/_preview.html" %}{% endif %}
   <style>
 {% include "lapse_accounts/_tokens.css" %}
 {% include "lapse_accounts/_base.css" %}

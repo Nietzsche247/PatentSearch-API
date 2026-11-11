@@ -156,6 +156,11 @@ def error_docs(request, code=""):
         version, as_of = _data_version()
         ctx = {"code": code, "text": ERROR_CODES.get(code, ""), "unknown": status == 404, "codes": list(ERROR_CODES.items()),
                "note": ERROR_INDEX_NOTE, "data_version": version, "as_of": as_of, "footer_lines": footer_lines()}
+        if status == 200:   # release AE: the link preview (none on the noindex page of an unknown code)
+            from lapse_accounts import previews
+
+            ctx["preview"] = previews.site_page(f"API error code {code}" if code else "API error codes", previews.error_description(code),
+                                                f"/docs/errors/{code}")
         resp = HttpResponse(render_to_string("lapse_accounts/errors.html", ctx), status=status, content_type="text/html; charset=utf-8")
     else:
         resp = HttpResponse(body, status=status, content_type="text/plain; charset=utf-8")

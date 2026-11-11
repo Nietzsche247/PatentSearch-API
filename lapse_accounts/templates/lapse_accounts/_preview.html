@@ -1,0 +1,16 @@
+{% comment %}Link previews (release AE, lapse_accounts/previews.py): Open Graph and Twitter card tags from the view's preview dict.
+Our own text, the page's address, and a static card under https://patentref.io/og/; nothing else is loaded.{% endcomment %}  <meta property="og:type" content="{{ preview.type }}">
+  <meta property="og:site_name" content="PatentRef">
+  <meta property="og:title" content="{{ preview.title }}">
+  <meta property="og:description" content="{{ preview.description }}">
+  <meta property="og:url" content="{{ preview.url }}">
+  <meta property="og:image" content="{{ preview.image }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="{{ preview.width }}">
+  <meta property="og:image:height" content="{{ preview.height }}">
+  <meta property="og:image:alt" content="{{ preview.alt }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ preview.title }}">
+  <meta name="twitter:description" content="{{ preview.description }}">
+  <meta name="twitter:image" content="{{ preview.image }}">
+  <meta name="twitter:image:alt" content="{{ preview.alt }}">

@@ -19,7 +19,7 @@ from django.template.loader import render_to_string
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_safe
 
-from lapse_accounts import public
+from lapse_accounts import previews, public
 from lapse_accounts.triage_page import csp_for
 
 SITE = "https://patentref.io"
@@ -101,7 +101,7 @@ def agents_context():
             "monthly": f"{monthly:,}", "per_minute": per_minute, "install": INSTALL, "smoke": SMOKE, "tools": TOOLS,
             "next_text": NEXT_TEXT, "next_mail": NEXT_MAIL, "machine_readable": MACHINE_READABLE, "pypi_url": PYPI_URL,
             "registry_name": REGISTRY_NAME, "registry_listed": REGISTRY_LISTED, "mcp_version": MCP_VERSION,
-            "mcp_license": MCP_LICENSE}
+            "mcp_license": MCP_LICENSE, "preview": previews.agents_page()}   # release AE: the link preview
 
 
 @csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page

@@ -1,7 +1,8 @@
 {% extends "lapse_accounts/base.html" %}
 {% block title %}A PatentsView-compatible US patent API{% endblock %}
 {% block head %}<meta name="description" content="PatentRef is a PatentsView-compatible API for US patents granted from 1976 on, refreshed every week. Change the base URL and add a free key to run PatentsView code against it.">
-  <link rel="canonical" href="{{ site }}/">{% endblock %}
+  <link rel="canonical" href="{{ site }}/">{% if webapi_ld %}
+  <script type="application/ld+json">{{ webapi_ld }}</script>{% endif %}{% endblock %}
 {% block home %}/{% endblock %}
 {% block css %}
     /* the home page's own rules (release S): one screen at 1280 px */

@@ -38,7 +38,7 @@ from django.urls import resolve
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_safe
 
-from lapse_accounts import abuse, public, ratelimit
+from lapse_accounts import abuse, previews, public, ratelimit
 
 SITE = "https://patentref.io"
 SCOPE_IP, SCOPE_ALL = "demo-ip", "demo-all"
@@ -225,7 +225,8 @@ def _page(request, template, ctx, status=200, cache="public, max-age=300", noind
 @csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page
 @require_safe
 def home(request):
-    return _page(request, "lapse_accounts/home.html", _ctx())
+    # release AE: the link preview and the schema.org WebAPI block (lapse_accounts/previews.py)
+    return _page(request, "lapse_accounts/home.html", _ctx(preview=previews.home_page(), webapi_ld=previews.ld_json(previews.webapi())))
 
 
 @csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page

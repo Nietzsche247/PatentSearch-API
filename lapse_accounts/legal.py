@@ -22,7 +22,7 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET
 
-from lapse_accounts import public
+from lapse_accounts import previews, public
 
 DOCS = {  # name -> (file, short title used in the list and the page title)
     "terms": ("terms.md", "Terms of Service"),
@@ -372,7 +372,8 @@ def index(request):
             continue
         effective, version = doc_meta(md)
         docs.append({"name": name, "title": DOCS[name][1], "url": f"/docs/legal/{name}", "effective": effective, "version": version})
-    html_out = render_to_string("lapse_accounts/legal_index.html", _context(docs=docs))
+    preview = previews.site_page("Legal documents", previews.LEGAL_INDEX_DESCRIPTION, "/docs/legal/")   # release AE: the link preview
+    html_out = render_to_string("lapse_accounts/legal_index.html", _context(docs=docs, preview=preview))
     resp = HttpResponse(html_out, content_type="text/html; charset=utf-8")
     resp["Cache-Control"] = CACHE
     return resp
@@ -385,8 +386,9 @@ def page(request, name):
         return _not_found()
     title, body = to_html(md)
     effective, version = doc_meta(md)
+    preview = previews.site_page(DOCS[name][1], previews.legal_description(DOCS[name][1], version, effective), f"/docs/legal/{name}")
     ctx = _context(doc_title=title or DOCS[name][1], short_title=DOCS[name][1], body=body, name=name,
-                   md_url=f"/docs/legal/{name}.md", effective=effective, version=version)
+                   md_url=f"/docs/legal/{name}.md", effective=effective, version=version, preview=preview)
     resp = HttpResponse(render_to_string("lapse_accounts/legal.html", ctx), content_type="text/html; charset=utf-8")
     resp["Cache-Control"] = CACHE
     resp["Link"] = f'</docs/legal/{name}.md>; rel="alternate"; type="text/markdown"'

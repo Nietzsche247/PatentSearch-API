@@ -83,8 +83,10 @@ def test_home_page(client):
     for href in ("/docs/", "/try/", "/api/v1/meta/status/", "/docs/snapshot.html", "/waitlist/"):
         assert f'href="{href}"' in h, href
     assert '<a class="pr-name" href="/">PatentRef</a>' in h
-    # no script at all, nothing to fill in
-    assert "<script" not in h and "<form" not in h and "<input" not in h
+    # no script that runs, nothing to fill in: the one script element is release AE's schema.org data block (type
+    # application/ld+json), which a browser does not run
+    assert h.count("<script") == 1 and h.count('<script type="application/ld+json">') == 1
+    assert "<form" not in h and "<input" not in h
     assert r["Cache-Control"] == "public, max-age=300" and not r.cookies
 
 
