@@ -375,6 +375,22 @@ def test_record_page_without_a_key(client, lapse_env):
     assert client.get("/p/8087108", {"v": "19990101.1"}).status_code == 404
 
 
+def test_record_page_header_gives_the_build_facts_as_of(client, lapse_env, monkeypatch):
+    """Release AD (2026-11-11): the header gives the build facts' as-of like every other page, also when the record's own as-of
+    (its fee data) is earlier, as with data 20261110.1 (record as of 2026-11-03, build facts as of 2026-11-10); the record's
+    as-of stays in the status block and the page description."""
+    import re
+
+    from lapse_accounts import public
+
+    monkeypatch.setattr(public, "build_as_of", lambda version=None: "2026-11-10")
+    html = client.get("/p/8087108").content.decode("utf-8")
+    rec_as_of = re.search(r'<dt>As of</dt><dd class="mono">(\d{4}-\d{2}-\d{2})</dd>', html).group(1)
+    assert rec_as_of != "2026-11-10"
+    assert re.search(r'<p class="pr-asof">Data version [0-9.]+, as of 2026-11-10\. Free beta\.</p>', html)
+    assert f"The USPTO record for US 8087108 as of {rec_as_of}:" in html and f"As of {rec_as_of}, the USPTO" in html
+
+
 def test_record_page_fits_a_phone_and_its_errors_are_pages(client, lapse_env):
     """Checklist 7.6, the live axe run of 2026-10-23: at 320 px the record's JSON block scrolled sideways, a scroll region
     no keyboard reaches (axe scrollable-region-focusable, serious), so it wraps as on the docs pages; and the page's own

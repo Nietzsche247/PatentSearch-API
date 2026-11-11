@@ -274,9 +274,17 @@ class RecordPage(APIView):
         from lapse_accounts.triage_page import csp_for
 
         monthly, _per_minute = metering.plan_limits(metering.PLAN_FREE)
+        # the header and the footer's build line give the build facts' as-of, as every page does (release AD); the record's
+        # own as-of (its fee data) stays in the status block, the sentence, the cite card and the page description
+        try:
+            from lapse_accounts.public import build_as_of
+
+            head_as_of = build_as_of(data_version) or rec.get("as_of")
+        except Exception:  # noqa: BLE001 - a page header never fails on its date
+            head_as_of = rec.get("as_of")
         html = render_to_string("lapse_accounts/record.html", {
             "rec": rec, "pid": pid, "title": title, "superseded": sup, "data_version": data_version,
-            "as_of": rec.get("as_of"), "footer_lines": lines, "family": fam,
+            "as_of": head_as_of, "footer_lines": lines, "family": fam,
             "basis_text": lapse_wording.basis_text(rec.get("basis"), engine_rec),
             "term_end_text": lapse_wording.term_end_text(engine_rec),
             "term_end": lapse_wording.term_end_row(rec, engine_rec),
