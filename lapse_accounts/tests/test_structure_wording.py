@@ -174,7 +174,7 @@ def test_the_answers_and_their_field_names(client, keys, env):
     assert r.status_code == 200
     walk(r.json(), "POST /api/v1/structure/triage/", found)
     js = r.json()
-    assert js["structure_version"] == "2" and js["generator"] == "claimgraph 0.2.0"
+    assert js["structure_version"] == "2" and js["generator"] == "claimgraph 0.3.0"
     r = ask(client, keys(), "POST", "/api/v1/structure/triage/", {"patents": [PID, "3995389"], "output": "csv"})
     assert r.status_code == 200
     rows = list(csv.DictReader(io.StringIO(r.content.decode("utf-8"))))
@@ -187,7 +187,7 @@ def test_the_answers_and_their_field_names(client, keys, env):
     terms = [t for c in tree["claims"] for t in c["terms"]]
     assert all("scope" not in t for t in terms) and {t["found_in"] for t in terms if t.get("antecedent")} <= {
         "same_claim", "dependency_chain", "cited_claim"}
-    assert tree["structure_version"] == "2" and tree["generator"] == "claimgraph 0.2.0"
+    assert tree["structure_version"] == "2" and tree["generator"] == "claimgraph 0.3.0"
     assert found == [], found[:5]
 
 

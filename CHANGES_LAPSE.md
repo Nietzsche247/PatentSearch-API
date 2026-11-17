@@ -1478,3 +1478,21 @@ Get this as data box).
 Nothing else on a page changes: with its preview (and on the home page its data block) taken out, each page is byte for byte the page it was, and the record page's and the Agents page's Content-Security-Policy are the same (the tags are no script or style). No script, image, pixel or address outside `https://patentref.io` is added.
 
 Tests: `lapse_accounts/tests/test_link_previews.py` (new: the tags on each page, their equality with the page's own description, the record card and a claim tree card, the escaped title, no status and no abstract in a preview, the cards read from the clone's folder, the pages without a preview, nothing else added, the WebAPI block checked against the schema.org vocabulary in `lapse_accounts/tests/fixtures/schemaorg_30.1_subset.json`, made from schema.org's `schemaorg-all-https.jsonld` of version 30.1); `lapse_accounts/tests/test_home_try.py` (the home page's one script element is the data block).
+
+## 2026-11-17 pending approval: release AF, claimgraph 0.3.0 (PatentRef 1.23.0)
+
+claimgraph, PatentRef's private claim parser that the release deploy installs into the API's virtual environment from
+its wheel, goes from 0.2.0 to 0.3.0, which changes where a claim's terms end. This repository changes two strings and
+the tests that pin the version, nothing else; no claimgraph code is in it.
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_claimgraph.py` | `PACKAGE` and `WHEEL` name claimgraph 0.3.0 | the message that says what to install names the wheel the deploy installs |
+| `lapse_accounts/tests/test_claimgraph_package.py`, `lapse_accounts/tests/test_structure_wording.py` | the version and the generator they expect are claimgraph 0.3.0 | they pin the installed version |
+
+What the API answers differently, said for callers in the patentref side's public/changes.txt (1.23.0): a term mention
+in the claim tree can end elsewhere, with its text, key, aliases and links; term ids, starts, claims, elements, offsets
+and structure_version 2 stay the same, and generator reads claimgraph 0.3.0. The brief, the triage table and the
+structured similar mode read these terms, so their components and matched keys can change with them. The record pages
+do not change: the firm pilot's 28 render byte for byte the same with either version. No migration and no site file
+change; the deploy installs the wheel and reloads the API's workers, and puts the 0.2.0 wheel back if a check fails.

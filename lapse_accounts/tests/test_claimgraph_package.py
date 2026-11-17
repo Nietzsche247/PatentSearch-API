@@ -48,9 +48,9 @@ def test_only_the_adapter_imports_claimgraph():
 def test_the_installed_package_is_what_the_api_runs():
     cg = lapse_claimgraph.claimgraph
     assert not Path(cg.__file__).resolve().is_relative_to(ROOT)
-    assert lapse_claimgraph.__version__ == cg.__version__ == "0.2.0"
+    assert lapse_claimgraph.__version__ == cg.__version__ == "0.3.0"
     assert lapse_claimgraph.STRUCTURE_VERSION == lapse_claimgraph.STRUCTURE_VERSION_DOCUMENTED == "2"
-    assert lapse_claimgraph.GENERATOR == "claimgraph 0.2.0"
+    assert lapse_claimgraph.GENERATOR == "claimgraph 0.3.0"
     for name in ("ClaimRow", "build_patent", "validate_patent", "check_patent", "find_mentions", "normalize_key"):
         assert callable(getattr(lapse_claimgraph, name)), name
     g = lapse_claimgraph.build_patent("1234567", [lapse_claimgraph.ClaimRow("1234567", "0", "1. A cup comprising a handle.", "", "1"),
@@ -65,7 +65,7 @@ def test_a_missing_package_stops_the_api_at_startup_with_what_to_install():
     assert r.returncode != 0
     last = r.stderr.strip().splitlines()[-1]
     assert last.startswith("API.lapse_claimgraph.ClaimgraphMissing: PatentRef's claim parser is not available: import claimgraph failed"), last
-    assert "pip install --no-deps --no-index claimgraph-0.2.0-py3-none-any.whl" in last
+    assert "pip install --no-deps --no-index claimgraph-0.3.0-py3-none-any.whl" in last
 
 
 def test_a_stray_folder_named_claimgraph_is_refused(tmp_path):

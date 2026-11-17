@@ -14,8 +14,8 @@ from importlib import metadata
 from pathlib import Path
 
 STRUCTURE_VERSION_DOCUMENTED = "2"   # the claim tree's shape as openapi.json and the docs pages describe it
-PACKAGE = "claimgraph 0.2.0"
-WHEEL = "claimgraph-0.2.0-py3-none-any.whl"
+PACKAGE = "claimgraph 0.3.0"
+WHEEL = "claimgraph-0.3.0-py3-none-any.whl"
 
 
 class ClaimgraphMissing(ImportError):
