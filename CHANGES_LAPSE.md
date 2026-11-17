@@ -1494,5 +1494,5 @@ What the API answers differently, said for callers in the patentref side's publi
 in the claim tree can end elsewhere, with its text, key, aliases and links; term ids, starts, claims, elements, offsets
 and structure_version 2 stay the same, and generator reads claimgraph 0.3.0. The brief, the triage table and the
 structured similar mode read these terms, so their components and matched keys can change with them. The record pages
-do not change: the firm pilot's 28 render byte for byte the same with either version. No migration and no site file
+do not change: 28 sample record pages render byte for byte the same with either version. No migration and no site file
 change; the deploy installs the wheel and reloads the API's workers, and puts the 0.2.0 wheel back if a check fails.
