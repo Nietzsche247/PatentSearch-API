@@ -202,7 +202,8 @@ def test_the_s1d_answers_and_their_errors(client, token_factory, monkeypatch):
     ts.build_files(*paths)
     monkeypatch.setattr(settings, "LAPSE_FREE_MONTHLY_LIMIT", 100000, raising=False)
     monkeypatch.setattr(settings, "LAPSE_FREE_MINUTE_LIMIT", 100000, raising=False)
-    key = sf.key_minter(client, token_factory)()
+    monkeypatch.setattr(settings, "LAPSE_IP_PER_MINUTE", 100000, raising=False)
+    key = ts.mint_key(client, token_factory)
     quoted = QUOTED | {"part"}
     found = []
     old = ts._swap(*paths)

@@ -166,21 +166,27 @@ def no_text_env(files):
 _KEY = {}
 
 
+def mint_key(client, token_factory):
+    """A Free key from the sign-up route, sent from an address of its own: the route's per-minute rate per address is shared
+    with every other suite of the run from 127.0.0.1 (test_legal_posted does the same)."""
+    sub = str(uuid.uuid4())
+    token = token_factory(sub=sub, email=f"user-{sub[:8]}@d{sub[:8]}.example.test")
+    r = client.post("/api/v1/meta/keys/", data=json.dumps({"terms_version": settings.LAPSE_TERMS_VERSION}),
+                    content_type="application/json", HTTP_AUTHORIZATION="Bearer " + token,
+                    REMOTE_ADDR=f"10.{uuid.uuid4().int % 200 + 20}.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250 + 1}")
+    assert r.status_code == 201, r.content
+    return r.json()["api_key"]
+
+
 @pytest.fixture
 def keys(client, token_factory, monkeypatch):
-    """One Free key for the module, minted once (the sign-up route has its own per-minute rate), with room for this module's
-    requests: these tests send more than the 5 a month and the 45 a minute conftest gives a Free key (as test_long_text's
-    roomy fixture)."""
+    """One Free key for the module, minted once, with room for this module's requests: these tests send more than the 5 a
+    month and the 45 a minute conftest gives a Free key (as test_long_text's roomy fixture)."""
     monkeypatch.setattr(settings, "LAPSE_FREE_MONTHLY_LIMIT", 100000, raising=False)
     monkeypatch.setattr(settings, "LAPSE_FREE_MINUTE_LIMIT", 100000, raising=False)
     monkeypatch.setattr(settings, "LAPSE_IP_PER_MINUTE", 100000, raising=False)
     if "key" not in _KEY:
-        sub = str(uuid.uuid4())
-        token = token_factory(sub=sub, email=f"user-{sub[:8]}@d{sub[:8]}.example.test")
-        r = client.post("/api/v1/meta/keys/", data=json.dumps({"terms_version": settings.LAPSE_TERMS_VERSION}),
-                        content_type="application/json", HTTP_AUTHORIZATION="Bearer " + token)
-        assert r.status_code == 201, r.content
-        _KEY["key"] = r.json()["api_key"]
+        _KEY["key"] = mint_key(client, token_factory)
     return lambda: _KEY["key"]
 
 
