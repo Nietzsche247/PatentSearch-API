@@ -225,6 +225,31 @@ def _own_key(entry):
     return None
 
 
+def own_account_prefixes(domains):
+    """Release AG: the key prefixes of the accounts on the operator's own email domains (settings.LAPSE_OWN_ACCOUNT_DOMAINS,
+    his test keys): a key counts as his when its own email or its account's email ends in @ and one of the domains, the whole
+    domain and any case (a subdomain or a longer name does not match). Read from the account database inside this process;
+    no email, key or prefix is printed or logged. An empty set when the list is empty or the database cannot be read."""
+    want = {str(d).strip().lower() for d in domains if str(d).strip()}
+    if not want:
+        return set()
+    try:
+        from django.db.models import Q
+
+        from API.models import APIUserKey
+
+        cond = Q()
+        for d in want:
+            cond |= Q(email__iendswith="@" + d) | Q(account__email__iendswith="@" + d)
+        out = set()
+        for prefix, e1, e2 in APIUserKey.objects.filter(cond).values_list("prefix", "email", "account__email"):
+            if any(e and str(e).rsplit("@", 1)[-1].strip().lower() in want for e in (e1, e2)) and prefix:
+                out.add(str(prefix)[:16])
+        return out
+    except Exception:  # noqa: BLE001 - the figures never fail on this list; those keys then count
+        return set()
+
+
 def own_key_prefixes():
     """The key prefixes of the service's own requests, left out of the status page's API figures and the structure
     layer's usage counter (lapse_accounts/usage_counts.py): the operator key in the file that LAPSE_API_KEY_FILE names in
@@ -247,6 +272,7 @@ def own_key_prefixes():
         key = _own_key(entry)
         if key and "." in key:  # the form keys have here (prefix.secret); anything else is not compared
             out.add(key.split(".", 1)[0][:16])
+    out |= own_account_prefixes(getattr(settings, "LAPSE_OWN_ACCOUNT_DOMAINS", None) or ())
     with _lock:
         _own_cache["at"], _own_cache["prefixes"] = now, frozenset(out)
     return _own_cache["prefixes"]

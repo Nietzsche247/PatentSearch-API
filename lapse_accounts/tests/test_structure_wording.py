@@ -151,7 +151,9 @@ def ask(client, key, method, path, data=None, **headers):
     return client.get(path, data or {}, **headers)
 
 
-ROUTES = {"structure-claims", "structure-brief", "structure-counts", "structure-triage", "structure-extract-job", "structure-extract"}
+ROUTES = {"structure-claims", "structure-brief", "structure-counts", "structure-triage", "structure-extract-job", "structure-extract",
+          # release AG: the S1-D routes (test_the_s1d_answers_and_their_errors reads them)
+          "structure-units-query", "structure-units", "structure-relations", "structure-locate"}
 
 
 def test_every_structure_route_has_its_guard():
@@ -189,6 +191,66 @@ def test_the_answers_and_their_field_names(client, keys, env):
         "same_claim", "dependency_chain", "cited_claim"}
     assert tree["structure_version"] == "2" and tree["generator"] == "claimgraph 0.3.0"
     assert found == [], found[:5]
+
+
+def test_the_s1d_answers_and_their_errors(client, token_factory, monkeypatch):
+    """Release AG: the S1-D answers (units of one patent, names_same_part, recites, states, locate, the units query) and their
+    400, 404 and 501 in both error forms, with the patent's words (text, part, the shared parts' quotes) left out."""
+    from lapse_accounts.tests import test_structure_s1d as ts
+
+    paths = (str(_TMP / "wording_s1d_search.db"), str(_TMP / "wording_s1d_text.db"), str(_TMP / "wording_s1d_structure.db"))
+    ts.build_files(*paths)
+    monkeypatch.setattr(settings, "LAPSE_FREE_MONTHLY_LIMIT", 100000, raising=False)
+    monkeypatch.setattr(settings, "LAPSE_FREE_MINUTE_LIMIT", 100000, raising=False)
+    key = sf.key_minter(client, token_factory)()
+    quoted = QUOTED | {"part"}
+    found = []
+    old = ts._swap(*paths)
+    try:
+        for path, params in (("/api/v1/structure/units/9000001/", None), ("/api/v1/structure/units/RE900001/", None),
+                             ("/api/v1/structure/relations/9000001/", None), ("/api/v1/structure/relations/9000001/", {"rel": "recites"}),
+                             ("/api/v1/structure/relations/9000002/", {"rel": "states"}),
+                             ("/api/v1/structure/locate/", {"patent_id": "9000001", "field": "claims", "sequence": "0", "start": "0", "end": "9"}),
+                             ("/api/v1/structure/units/", {"q": '{"part": "flux capacitor"}'}),
+                             ("/api/v1/structure/units/", {"q": '{"patent_id": ["9000001", "9000002"]}'})):
+            r = ask(client, key, "GET", path, params)
+            assert r.status_code == 200, (path, r.status_code, r.get("X-Status-Reason"))
+            _walk_s1d(r.json(), path, found, quoted)
+        for path, params in (("/api/v1/structure/units/x-y/", None), ("/api/v1/structure/units/9999998/", None),
+                             ("/api/v1/structure/units/9000004/", None), ("/api/v1/structure/units/9000001/", {"types": "Other"}),
+                             ("/api/v1/structure/relations/9000001/", {"o": '{"size": 1, "after": [1, 2, "3", 1]}'}),
+                             ("/api/v1/structure/locate/", {"patent_id": "9000001", "field": "claims", "sequence": "9", "start": "0", "end": "9"}),
+                             ("/api/v1/structure/units/", {"q": '{"type": "Component"}'}),
+                             ("/api/v1/structure/units/", {"q": '{"patent_id": {"_gt": "1"}}'})):
+            for accept in ("application/json", "application/problem+json"):
+                r = ask(client, key, "GET", path, params, HTTP_ACCEPT=accept)
+                assert r.status_code in (400, 404), (path, r.status_code)
+                error_words(f"{path} ({accept})", r, found)
+            assert ask(client, None, "GET", path, params).status_code == 403
+    finally:
+        ts._restore(old)
+    old = ts._swap(paths[0], paths[1], str(_TMP / "no_such_wording_structure.db"))
+    try:
+        for path, params in (("/api/v1/structure/relations/9000001/", None), ("/api/v1/structure/units/", {"q": '{"part": "gear"}'})):
+            for accept in ("application/json", "application/problem+json"):
+                r = ask(client, key, "GET", path, params, HTTP_ACCEPT=accept)
+                assert r.status_code == 501 and (r.get("X-Status-Reason-Code") == "ERR_NO_STRUCTURE_FILE" or "ERR_NO_STRUCTURE_FILE" in r.content.decode()), path
+                error_words(f"{path} 501 ({accept})", r, found)
+    finally:
+        ts._restore(old)
+    assert found == [], found[:5]
+
+
+def _walk_s1d(obj, where, found, quoted, inside=False):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            barred(f"{where} field name", k, found)
+            _walk_s1d(v, f"{where}.{k}", found, quoted, inside or k in quoted)
+    elif isinstance(obj, list):
+        for v in obj:
+            _walk_s1d(v, where, found, quoted, inside)
+    elif isinstance(obj, str) and not inside:
+        barred(where, obj, found)
 
 
 def test_the_structured_mode_of_lapse_similar(client, keys, files):

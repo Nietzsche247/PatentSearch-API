@@ -40,6 +40,18 @@ PATH = "/api/v1/structure/claims/"
 csv.field_size_limit(2 ** 31 - 1)
 
 
+def expected_as_of():
+    """The as_of the structure endpoints give in this environment: the attached catalog's (the box's suites read the catalog
+    in service), else the search file's release date (20261027 in these files). Release AG: the test no longer pins a date."""
+    from API.lapse_views import _as_of
+    from API.search import get_searcher
+
+    s = get_searcher()
+    got = (s.catalog_facts() or {}).get("as_of") or _as_of(s)
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(got)), got
+    return got
+
+
 def fixture_rows(pid):
     with (FIXTURES / MANIFEST[pid]["file"]).open(encoding="utf-8", newline="") as fh:
         rows = list(csv.reader(fh, delimiter="\t"))
@@ -170,7 +182,7 @@ def test_shape_and_versions(client, keys, env):
     assert js["generator"] == "claimgraph " + claimgraph.__version__
     assert js["data_version"] == DATA_VERSION == r["X-Data-Version"]
     assert js["text_data_version"] == TEXT_VERSION == r["X-Text-Data-Version"]
-    assert js["as_of"] == "2026-10-27"
+    assert js["as_of"] == expected_as_of()
     assert {"kind", "utility_like", "claims", "relations", "flags"} <= set(js)
     assert len(js["claims"]) == MANIFEST["3995389"]["claims"]
     c1 = js["claims"][0]

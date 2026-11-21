@@ -82,13 +82,17 @@ def test_a_new_version_gets_its_own_day_and_unstamp_forgets_one(docs):
 
 
 def test_the_pages_and_the_markdown_twin_show_the_recorded_dates(client, docs):
-    legal.stamp(today=D)
+    # release AG: recorded today, so the change is still ahead whatever day the suite runs (it pinned 2026-10-28, and the
+    # status page stopped naming the coming change once 2026-11-11 had passed)
+    today = date.today()
+    eff = (today + timedelta(days=14)).isoformat()
+    legal.stamp(today=today)
     for path in ("/docs/legal/privacy", "/docs/legal/privacy.md", "/docs/legal/processors.md", "/docs/legal/"):
         body = client.get(path).content.decode()
-        assert "{{" not in body and "2026-11-11" in body, path
-    assert "Posted: 2026-10-28" in client.get("/docs/legal/privacy.md").content.decode()
+        assert "{{" not in body and eff in body, path
+    assert f"Posted: {today.isoformat()}" in client.get("/docs/legal/privacy.md").content.decode()
     h = client.get("/api/v1/meta/status/").content.decode()
-    assert "Coming change: Privacy Policy" in h and "takes effect on 2026-11-11" in h
+    assert "Coming change: Privacy Policy" in h and f"takes effect on {eff}" in h
 
 
 def test_the_command_prints_waits_and_records(docs):

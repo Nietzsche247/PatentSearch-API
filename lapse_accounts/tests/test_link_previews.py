@@ -269,7 +269,7 @@ def test_a_record_page_has_the_record_card_and_our_text(env, monkeypatch):
     monkeypatch.setattr(previews, "card_ids", lambda repo=None: frozenset({"99999999"}))
     r, h = record(pid)
     assert r.status_code == 200
-    t = check_preview(h, f"https://patentref.io/p/{pid}", f"US {pid}: {sf.title(pid)}")
+    t = check_preview(h, f"https://patentref.io/p/{pid}/", f"US {pid}: {sf.title(pid)}")
     assert t["og:type"] == "article" and t["og:description"] == previews.RECORD_LINE
     assert t["og:image"] == "https://patentref.io/og/record.png" and t["og:image:alt"] == previews.RECORD_ALT
     # never a status, never the abstract or a claim: the description and the alt are fixed, the title is the number and title
@@ -278,11 +278,23 @@ def test_a_record_page_has_the_record_card_and_our_text(env, monkeypatch):
     assert "data-user-content" not in t["og:description"] and sf.fixture_rows(pid)[0][2][:40] not in "".join(t.values())
 
 
+def test_the_canonical_link_is_the_stable_address_and_og_url_the_same(env):
+    """Release AG: a record page's canonical link is https://patentref.io/p/<pid>/, the address the sitemap lists, with no data
+    version (it was the versioned permalink, which changes every data week), and og:url names the same address; the record's
+    own permalink field keeps its version."""
+    pid = sf.patent_ids()[0]
+    r, h = record(pid)
+    canon = re.findall(r'<link rel="canonical" href="([^"]*)">', h)
+    assert canon == [f"https://patentref.io/p/{pid}/"] == [previews.record_url(pid)]
+    assert preview_tags(h)["og:url"] == canon[0] and "?v=" not in canon[0]
+    assert re.search(r'&quot;permalink&quot;: &quot;[^&]*/p/' + pid + r'\?v=|"permalink": "[^"]*/p/' + pid + r'\?v=', h)
+
+
 def test_a_showcase_record_page_names_its_own_claim_tree_card(env, monkeypatch):
     pid = sf.patent_ids()[1]
     monkeypatch.setattr(previews, "card_ids", lambda repo=None: frozenset({pid}))
     r, h = record(pid)
-    t = check_preview(h, f"https://patentref.io/p/{pid}")
+    t = check_preview(h, f"https://patentref.io/p/{pid}/")
     assert t["og:image"] == f"https://patentref.io/og/p/{pid}.png"
     assert t["og:image:alt"] == f"The claim tree of US {pid} as its PatentRef record page shows it"
 
@@ -311,7 +323,7 @@ def test_the_cards_are_read_from_the_clones_folder(tmp_path):
     assert previews.card_ids(str(tmp_path / "missing")) == frozenset()
     previews._cards.clear()
     p = previews.record_page("12514139", "A title", repo=str(tmp_path))
-    assert p["image"] == "https://patentref.io/og/p/12514139.png" and p["url"] == "https://patentref.io/p/12514139"
+    assert p["image"] == "https://patentref.io/og/p/12514139.png" and p["url"] == "https://patentref.io/p/12514139/"
     p = previews.record_page("10000000", None, repo=str(tmp_path))
     assert p["image"] == previews.RECORD_CARD and p["title"] == "US 10000000"
     previews._cards.clear()

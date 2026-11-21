@@ -1,7 +1,7 @@
 {% extends "lapse_accounts/base.html" %}
 {% block title %}US {{ pid }} record{% endblock %}
 {% block head %}<meta name="description" content="The USPTO record for US {{ pid }} as of {{ rec.as_of }}: its claims as printed, its status, basis and maintenance-fee facts (data version {{ data_version }}).">
-  <link rel="canonical" href="{{ rec.permalink }}">{% endblock %}
+  <link rel="canonical" href="{{ canonical }}">{% endblock %}
 {% block css %}
     /* the record page's own rules (release AD, the re-skin of 2026-11-05): the number, title and identity, then the claims
        as a tree, then the status; a rail with the API links and their key note beside the main column from 1100 px, under

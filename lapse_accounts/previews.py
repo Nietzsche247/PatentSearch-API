@@ -71,16 +71,23 @@ def cut_title(title, limit=TITLE_MAX):
     return (head or t[:limit]) + "…"
 
 
+def record_url(pid):
+    """The record page's one stable address, https://patentref.io/p/<pid>/: the address the sitemap lists, the page's
+    canonical link and its og:url (release AG). It names no data version, so it stays the same from one data week to the next;
+    the versioned permalink /p/<pid>?v=<data version> stays the record's own field."""
+    return f"{SITE}/p/{pid}/"
+
+
 def record_page(pid, title, repo=None):
-    """The preview of the record page of US <pid>: "US <pid>: <title>", the fixed line, the page's address without a data
-    version (the address a link names), and its claim tree card when it has one, else the record card."""
+    """The preview of the record page of US <pid>: "US <pid>: <title>", the fixed line, the page's stable address (record_url,
+    the address its canonical link names), and its claim tree card when it has one, else the record card."""
     t = cut_title(title)
     if pid in card_ids(repo):
         image, alt = f"{SITE}/og/p/{pid}.png", f"The claim tree of US {pid} as its PatentRef record page shows it"
     else:
         image, alt = RECORD_CARD, RECORD_ALT
     return {"type": "article", "title": f"US {pid}: {t}" if t else f"US {pid}", "description": RECORD_LINE,
-            "url": f"{SITE}/p/{pid}", "image": image, "alt": alt, "width": WIDTH, "height": HEIGHT}
+            "url": record_url(pid), "image": image, "alt": alt, "width": WIDTH, "height": HEIGHT}
 
 
 def home_page():

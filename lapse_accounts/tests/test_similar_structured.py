@@ -25,6 +25,7 @@ from API import lapse_similar_structured as ss
 from API import lapse_structure, lapse_wording
 from API.search_sqlite import LapseSQLiteSearch
 from lapse_accounts.tests.conftest import _TMP
+from lapse_accounts.tests.test_structure_claims import expected_as_of
 
 DATA_VERSION = "20261027.2"
 TEXT_VERSION = "text_test.1"
@@ -202,7 +203,7 @@ def test_shape_versions_and_the_texts_keys(client, keys, env):
                         "n", "terms", "term_keys", "key_phrases", "candidates", "neighbors"]
     assert js["error"] is False and js["method"] == "claim_term_keys" and js["mode"] == "structured" and js["n"] == 5
     assert js["data_version"] == DATA_VERSION == r["X-Data-Version"] if "X-Data-Version" in r else js["data_version"] == DATA_VERSION
-    assert js["text_data_version"] == TEXT_VERSION == r["X-Text-Data-Version"] and js["as_of"] == "2026-10-27"
+    assert js["text_data_version"] == TEXT_VERSION == r["X-Text-Data-Version"] and js["as_of"] == expected_as_of()
     assert js["structure_version"] == "2" and js["generator"].startswith("claimgraph ")
     assert r["Server-Timing"].startswith('similar;desc="structured";dur=')
     # the keys claimgraph's term finder reads in the text, rarest first; weight ln(N / df of the rarest word), N = 6

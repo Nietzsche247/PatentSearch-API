@@ -1496,3 +1496,38 @@ and structure_version 2 stay the same, and generator reads claimgraph 0.3.0. The
 structured similar mode read these terms, so their components and matched keys can change with them. The record pages
 do not change: 28 sample record pages render byte for byte the same with either version. No migration and no site file
 change; the deploy installs the wheel and reloads the API's workers, and puts the 0.2.0 wheel back if a check fails.
+
+## 2026-11-21 pending approval: release AG, the S1-D structure layer and a stable canonical address (PatentRef 1.24.0)
+
+S1-D, experimental: for each patent, the problem it states and the parts it names, each quoted with its place in the text,
+and links to other patents whose claims name the same part. The rules are s1d 0.3.2 (s1d-11), PatentRef's private package that
+the release deploy installs into the API's virtual environment from its wheel, as it installs claimgraph; no s1d code is in
+this repository. The links read the structure file s1d built once from the long-text file 20261110.1, opened read only where
+it lies (`/data/s1d_corpus/structure_20261110.1_s1d-11.db`).
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_s1d.py` (new) | the one module that imports s1d: the installed package only, version 0.3.2 with s1d-11, the unit types Component and StatedProblem, written for the installed claimgraph; else `S1DMissing` at startup with what to install | the fork stays public and the API never runs a wrong package |
+| `API/lapse_structure_s1d.py` (new) | `GET /api/v1/structure/units/<patent_id>/` (one patent's units and their recites and states relations, on read), `GET /api/v1/structure/relations/<patent_id>/` (`rel=names_same_part`, ranked and paged with `o.size` and `o.after`, from the structure file; `rel=recites` and `rel=states` on read), `GET /api/v1/structure/locate/` (the text at one locator, at most 2,000 characters), `GET` or `POST /api/v1/structure/units/` (the units query: `patent_id`, a value or up to 100, or `part`, from the index; `type`, `cue` and `section` filter it; plain values, `_eq`, `_and` and `_or` on one field). Every answer says `"experimental": true` and names `s1d_version`, never `structure_version`. The claim tree's work caps and read times apply; a lookup in the structure file stops at 20 s and reads at most 60,000 index rows; a part named by more than 0.2 percent of the patents in the file takes no part in links (`LAPSE_S1D_DF_SHARE`, 0.02 percent as the fallback) | gate S1D.4 |
+| `lapse_accounts/root_urls.py` | the four routes, the query route before the patent route | |
+| `pvapi/settings/lapse_local.py` | `LAPSE_STRUCTURE_PATH` (the file above), `LAPSE_S1D_DF_SHARE` (0.002), `LAPSE_OWN_ACCOUNT_DOMAINS` | the defaults are what the box runs |
+| `lapse_accounts/public.py` | the error index names `ERR_NO_STRUCTURE_FILE` (501 while no structure file is attached, for names_same_part and the units query) and the S1-D answers under `ERR_ES` and `NOT_FOUND` | the problem type of every code the API sends has its page |
+| `templates/lapse_accounts/record.html`, `API/lapse_views.py`, `lapse_accounts/previews.py` | a record page's canonical link is `https://patentref.io/p/<patent_id>/` (`previews.record_url`), the address the sitemap lists, and og:url names the same address; it was the versioned permalink `/p/<patent_id>?v=<data version>`, which changed every data week, without the trailing slash. The record's own permalink field keeps its version | search engines see one address per record page |
+| `lapse_accounts/status.py` | `own_key_prefixes()` also leaves out the keys of accounts on the operator's own email domains (`own_account_prefixes`: omnipoolbuilders.com, omnipools.com, dmtcode.com, patentref.io; the key's email or its account's, the whole domain after the @) | his test keys are not outside use |
+
+Two patents the corpus build could not read answer cleanly: a patent with a claim row that has no claim_sequence (RE31177)
+gives its stated units, no part, and says why in `unread`; a patent with neither claim text nor a brief summary (8419894,
+9815822) answers 404 NOT_FOUND, as the claim tree answers a patent without claim text.
+
+Nothing else on a record page changes: the 28 sample record pages differ from release AF's only in the canonical link and
+og:url. No migration and no site file change; the deploy installs the wheel and reloads the API's workers, and takes the
+wheel out again if a check fails.
+
+Tests: `lapse_accounts/tests/test_structure_s1d.py` (new: shapes and versions, every quote the text at its locator and read
+back through locate, the parameters, 400, 404, both 501s, the two kinds of unreadable patent, names_same_part with its ranks,
+cursor and lookup facts, the units query's grammar, the key rule, the wording); `lapse_accounts/tests/test_s1d_package.py`
+(new: the adapter's refusals, no s1d code in the fork); `lapse_accounts/tests/test_own_account_keys.py` (new);
+`lapse_accounts/tests/test_link_previews.py` (the canonical link and og:url); `lapse_accounts/tests/test_structure_wording.py`
+(the S1-D routes and answers); `test_structure_claims.py`, `test_structure_counts.py` and `test_similar_structured.py` ask the
+searcher for the as_of they expect instead of pinning 2026-10-27, and `test_legal_posted.py` records today's date, so they pass
+on any day.

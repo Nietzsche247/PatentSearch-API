@@ -294,6 +294,7 @@ class RecordPage(APIView):
             "claims": claims, "ident": lapse_record.identity(searcher, pid),
             "elsewhere": lapse_record.elsewhere(pid, fam), "free_monthly": f"{monthly:,}" if monthly else "",
             "preview": previews.record_page(pid, title),   # release AE: the link preview (our text, a static card)
+            "canonical": previews.record_url(pid),          # release AG: the stable address the sitemap lists, as og:url
         })
         bad = lapse_wording.check_banned(lapse_record.own_text(html))   # all the page's own words, none of the patent's
         if bad:

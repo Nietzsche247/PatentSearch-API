@@ -21,7 +21,8 @@ from django.conf import settings
 from API import claim_counts, lapse_claimgraph, lapse_structure, lapse_structure_counts, lapse_wording
 from API.search_sqlite import LapseSQLiteSearch
 from lapse_accounts.tests.conftest import _TMP
-from lapse_accounts.tests.test_structure_claims import DATA_VERSION, MANIFEST, NO_TEXT, TEXT_VERSION, UNKNOWN, build_files, fixture_rows
+from lapse_accounts.tests.test_structure_claims import (DATA_VERSION, MANIFEST, NO_TEXT, TEXT_VERSION, UNKNOWN, build_files,
+                                                        expected_as_of, fixture_rows)
 
 ROOT = Path(__file__).resolve().parents[2]
 PATH = "/api/v1/structure/counts/"
@@ -125,7 +126,7 @@ def test_shape_and_versions(client, keys, env):
     assert js["generator"] == lapse_claimgraph.GENERATOR == "claimgraph " + lapse_claimgraph.__version__
     assert js["data_version"] == DATA_VERSION == r["X-Data-Version"]
     assert js["text_data_version"] == TEXT_VERSION == r["X-Text-Data-Version"]
-    assert js["as_of"] == "2026-10-27"
+    assert js["as_of"] == expected_as_of()
     assert list(js["counts"]) == list(claim_counts.PATENT_FIELD_NAMES)
     assert [list(c) for c in js["claim_counts"]] == [list(claim_counts.CLAIM_FIELD_NAMES)] * 18
     assert r["Cache-Control"] == "public, max-age=300"

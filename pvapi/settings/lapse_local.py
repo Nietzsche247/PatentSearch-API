@@ -66,6 +66,14 @@ LAPSE_CATALOG_PATH = os.environ.get("LAPSE_CATALOG_PATH", "/data/lapse/snapshot_
 # The long-text file (claims, brief summaries, detail and drawing descriptions; PatentRef 1.6), attached read-only
 # as `txt` beside the search snapshot; a missing file means the four text endpoints answer the documented 501
 LAPSE_TEXT_PATH = os.environ.get("LAPSE_TEXT_PATH", "/data/api/text_current.db")
+# The S1-D structure file (release AG, gate S1D.4; API/lapse_structure_s1d.py): the term-to-patent index and the stated
+# units of every patent, built once by s1d 0.3.2 (s1d-11) from the long-text file 20261110.1, opened read only where it
+# lies (never copied or moved); a missing file means names_same_part and the units query answer 501 ERR_NO_STRUCTURE_FILE.
+# The default is what patentref-us1 runs (a reload does not reread env.sh).
+LAPSE_STRUCTURE_PATH = os.environ.get("LAPSE_STRUCTURE_PATH", "/data/s1d_corpus/structure_20261110.1_s1d-11.db")
+# The share of the patents in the structure file above which a part takes no part in names_same_part: 0.002 (0.2 percent,
+# s1d's DF_SHARE, the S1D.2 decision), or 0.0002 (0.02 percent, the fallback) should cold lookups pass 300 ms at p95.
+LAPSE_S1D_DF_SHARE = float(os.environ.get("LAPSE_S1D_DF_SHARE", "0.002"))
 LAPSE_LICENSES_PATH = os.environ.get("LAPSE_LICENSES_PATH", "/srv/lapse/LICENSES.md")
 # The legal pages at /docs/legal/ (PatentRef 5.11 and 5.12, lapse_accounts/legal.py): the Markdown in the patentref clone
 LAPSE_LEGAL_DIR = os.environ.get("LAPSE_LEGAL_DIR", str(Path(LAPSE_REPO_DIR) / "docs" / "legal"))
@@ -140,6 +148,10 @@ LAPSE_STATUS_PATHS = {
 # key or prefix is printed or logged. A missing file leaves that key's requests counted (in tests the folder is a scratch
 # one, so nothing is there).
 LAPSE_OWN_KEY_EXTRA_FILES = [str(_DATA / "probe_key.txt"), (str(_DATA / "beta_test_account.env"), "BETA_TEST_API_KEY")]
+# Release AG: the keys of accounts on the operator's own email domains are the service's own too (his test keys), left out
+# of the same figures (lapse_accounts/status.py own_key_prefixes); matched on the whole domain after the @, any case.
+LAPSE_OWN_ACCOUNT_DOMAINS = tuple(d.strip().lower() for d in os.environ.get(
+    "LAPSE_OWN_ACCOUNT_DOMAINS", "omnipoolbuilders.com,omnipools.com,dmtcode.com,patentref.io").split(",") if d.strip())
 # The on-demand extraction trial (structure layer S1.1; API/lapse_extract.py, the patentref clone's lapse.extract): its
 # folder (config.json, the KILL file, the jobs and results database, the daily spend log, the quality reports) and the
 # model provider's key file (one line EXTRACT_API_KEY=<key>, mode 600; only the worker reads it). Off while config.json does

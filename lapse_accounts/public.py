@@ -63,13 +63,20 @@ ERROR_CODES = {
               "or an operator was used on a field type that rejects it (prefix or wildcard on numeric, date and boolean fields). "
               "On /api/v1/structure/claims/<patent_id>/ also a patent whose claims are over that endpoint's work cap (1,000 claim "
               "rows, 1,000,000 characters, 5 s a read), and on /api/v1/structure/brief/<patent_id>/ and "
-              "/api/v1/structure/counts/<patent_id>/, which share it; no patent of the data in service is near it.",
+              "/api/v1/structure/counts/<patent_id>/, which share it; no patent of the data in service is near it. The S1-D endpoints "
+              "(experimental) share that cap and answer it too for a read of the long-text file over 5 s or a lookup in the "
+              "structure file over 20 s.",
     "ERR_NOT_IMPLEMENTED": "501 Not Implemented. The endpoint's data set is not in this snapshot: pre-grant publications are deferred "
                            "to a later build, the NBER routes are dead upstream, the long-text endpoints answer it only when no "
                            "long-text file is in service (GET /api/v1/meta/health/ shows text_data_version), and any other endpoint answers it "
                            "while the build in service does not carry its data set. GET /api/v1/meta/ lists the data sets the build lacks under "
                            "deferred. The X-Status-Reason header names the data set and, where there is one, where the same facts are served "
                            "(the classifications come with each patent on /api/v1/patent/). A 501 does not count toward the monthly allowance.",
+    "ERR_NO_STRUCTURE_FILE": "501 Not Implemented. The S1-D structure file (experimental) is not attached on this server: "
+                             "GET /api/v1/structure/relations/<patent_id>/?rel=names_same_part and the units query (GET or POST "
+                             "/api/v1/structure/units/) read it and answer this code while it is missing; the units of one patent "
+                             "(/api/v1/structure/units/<patent_id>/), rel=recites, rel=states and /api/v1/structure/locate/ need "
+                             "only the long-text file. A 501 does not count toward the monthly allowance.",
     "ERR_AUTH": "401 Unauthorized. The account endpoints need Authorization: Bearer <Supabase access token>; the token is missing, expired or not from the PatentRef project.",
     "ERR_SIGNUP_LIMIT": "429 Too Many Requests. More than the daily number of new accounts from one email domain; try after the Retry-After seconds.",
     "ERR_TERMS": "403 Forbidden. POST /api/v1/meta/keys/ mints or rotates a key only once the PatentRef Terms of Service, Privacy Policy "
@@ -87,13 +94,16 @@ ERROR_CODES = {
                  "/api/v1/structure/brief/<patent_id>/ and /api/v1/structure/counts/<patent_id>/) a patent "
                  "the data in service does not have, and a patent it has without claim text in the long-text file (a grant after that "
                  "file's last grant date), answer {\"error\": true} with X-Status-Reason-Code NOT_FOUND and the reason in X-Status-Reason. "
+                 "On the S1-D endpoints (experimental) a patent the data in service does not have, a patent with neither claim "
+                 "text nor a brief summary in the long-text file, and a locator with no text answer the same way. "
                  "Those answers carry NOT_FOUND as a header; on the others it is the problem details code.",
 }
 # Which codes the X-Status-Reason-Code header carries, and which appear only as the problem details code. Kept in step with
 # openapi.json components.headers.X-Status-Reason-Code and llms-full.txt section 5 (patentref tools/gen_openapi.py).
 ERROR_INDEX_NOTE = ("The X-Status-Reason-Code header carries ERR_Q, ERR_ES and ERR_NOT_IMPLEMENTED on the data endpoints; NOT_FOUND on "
                     "/api/v1/lapse/status/ for a v that never existed and on /api/v1/structure/claims/ for a patent without a claim tree, as "
-                    "on /api/v1/structure/brief/ and /api/v1/structure/counts/; "
+                    "on /api/v1/structure/brief/ and /api/v1/structure/counts/; NOT_FOUND and ERR_NO_STRUCTURE_FILE on the S1-D endpoints "
+                    "(/api/v1/structure/units/, /api/v1/structure/relations/, /api/v1/structure/locate/); "
                     "ERR_KEY, ERR_AUTH, ERR_SIGNUP_LIMIT and ERR_TERMS on the account endpoints under "
                     "/api/v1/meta/. A data endpoint's 403 and 429 and a detail route's 404 carry no code header, as upstream; the problem "
                     "details body names them ERR_KEY, THROTTLED and NOT_FOUND.")

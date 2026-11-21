@@ -2,7 +2,8 @@
 unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream settings keep theirs."""
 from django.urls import URLResolver, include, path, re_path
 
-from API import lapse_brief, lapse_extract, lapse_rules, lapse_structure, lapse_structure_counts, lapse_triage, lapse_views
+from API import (lapse_brief, lapse_extract, lapse_rules, lapse_structure, lapse_structure_counts, lapse_structure_s1d,
+                 lapse_triage, lapse_views)
 from lapse_accounts import demo, legal, mail, public, site_pages, swagger, triage_page, waitlist
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
@@ -35,6 +36,13 @@ urlpatterns = [
     # the triage table (gate S1.8L): up to 500 patents in one answer, computed on read; keyed and throttled the same, plus one
     # table at a time per key
     re_path(r"^api/v1/structure/triage/?$", lapse_triage.TriageView.as_view(), name="structure-triage"),
+    # the structure layer S1-D (release AG, gate S1D.4; experimental): one patent's units on read, its names_same_part links
+    # from the structure file, the text at one locator, and the units query; keyed and throttled the same. The query route
+    # first, so the path without a number is never read as a patent number
+    re_path(r"^api/v1/structure/units/?$", lapse_structure_s1d.UnitsQueryView.as_view(), name="structure-units-query"),
+    re_path(r"^api/v1/structure/units/(?P<pk>[^/]+)/?$", lapse_structure_s1d.UnitsView.as_view(), name="structure-units"),
+    re_path(r"^api/v1/structure/relations/(?P<pk>[^/]+)/?$", lapse_structure_s1d.RelationsView.as_view(), name="structure-relations"),
+    re_path(r"^api/v1/structure/locate/?$", lapse_structure_s1d.LocateView.as_view(), name="structure-locate"),
     # the structure layer, tier S1 (gate S1.1): the on-demand extraction trial, built dark (API/lapse_extract.py); keyed and
     # throttled the same; the jobs route first, so a job id is never read as a patent number
     re_path(r"^api/v1/structure/extract/jobs/(?P<job_id>[^/]+)/?$", lapse_extract.ExtractJobView.as_view(), name="structure-extract-job"),
