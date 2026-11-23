@@ -31,7 +31,7 @@ SITE = "https://patentref.io"
 PAGE_CACHE = "public, max-age=300"
 PYPI_URL = "https://pypi.org/project/patentref-mcp/"   # release AH: the project page, which shows the newest release
 REGISTRY_NAME = "io.github.patentref/patentref-mcp"
-REGISTRY_LISTED = "2026-11-05"   # the day the MCP Registry first listed the server (0.4.0's publishedAt, 2026-11-05T20:00:57Z)
+REGISTRY_LISTED = "2026-11-05"   # the day the MCP Registry began to list the server (0.4.0's publishedAt, 2026-11-05T20:00:57Z)
 MCP_LICENSE = "MIT"              # PyPI's license_expression for 0.4.0, 0.4.1 and 0.5.0
 TOOLS_COUNT = 19                 # the tools of patentref-mcp 0.5.0 (15 in 0.4.0 and 0.4.1)
 S1D_TOOLS_FROM = "0.5.0"         # the release of patentref-mcp that adds the four S1-D tools

@@ -146,7 +146,7 @@ INDEXNOW_CACHE = "public, max-age=86400"
 
 
 def indexnow_key():
-    """The IndexNow key the site names (release AH, PatentRef 1.25.0): the first line of public/indexnow.txt in the patentref
+    """The IndexNow key the site names (release AH, PatentRef 1.25.0): the opening line of public/indexnow.txt in the patentref
     clone (LAPSE_PUBLIC_DIR), when it is 32 lower-case hex characters; None otherwise. The key is public by design: the search
     engines that take IndexNow notices read it at https://patentref.io/<key>.txt to check that a notice comes from this site."""
     try:
