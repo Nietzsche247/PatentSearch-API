@@ -2,9 +2,9 @@
 unchanged. Set by `pvapi/settings/lapse_local.py` (ROOT_URLCONF); upstream settings keep theirs."""
 from django.urls import URLResolver, include, path, re_path
 
-from API import (lapse_brief, lapse_extract, lapse_rules, lapse_structure, lapse_structure_counts, lapse_structure_s1d,
-                 lapse_triage, lapse_views)
-from lapse_accounts import demo, legal, mail, public, site_pages, swagger, triage_page, waitlist
+from API import (lapse_brief, lapse_extract, lapse_filing, lapse_rules, lapse_structure, lapse_structure_counts,
+                 lapse_structure_s1d, lapse_triage, lapse_views)
+from lapse_accounts import demo, filing_pages, legal, mail, public, site_pages, swagger, triage_page, waitlist
 from pvapi.urls import urlpatterns as upstream_urlpatterns
 
 
@@ -52,6 +52,11 @@ urlpatterns = [
     re_path(rf"^api/v1/rules/{p + '/?' if p else ''}$", lapse_rules.RulesView.as_view(tool=tool), name=f"rules-{tool}")
     for p, tool in lapse_rules.ROUTES
 ] + [
+    # release AI (1.26.0; API/lapse_filing.py): the filing timeline and the cost estimate, keyed and throttled like the paths
+    # above, from the patentref clone's lapse.filing
+    re_path(r"^api/v1/filing/timeline/?$", lapse_filing.TimelineView.as_view(), name="filing-timeline"),
+    re_path(r"^api/v1/filing/estimate/?$", lapse_filing.EstimateView.as_view(), name="filing-estimate"),
+] + [
     # the human page behind the versioned permalink; no key
     re_path(r"^p/(?P<pk>[A-Za-z0-9]+)/?$", lapse_views.RecordPage.as_view(), name="record-page"),
     # the extraction trial's result as a page (gate S1.1): no key, the per-IP meta rate; 404 while no result is made
@@ -85,6 +90,12 @@ urlpatterns = [
     # rule, the machine-readable files), and the record page's address without a number, a temporary redirect to the docs
     re_path(r"^agents/?$", site_pages.agents, name="agents"),
     re_path(r"^p/?$", site_pages.record_index, name="record-index"),
+    # release AI (1.26.0; lapse_accounts/filing_pages.py): the filing hub, one page per office and the files the pages read
+    # (each office's public data file and the exchange rates); no key
+    re_path(r"^filing/?$", filing_pages.hub, name="filing-hub"),
+    re_path(r"^filing/rates\.json$", filing_pages.rates, name="filing-rates"),
+    re_path(r"^filing/(?P<code>[a-z]{2,3})\.json$", filing_pages.twin, name="filing-twin"),
+    re_path(r"^filing/(?P<code>[a-z]{2,3})/?$", filing_pages.country, name="filing-country"),
     # release AH (1.25.0; lapse_accounts/public.py indexnow_file): the IndexNow key file at the site root, for the one key the
     # patentref clone's public/indexnow.txt names (a name of 32 lower-case hex characters, which matches none of the routes above)
     re_path(r"^(?P<key>[0-9a-f]{32})\.txt$", public.indexnow_file, name="indexnow-key"),

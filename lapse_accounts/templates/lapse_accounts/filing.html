@@ -1,0 +1,10 @@
+{% extends "lapse_accounts/base.html" %}
+{% comment %}Release AI (1.26.0): the filing hub and the office pages. Everything inside comes rendered from the patentref
+clone's lapse/filing_pages.py (words from its strings file, facts from its data files, escaped there); this template only
+places it in the site skeleton.{% endcomment %}
+{% block lang %}{{ page.lang }}{% endblock %}
+{% block title %}{{ page.title }}{% endblock %}
+{% block head %}{{ page.head|safe }}{% endblock %}
+{% block css %}{{ page.css|safe }}{% endblock %}
+{% block body %}{{ page.body|safe }}{% endblock %}
+{% block scripts %}<script>{{ page.script|safe }}</script>{% endblock %}
