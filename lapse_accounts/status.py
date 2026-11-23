@@ -187,7 +187,7 @@ def structure_fields():
 @require_safe
 def health(request):
     """GET answers the JSON body; HEAD the same status and headers with no body (UptimeRobot's HTTP check sends HEAD
-    first: until 2026-10-15 that was a 405 and every check fell back to a second GET). Release AH adds, after the fields it
+    ahead of GET: until 2026-10-15 that was a 405 and every check fell back to a second GET). Release AH adds, after the fields it
     had, structure_text_data_version and structure_grants_lacking (structure_fields)."""
     ok, data_version, detail = db_check()
     if request.method == "HEAD":
@@ -272,7 +272,7 @@ def own_named_prefixes(names):
     """Release AH: the key prefixes of every key named as one of the service's own tools names its key
     (settings.LAPSE_OWN_KEY_NAMES: lapse-local-test, the operator key lapse_tools/create_test_key.py mints, and uptime-probe,
     the GitHub probe's key, ops/monitoring.md), revoked keys included: a key minted anew under such a name is left out from
-    its first request, and the requests of the key it replaced stay out for as long as the request log keeps them. Read from
+    the moment it is made, and the requests of the key it replaced stay out for as long as the request log keeps them. Read from
     the account database inside this process; no key or prefix is printed or logged. An empty set when the list is empty or
     the database cannot be read."""
     want = {str(n).strip() for n in names if str(n).strip()}

@@ -86,6 +86,6 @@ urlpatterns = [
     re_path(r"^agents/?$", site_pages.agents, name="agents"),
     re_path(r"^p/?$", site_pages.record_index, name="record-index"),
     # release AH (1.25.0; lapse_accounts/public.py indexnow_file): the IndexNow key file at the site root, for the one key the
-    # patentref clone's public/indexnow.txt names (a name of 32 lower-case hex characters, so no other route is taken)
+    # patentref clone's public/indexnow.txt names (a name of 32 lower-case hex characters, which matches none of the routes above)
     re_path(r"^(?P<key>[0-9a-f]{32})\.txt$", public.indexnow_file, name="indexnow-key"),
 ] + [p for p in upstream_urlpatterns if _ours(p) and _not_root(p) and getattr(p, "name", None) != "swagger-ui"]

@@ -160,9 +160,9 @@ LAPSE_OWN_KEY_NAMES = ("lapse-local-test", "uptime-probe")
 LAPSE_OWN_KEYS_LIST = os.environ.get("LAPSE_OWN_KEYS_LIST", str(_DATA / "own_keys.txt"))
 # Release AH: the daily counts of client kinds (lapse_accounts/clients.py: a browser, an AI agent, a crawler, a known tool, the
 # PatentRef MCP server or an agent skill by name and version, read from each request's User-Agent; counts only, no User-Agent
-# text, no address) stay OFF until the privacy policy names them: the default is what patentref-us1 runs (a reload does not
-# reread env.sh), so turning them on is a release that changes this line.
-LAPSE_CLIENT_COUNTS = os.environ.get("LAPSE_CLIENT_COUNTS", "0") == "1"
+# text, no address) stay OFF until the privacy policy names them. A constant, not an environment variable (the audit of
+# 2026-11-23, S2): no env.sh line and no restart can turn them on; a release that changes this line does.
+LAPSE_CLIENT_COUNTS = False
 # The on-demand extraction trial (structure layer S1.1; API/lapse_extract.py, the patentref clone's lapse.extract): its
 # folder (config.json, the KILL file, the jobs and results database, the daily spend log, the quality reports) and the
 # model provider's key file (one line EXTRACT_API_KEY=<key>, mode 600; only the worker reads it). Off while config.json does

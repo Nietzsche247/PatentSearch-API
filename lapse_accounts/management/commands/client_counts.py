@@ -6,7 +6,7 @@ write nothing.
                                         service's own apart; with --out, written once to DIR/clients_<day>.json (a file
                                         already there is left as it is), which the daily counts job (patentref
                                         ops/systemd/counts.sh) does at 01:13 UTC
-  show [--days N]                       the last N days (default 7) and today so far, oldest first
+  show [--days N]                       the last N days (default 7) and today so far, from the oldest day to today
 
 Counts only: the table holds (day, area, kind, n) and nothing else; no User-Agent text, address, key, prefix or path.
 """

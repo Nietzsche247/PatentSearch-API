@@ -1543,7 +1543,7 @@ on any day.
 | `lapse_accounts/management/commands/own_keys.py` (new) | how many key prefixes each own-key rule names, and the own and outside keys that sent counted data requests over the last 30 days, as counts | the operator and the deploy can check the rule without seeing a key, prefix or address |
 | `lapse_accounts/public.py`, `lapse_accounts/root_urls.py` | `GET /<key>.txt`: the IndexNow key file at the site root, for the one key the patentref clone's `public/indexnow.txt` names (32 lower-case hex characters; any other such name answers 404) | IndexNow's search engines read it to check that a notice of changed pages comes from this site |
 | `lapse_accounts/site_pages.py`, `templates/lapse_accounts/agents.html` | the Agents page says S1-D is live (experimental) where it said "Not live yet", names it in the lead, and its tools table gives the 19 tools of patentref-mcp 0.5.0 with the four S1-D tools after the brief; the registry line links PyPI's project page with no release of its own, so the page reads true whether 0.5.0 is on PyPI yet or not | S1-D has been live since release AG2 (2026-11-23) |
-| `pvapi/settings/lapse_local.py` | `LAPSE_OWN_KEY_NAMES`, `LAPSE_OWN_KEYS_LIST`, `LAPSE_CLIENT_COUNTS` (off) | the defaults are what the box runs |
+| `pvapi/settings/lapse_local.py` | `LAPSE_OWN_KEY_NAMES`, `LAPSE_OWN_KEYS_LIST`, `LAPSE_CLIENT_COUNTS` (off: a constant `False`, no environment variable; a release turns it on) | the defaults are what the box runs |
 
 What the API answers differently, said for callers in the patentref side's public/changes.txt (1.25.0): the health route's two
 new fields; the units query's `next_after` holds one more value when `s` does not name `unit_id`, and a page sorted by
