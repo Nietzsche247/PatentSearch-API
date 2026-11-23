@@ -13,7 +13,8 @@ rates. This module maps the query string in and the errors out. Keyed and thrott
 (they count toward the monthly allowance like the other data paths). A refused parameter answers 400 as an RFC 9457
 problem details object (type https://patentref.io/docs/errors/ERR_Q, the parameter named in `param`) with X-Status-Reason
 and X-Status-Reason-Code ERR_Q as on the other paths; 503 ERR_ES when the engine or its files cannot be read.
-X-Data-Version carries the newest page.last_checked of the picked offices (the build note's rule for these two paths).
+X-Filing-Data-Version carries the newest page.last_checked of the picked offices; X-Data-Version stays the search file's
+version, as on every path (API/lapse_errors.py DataVersionMiddleware).
 Every answer carries the notice that it is a planning aid, not legal advice and not a quote.
 """
 import json
@@ -104,7 +105,7 @@ def _answer(body, content_type, version):
     resp = HttpResponse(body, content_type=content_type)
     resp["Cache-Control"] = CACHE
     if version:
-        resp["X-Data-Version"] = version
+        resp["X-Filing-Data-Version"] = version
     return resp
 
 

@@ -134,7 +134,9 @@ def test_timeline_answer(client, filing_env, opkey):
     a = r.json()
     assert {"date", "basis", "route", "generated_at", "data_versions", "rows", "stale"} <= set(a)
     assert a["date"] == "2026-08-31" and a["route"] == "pct" and a["basis"] == "priority"
-    assert r["X-Data-Version"] == max(a["data_versions"].values())
+    # the filing data's date in its own header; X-Data-Version stays the search file's, as on every path
+    assert r["X-Filing-Data-Version"] == max(a["data_versions"].values())
+    assert r.get("X-Data-Version") != r["X-Filing-Data-Version"]
     dates = [row["date"] for row in a["rows"]]
     assert dates == sorted(dates)
     row_keys = {"date", "country_code", "country", "event_id", "event", "months", "days", "basis", "fee", "extension",
@@ -216,3 +218,27 @@ def test_engine_unavailable_answers_503(client, filing_env, opkey, monkeypatch):
 
     monkeypatch.setattr(filing_pages, "pages_module", lambda: None)
     assert client.get("/filing/").status_code == 503
+
+
+FOOTER_LINK = '<nav aria-label="Site"><a href="/filing/">Foreign filing</a> <a href="/api/v1/meta/status/">Status</a>'
+
+
+@pytest.mark.parametrize("path", ["/", "/agents/", "/docs/legal/", "/docs/legal/terms", "/filing/", "/filing/cn/", "/waitlist/"])
+def test_every_page_links_to_the_filing_pages_in_its_footer(client, filing_env, path):
+    r = client.get(path)
+    assert r.status_code == 200, path
+    assert r.content.decode("utf-8").count(FOOTER_LINK) == 1, path
+    assert client.get("/filing/").status_code == 200
+
+
+def test_the_home_and_agents_pages_name_the_filing_pages(client, filing_env):
+    home, agents = (client.get(p).content.decode("utf-8") for p in ("/", "/agents/"))
+    assert '<li><a href="/filing/">Foreign filing: PCT and national phase deadlines and costs for ten patent offices</a></li>' in home
+    assert '<p>Foreign filing: <a href="/filing/">/filing/</a> lists the PCT and national phase deadlines' in agents
+
+
+def test_the_estimate_names_its_rates_in_every_form(client, filing_env, opkey):
+    a = client.get("/api/v1/filing/estimate/", {"countries": "ep,jp", "currency": "USD"}, HTTP_X_API_KEY=opkey).json()
+    assert a["rates"]["source"] and a["rates"]["date"]
+    lines = client.get("/api/v1/filing/estimate/", {"countries": "ep,jp", "as": "csv"}, HTTP_X_API_KEY=opkey).content.decode("utf-8").splitlines()
+    assert lines[0].endswith(",rate_source,rate_date") and all(ln.endswith("," + a["rates"]["date"]) for ln in lines[1:])

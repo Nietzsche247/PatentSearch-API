@@ -99,6 +99,7 @@
 
     <div class="ag-trust">
       <p>Data version {{ data_version }}{% if as_of %}, as of {{ as_of }}{% endif %}{% if text_data_version %}; text data version {{ text_data_version }}{% endif %}{% if structure_version %}; claim trees by structure version {{ structure_version }}{% endif %}. Build facts: <a href="/api/v1/meta/">/api/v1/meta/</a>. What changed: <a href="/changes.txt">/changes.txt</a>.</p>
+      <p>Foreign filing: <a href="/filing/">/filing/</a> lists the PCT and national phase deadlines and the costs of ten patent offices, and each office's data is a JSON file at /filing/&lt;code&gt;.json, without a key.</p>
       <p>Every page and every answer describes the text as the USPTO printed it. A status, a flag or a category is a fact about the record with its basis and its as-of date, not legal advice.</p>
     </div>
 {% endblock %}
