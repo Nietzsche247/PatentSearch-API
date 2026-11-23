@@ -399,6 +399,36 @@ def test_units_query_by_part_and_by_patent(client, keys, env):
     assert r.status_code == 200 and r.json()["count"] == 1
 
 
+def test_units_query_sorted_by_patent_id_alone_pages_through_every_row(client, keys, env):
+    """Release AH (1.25.0): an order that does not name unit_id ends with it, so a page never ends inside a tie, and next_after
+    holds the values s names and then the row's unit_id. Until then s=[{"patent_id": "asc"}] paged with a cursor of the
+    patent alone, and the next page left out the rest of that patent's rows."""
+    q = json.dumps({"patent_id": ["9000001", "9000005"]})
+    s = '[{"patent_id": "asc"}]'
+    whole = get(client, keys(), UNITS, q=q, s=s, o='{"size": 100}').json()
+    want = [(u["patent_id"], u["unit_id"]) for u in whole["units"]]
+    assert len(want) >= 4 and len(set(want)) == len(want) and whole["next_after"] is None
+    assert sum(1 for p, _ in want if p == "9000001") >= 2
+    for size in (1, 2, 3):
+        got, after = [], None
+        for _ in range(60):
+            o = {"size": size} if after is None else {"size": size, "after": after}
+            js = get(client, keys(), UNITS, q=q, s=s, o=json.dumps(o)).json()
+            got += [(u["patent_id"], u["unit_id"]) for u in js["units"]]
+            after = js["next_after"]
+            if after is None:
+                break
+            assert after == [js["units"][-1]["patent_id"], js["units"][-1]["unit_id"]]
+        assert got == want, size
+    desc = get(client, keys(), UNITS, q=q, s='[{"patent_id": "desc"}, {"type": "asc"}]', o='{"size": 2}').json()
+    assert len(desc["next_after"]) == 3 and desc["next_after"][2] == desc["units"][-1]["unit_id"]
+    # a cursor of the values s names alone (as made before 1.25.0) is still taken: the rows of its patent come again
+    js = get(client, keys(), UNITS, q=q, s=s, o=json.dumps({"size": 100, "after": ["9000001"]})).json()
+    assert [(u["patent_id"], u["unit_id"]) for u in js["units"]] == want
+    r = get(client, keys(), UNITS, q=q, s=s, o=json.dumps({"size": 1, "after": ["9000001", "x", "y"]}))
+    assert r.status_code == 400 and "next_after" in r["X-Status-Reason"]
+
+
 def test_units_query_refusals_and_the_501(client, keys, env, files):
     for q, why in (('{"type": "Component"}', "must name patent_id"), ('{"patent_id": {"_gt": "1"}}', "not offered"),
                    ('{"_or": [{"patent_id": "9000001"}, {"part": "gear"}]}', "on one field"), ('{"text": "x"}', "filters by"),
@@ -448,6 +478,57 @@ def test_the_structure_file_is_opened_read_only(env):
     with pytest.raises(sqlite3.OperationalError):
         con.execute("CREATE TABLE x(a)")
     assert facts["df_max"] == lapse_s1d.df_max_for(len(PATENTS), lapse_s1d.DF_SHARE) == 2
+
+
+def test_grants_lacking_reads_the_weeks_after_the_structure_files_text():
+    """Release AH (1.25.0): how many grants of the text in service the structure file has no rows for, from the text file's
+    weekly grants list against the newest week of the text the structure file was built from (its data version's release
+    part, or its meta's text_grants_through)."""
+    weeks = json.dumps([{"file": "ipg261110.zip", "issue_date": "2026-11-10", "patents": 9008},
+                        {"file": "ipg261117.zip", "issue_date": "2026-11-17", "patents": 9100},
+                        {"file": "ipg261124.zip", "issue_date": "2026-11-24", "patents": 8000}])
+    lack = lapse_structure_s1d.grants_lacking
+    assert lack("20261110.1", "20261110.1", None) == 0 and lack("20261110.1", "20261110.1", weeks) == 0
+    assert lack("20261110.1", "20261124.1", weeks) == 17100
+    assert lack("20261110.1", "20261124.1", weeks, through="2026-11-17") == 8000
+    assert lack("20261117.2", "20261124.1", weeks) == 8000
+    for bad in (None, "", "{not json", json.dumps({"issue_date": "2026-11-17"})):
+        assert lack("20261110.1", "20261124.1", bad) is None, bad
+    assert lack(None, "20261124.1", weeks) is None and lack("20261110.1", None, weeks) is None
+    assert lack("20261110.1", "20261124.1", json.dumps([{"issue_date": "2026-11-24", "patents": "many"}])) is None
+
+
+def test_health_names_the_structure_files_text_and_the_grants_it_lacks(client, env, monkeypatch):
+    r = client.get("/api/v1/meta/health/")
+    js = r.json()
+    assert r.status_code == 200 and js["structure_text_data_version"] == TEXT_VERSION and js["structure_grants_lacking"] == 0
+    assert list(js)[-2:] == ["structure_text_data_version", "structure_grants_lacking"]   # after the fields it had
+    assert list(js)[:7] == ["ok", "version", "data_version", "db", "time", "text_data_version", "patentref_version"]
+    # a later text in service: the weeks after 2026-11-10 in its grants list, read once per pair of versions
+    lapse_structure_s1d.reset()
+    monkeypatch.setattr(LapseSQLiteSearch, "text_data_version", lambda self: "20261124.1")
+    weeks = json.dumps([{"issue_date": "2026-11-10", "patents": 5}, {"issue_date": "2026-11-17", "patents": 7},
+                        {"issue_date": "2026-11-24", "patents": 11}])
+    con = sqlite3.connect(env[1])
+    con.execute("INSERT INTO _lapse_build VALUES ('grants', ?)", (weeks,))
+    con.commit()
+    con.close()
+    try:
+        LapseSQLiteSearch._local.__dict__.clear()
+        js = client.get("/api/v1/meta/health/").json()
+        assert js["structure_text_data_version"] == TEXT_VERSION and js["structure_grants_lacking"] == 18
+        assert client.head("/api/v1/meta/health/").content == b""
+    finally:
+        con = sqlite3.connect(env[1])
+        con.execute("DELETE FROM _lapse_build WHERE k = 'grants'")
+        con.commit()
+        con.close()
+        LapseSQLiteSearch._local.__dict__.clear()
+
+
+def test_health_without_a_structure_file_says_null(client, no_structure_env):
+    js = client.get("/api/v1/meta/health/").json()
+    assert js["structure_text_data_version"] is None and js["structure_grants_lacking"] is None and js["ok"] is True
 
 
 def test_the_fallback_share_is_a_setting(env, monkeypatch):

@@ -152,6 +152,17 @@ LAPSE_OWN_KEY_EXTRA_FILES = [str(_DATA / "probe_key.txt"), (str(_DATA / "beta_te
 # of the same figures (lapse_accounts/status.py own_key_prefixes); matched on the whole domain after the @, any case.
 LAPSE_OWN_ACCOUNT_DOMAINS = tuple(d.strip().lower() for d in os.environ.get(
     "LAPSE_OWN_ACCOUNT_DOMAINS", "omnipoolbuilders.com,omnipools.com,dmtcode.com,patentref.io").split(",") if d.strip())
+# Release AH: every key with a name the service's own tools give their keys is the service's own too, revoked ones included
+# (lapse_tools/create_test_key.py names the operator key lapse-local-test; the GitHub probe's key is uptime-probe), so a key
+# minted anew under such a name is left out at once; and the operator's own list (one email address or key prefix a line, no
+# key; absent: nothing) names his keys on other addresses, such as a personal mailbox (lapse_accounts/status.py own_key_rules).
+LAPSE_OWN_KEY_NAMES = ("lapse-local-test", "uptime-probe")
+LAPSE_OWN_KEYS_LIST = os.environ.get("LAPSE_OWN_KEYS_LIST", str(_DATA / "own_keys.txt"))
+# Release AH: the daily counts of client kinds (lapse_accounts/clients.py: a browser, an AI agent, a crawler, a known tool, the
+# PatentRef MCP server or an agent skill by name and version, read from each request's User-Agent; counts only, no User-Agent
+# text, no address) stay OFF until the privacy policy names them: the default is what patentref-us1 runs (a reload does not
+# reread env.sh), so turning them on is a release that changes this line.
+LAPSE_CLIENT_COUNTS = os.environ.get("LAPSE_CLIENT_COUNTS", "0") == "1"
 # The on-demand extraction trial (structure layer S1.1; API/lapse_extract.py, the patentref clone's lapse.extract): its
 # folder (config.json, the KILL file, the jobs and results database, the daily spend log, the quality reports) and the
 # model provider's key file (one line EXTRACT_API_KEY=<key>, mode 600; only the worker reads it). Off while config.json does

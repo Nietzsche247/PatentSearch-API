@@ -25,13 +25,18 @@ from lapse_accounts.models import PLAN_FREE
 HERE = Path(__file__).resolve().parent
 README = (HERE / "fixtures" / "patentref_mcp_0.4.0_README.md").read_text(encoding="utf-8").replace("\r\n", "\n")
 README_SHA256 = "284a6642d2059dc6efa231c88f57656a509cf912a553155c31ae0f11d65dfb26"   # PyPI's description of patentref-mcp 0.4.0
+# release AH: the README of patentref-mcp 0.5.0 as committed (patentref branch mcp-0.5.0, b9c7fc7, mcp/README.md, LF)
+README050 = (HERE / "fixtures" / "patentref_mcp_0.5.0_README.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+README050_SHA256 = "42ac156db98503f85cda3d29162918535985b62e1b5054124b362f943ddf1322"
 TEMPLATES = HERE.parent / "templates" / "lapse_accounts"
 DASHES = (chr(0x2014), chr(0x2013))
 # The words the coordinator bars from release AD's copy (2026-11-05), whole words, any case, with their endings.
 AD_WORDS = re.compile(r"\b(risk\w*|clear\w*|safe\w*|free to use|invalid\w*|valid\w*|scope\w*|breadth\w*|strength\w*|broad\w*|"
                       r"narrow\w*|infring\w*|no other|first)\b", re.I)
-NEXT = ("Next: for each patent, the problem it states and the parts it names, each quoted with its place in the text, and linked "
-        "to other patents that name the same parts. Not live yet. If your agent would use it, tell us at hello@patentref.io.")
+# release AH: the block after the tools says S1-D is live (until then: "Next: ... Not live yet. If your agent would use it, ...")
+S1D = ("S1-D, experimental: for each patent, the problem it states and the parts its claims name, each quoted with its place in the "
+       "text, and the patents whose claims name the same parts. The four S1-D tools above call these endpoints, keyed and counted "
+       "like the others, in the API since 2026-11-23. Tell us what your agent does with it at hello@patentref.io.")
 
 
 class Visible(HTMLParser):
@@ -101,6 +106,22 @@ def _reset(monkeypatch):
 def test_the_readme_fixture_is_the_one_pypi_serves():
     assert hashlib.sha256(README.encode("utf-8")).hexdigest() == README_SHA256
     assert "<!-- mcp-name: io.github.patentref/patentref-mcp -->" in README
+    assert hashlib.sha256(README050.encode("utf-8")).hexdigest() == README050_SHA256   # release AH: 0.5.0's, as committed
+    assert "<!-- mcp-name: io.github.patentref/patentref-mcp -->" in README050 and "Its 19 read-only tools" in README050
+
+
+def readme050_tools():
+    """The tool names of the 0.5.0 README's Tools section, in its order (it prints each as **name**: description)."""
+    part = README050.split("## Tools\n", 1)[1].split("\n## ", 1)[0]
+    return re.findall(r"^- \*\*([a-z_]+)\*\*: ", part, re.M)
+
+
+def table_tools():
+    """The tool names of the page's table, the rules row read as its eight names."""
+    out = []
+    for call, _, _ in site_pages.TOOLS:
+        out += [c.strip().split("(", 1)[0] for c in (call.split(", ") if "(" not in call else [call])]
+    return out
 
 
 # ---------------------------------------------------------------- /agents/
@@ -126,12 +147,16 @@ def test_the_agents_page_says_what_the_canvas_says(client):
     _, h = page(client)
     v = visible(h)
     assert "<h1>PatentRef for agents</h1>" in h
-    assert ("An agent can get a claim tree, a brief, a status record, a search over US grants, the patents nearest to a text, rows "
-            "of patent office rules and the build facts of the data it is reading, each answer stamped with X-Data-Version. Nothing "
-            "PatentRef returns is a legal conclusion; every answer describes the text as printed.") in v
-    assert ("Registry: io.github.patentref/patentref-mcp (listed 2026-11-05) · PyPI patentref-mcp 0.4.0 · MIT · a local stdio "
+    assert ("An agent can get a claim tree, a brief, the problem a patent states and the parts its claims name (S1-D, experimental), "
+            "a status record, a search over US grants, the patents nearest to a text, rows of patent office rules and the build "
+            "facts of the data it is reading, each answer stamped with X-Data-Version. Nothing PatentRef returns is a legal "
+            "conclusion; every answer describes the text as printed.") in v
+    # release AH: no PyPI release of its own (the project page names the newest), so the line reads true before 0.5.0 is on
+    # PyPI and after
+    assert ("Registry: io.github.patentref/patentref-mcp (listed 2026-11-05) · PyPI patentref-mcp · MIT · a local stdio "
             "package, no hosted endpoint") in v
-    assert '<a href="https://pypi.org/project/patentref-mcp/0.4.0/">PyPI patentref-mcp 0.4.0</a>' in h
+    assert '<a href="https://pypi.org/project/patentref-mcp/">PyPI patentref-mcp</a>' in h
+    assert "0.4.0" not in v and "pypi.org/project/patentref-mcp/0." not in h
     for heading in ("Install", "Tools", "Key rule and limits", "Machine-readable"):
         assert re.search(r"<h2[^>]*>" + heading + "</h2>", h), heading
     monthly, per_minute = metering.plan_limits(PLAN_FREE)
@@ -157,6 +182,10 @@ def test_install_lines_and_the_smoke_test_word_for_word_from_the_readme(client):
     desktop = README.split("```json\n", 1)[1].split("\n```", 1)[0]
     assert site_pages.CONFIG_JSON == desktop and "Claude Desktop (`claude_desktop_config.json`):" in README
     assert f"Check an install: `{site_pages.SMOKE}` starts the server over stdio" in README
+    # release AH: 0.5.0 keeps the same lines word for word
+    assert README050.split("## Run\n\n```\n", 1)[1].split("\n```", 1)[0] == run
+    assert README050.split("```json\n", 1)[1].split("\n```", 1)[0] == desktop
+    assert f"Check an install: `{site_pages.SMOKE}` starts the server over stdio" in README050
     _, h = page(client)
     blocks = [html.unescape(b) for b in re.findall(r"<pre><code>(.*?)</code></pre>", h, re.S)]
     assert blocks == [b for _, _, b in site_pages.INSTALL]
@@ -175,33 +204,48 @@ def test_install_lines_and_the_smoke_test_word_for_word_from_the_readme(client):
 
 def test_the_tools_table_is_the_readmes_word_for_word(client):
     rows = readme_tools()
-    assert rows == [(c, e, d) for c, e, d in site_pages.TOOLS] and len(rows) == 8
+    s1d = [(c, e, d) for c, e, d in site_pages.S1D_TOOLS]
+    # release AH: the 0.4.0 README's eight rows as they were, in its order, with the four S1-D rows of 0.5.0 after the brief
+    assert [r for r in site_pages.TOOLS if r not in site_pages.S1D_TOOLS] == rows and len(rows) == 8
+    assert list(site_pages.TOOLS[2:6]) == s1d and len(site_pages.TOOLS) == 12
+    # the 19 tool names are the 0.5.0 README's, and each S1-D row names an S1-D route of this API
+    assert sorted(table_tools()) == sorted(readme050_tools()) and len(table_tools()) == 19 == site_pages.TOOLS_COUNT
+    for call, endpoint, description in s1d:
+        assert call.split("(", 1)[0] in README050 and description.endswith("(experimental)"), call
+        route = endpoint.split(" ", 1)[1].replace("<patent_id>", "10034028")
+        assert resolve(route).url_name.startswith("structure-"), endpoint
     _, h = page(client)
     body = h.split('<table class="ag-tools">', 1)[1].split("</table>", 1)[0]
     got = re.findall(r'<tr><td class="mono">(.*?)</td><td class="mono ep">(.*?)</td><td>(.*?)</td></tr>', body)
-    assert [tuple(html.unescape(x) for x in r) for r in got] == rows
+    assert [tuple(html.unescape(x) for x in r) for r in got] == list(site_pages.TOOLS)
     assert re.findall(r"<th>([^<]+)</th>", body) == ["Tool", "Endpoint", "Description"]
     v = visible(h)
     for words in ("Each tool sends one HTTPS request to the public API with the key from its environment and returns the API's JSON as the API sent it.",
                   "An error from the API comes back as the tool's error text: the HTTP status and the API's X-Status-Reason. The server does not retry."):
         assert words in plain(README) and words in v, words
-    assert "Tool names, endpoints and descriptions as the patentref-mcp 0.4.0 README on PyPI prints them." in v
+    assert ("The 19 tools of patentref-mcp and the endpoint each one calls: the eight rules tools share a row, and the four S1-D "
+            "tools (experimental) come with patentref-mcp 0.5.0. The README of each release on PyPI gives its tools' full "
+            "descriptions.") in v
+    assert not AD_WORDS.search(" ".join(d for _, _, d in s1d)) and not any(x in d for _, _, d in s1d for x in DASHES)
     # each landmark has a name of its own (axe landmark-unique): the tools section is named by its heading, the table's scroll box by its own label
     named = re.findall(r'<(?:section|div)[^>]*?(?:aria-labelledby="([^"]+)"|aria-label="([^"]+)")', h)
     keys = [a or "label:" + b for a, b in named]
     assert len(keys) == len(set(keys)) and "label:Tools table" in keys, keys
 
 
-def test_the_next_block_is_the_coordinators_text_between_the_tools_and_the_key_rule(client):
+def test_the_s1d_block_says_it_is_live_between_the_tools_and_the_key_rule(client):
+    """Release AH: the block after the tools said S1-D was not live yet (the coordinator's Next text of 2026-11-05); S1-D has
+    been live, experimental, since release AG2 (2026-11-23), and the block says so, with the same mail link."""
     _, h = page(client)
     v = visible(h)
-    assert v.count(NEXT) == 1
-    assert ('<p class="ag-next" id="ag-next"><strong>Next:</strong> ' + site_pages.NEXT_TEXT
+    assert v.count(S1D) == 1
+    assert ('<p class="ag-next" id="ag-s1d"><strong>S1-D, experimental:</strong> ' + site_pages.S1D_TEXT
             + ' <a href="mailto:hello@patentref.io">hello@patentref.io</a>.</p>') in h
-    assert h.index('<table class="ag-tools">') < h.index('id="ag-next"') < h.index('id="ag-key-h"')
-    block = h.split('id="ag-next"', 1)[1].split("</p>", 1)[0]
-    assert "waitlist" not in block and not re.search(r"\d{4}-\d{2}-\d{2}|\$|USD|price", block)
-    assert not AD_WORDS.search(NEXT) and not any(d in NEXT for d in DASHES)
+    assert h.index('<table class="ag-tools">') < h.index('id="ag-s1d"') < h.index('id="ag-key-h"')
+    block = h.split('id="ag-s1d"', 1)[1].split("</p>", 1)[0]
+    assert "waitlist" not in block and not re.search(r"\$|USD|price", block)
+    assert "Not live yet" not in h and "Next:" not in v and 'id="ag-next"' not in h
+    assert not AD_WORDS.search(S1D) and not any(d in S1D for d in DASHES)
 
 
 def test_the_live_values_are_read_when_the_page_is_made(client, monkeypatch, tmp_path):

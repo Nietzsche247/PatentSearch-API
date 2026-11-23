@@ -1,10 +1,13 @@
 """Health route and the public status page (PatentRef gate 5.4).
 
   GET /api/v1/meta/health/      no auth, no throttle, no search query: {"ok", "version", "data_version", "db",
-                                "time", "text_data_version", "patentref_version"} (version is the fork's
-                                commit, patentref_version the /srv/lapse commit, both for the 5.2 pin
-                                guard); 200 when the served search file opens and answers a one-row read,
-                                503 otherwise. This is what the external probe and the on-box watchdog call.
+                                "time", "text_data_version", "patentref_version", "structure_text_data_version",
+                                "structure_grants_lacking"} (version is the fork's commit, patentref_version the
+                                /srv/lapse commit, both for the 5.2 pin guard; the last two, release AH, say which
+                                long-text file the S1-D structure file was built from and how many grants of the
+                                text in service it has no rows for); 200 when the served search file opens and
+                                answers a one-row read, 503 otherwise. This is what the external probe and the
+                                on-box watchdog call.
   GET /api/v1/meta/status/      the public status page (HTML, phone width, dark mode); the same figures as
                                 JSON at /api/v1/meta/status.json. Built from:
     - request_log in the usage-log file (lapse_accounts.requestlog): counts, error rates, p50 and p95 for
@@ -32,6 +35,7 @@ import copy
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -167,16 +171,30 @@ def text_version():
         return None
 
 
+def structure_fields():
+    """Release AH (PatentRef 1.25.0): the S1-D structure file's own text data version (the long-text file it was built from)
+    and how many grants of the long-text file in service it has no rows for (API/lapse_structure_s1d.py structure_gap, read
+    from the two files' bookkeeping); both null without a structure file, the count null when it cannot be told."""
+    try:
+        from API.lapse_structure_s1d import structure_gap
+
+        stv, lacking = structure_gap()
+    except Exception:  # noqa: BLE001 - the health route answers on its own checks
+        stv, lacking = None, None
+    return {"structure_text_data_version": stv, "structure_grants_lacking": lacking}
+
+
 @require_safe
 def health(request):
     """GET answers the JSON body; HEAD the same status and headers with no body (UptimeRobot's HTTP check sends HEAD
-    first: until 2026-10-15 that was a 405 and every check fell back to a second GET)."""
+    first: until 2026-10-15 that was a 405 and every check fell back to a second GET). Release AH adds, after the fields it
+    had, structure_text_data_version and structure_grants_lacking (structure_fields)."""
     ok, data_version, detail = db_check()
     if request.method == "HEAD":
         resp = HttpResponse(b"", status=200 if ok else 503, content_type="application/json")
     else:
         body = {"ok": ok, "version": code_version(), "data_version": data_version, "db": detail, "time": iso(time.time()),
-                "text_data_version": text_version(), "patentref_version": patentref_version()}
+                "text_data_version": text_version(), "patentref_version": patentref_version(), **structure_fields()}
         resp = JsonResponse(body, status=200 if ok else 503)
     resp["Cache-Control"] = "no-store"
     resp["X-Data-Version"] = data_version or "unversioned"
@@ -250,6 +268,63 @@ def own_account_prefixes(domains):
         return set()
 
 
+def own_named_prefixes(names):
+    """Release AH: the key prefixes of every key named as one of the service's own tools names its key
+    (settings.LAPSE_OWN_KEY_NAMES: lapse-local-test, the operator key lapse_tools/create_test_key.py mints, and uptime-probe,
+    the GitHub probe's key, ops/monitoring.md), revoked keys included: a key minted anew under such a name is left out from
+    its first request, and the requests of the key it replaced stay out for as long as the request log keeps them. Read from
+    the account database inside this process; no key or prefix is printed or logged. An empty set when the list is empty or
+    the database cannot be read."""
+    want = {str(n).strip() for n in names if str(n).strip()}
+    if not want:
+        return set()
+    try:
+        from API.models import APIUserKey
+
+        return {str(p)[:16] for p in APIUserKey.objects.filter(name__in=sorted(want)).values_list("prefix", flat=True) if p}
+    except Exception:  # noqa: BLE001 - the figures never fail on this list; those keys then count
+        return set()
+
+
+OWN_LIST_PREFIX = re.compile(r"[A-Za-z0-9]{6,16}")
+
+
+def own_listed_prefixes(path):
+    """Release AH: the key prefixes named by the operator's own list (settings.LAPSE_OWN_KEYS_LIST, /data/api/own_keys.txt on
+    the box; no file, no entry), for his keys on an address of no own domain, such as a personal mailbox: one entry a line, an
+    email address (every key whose own email or whose account's email is that address, any case) or a key prefix as the usage
+    endpoint shows it; '#' starts a comment. The file holds no key: addresses and prefixes only. Read inside this process; no
+    entry is printed or logged. An empty set when the file is missing or unreadable."""
+    if not path:
+        return set()
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return set()
+    emails, out = set(), set()
+    for line in lines:
+        e = line.split("#", 1)[0].strip()
+        if not e:
+            continue
+        if "@" in e:
+            emails.add(e.lower())
+        elif OWN_LIST_PREFIX.fullmatch(e):
+            out.add(e[:16])
+    if emails:
+        try:
+            from django.db.models import Q
+
+            from API.models import APIUserKey
+
+            cond = Q()
+            for e in emails:
+                cond |= Q(email__iexact=e) | Q(account__email__iexact=e)
+            out |= {str(p)[:16] for p in APIUserKey.objects.filter(cond).values_list("prefix", flat=True) if p}
+        except Exception:  # noqa: BLE001 - the figures never fail on this list; those keys then count
+            pass
+    return out
+
+
 def own_key_prefixes():
     """The key prefixes of the service's own requests, left out of the status page's API figures and the structure
     layer's usage counter (lapse_accounts/usage_counts.py): the operator key in the file that LAPSE_API_KEY_FILE names in
@@ -259,23 +334,37 @@ def own_key_prefixes():
     settings.LAPSE_OWN_KEY_FILES, when set, replaces the whole list. The request log keeps a key's prefix (the part before
     the dot, the same characters the usage endpoint shows), so the prefix is what is compared; each key is read inside
     this process by _own_key() and not kept, and neither a key nor a prefix is printed or logged. A file that is missing
-    or unreadable gives no prefix, and that key's requests then count."""
+    or unreadable gives no prefix, and that key's requests then count. Release AG adds the keys of accounts on the operator's
+    own email domains (own_account_prefixes); release AH the keys named as the service's own tools name theirs, revoked ones
+    included (own_named_prefixes), and the operator's own list of addresses and prefixes (own_listed_prefixes)."""
     now = time.time()
     with _lock:
         if now - _own_cache["at"] < OWN_KEY_SECONDS:
             return _own_cache["prefixes"]
-    files = getattr(settings, "LAPSE_OWN_KEY_FILES", None)
-    if files is None:
-        files = [f for f in (os.environ.get("LAPSE_API_KEY_FILE"),) if f] + list(getattr(settings, "LAPSE_OWN_KEY_EXTRA_FILES", None) or [])
     out = set()
-    for entry in files:
-        key = _own_key(entry)
-        if key and "." in key:  # the form keys have here (prefix.secret); anything else is not compared
-            out.add(key.split(".", 1)[0][:16])
-    out |= own_account_prefixes(getattr(settings, "LAPSE_OWN_ACCOUNT_DOMAINS", None) or ())
+    for got in own_key_rules().values():
+        out |= got
     with _lock:
         _own_cache["at"], _own_cache["prefixes"] = now, frozenset(out)
     return _own_cache["prefixes"]
+
+
+def own_key_rules():
+    """{rule: the prefixes it names} for own_key_prefixes(), and for manage.py own_keys, which prints the counts only:
+    files (the operator key and the entries of LAPSE_OWN_KEY_EXTRA_FILES, or LAPSE_OWN_KEY_FILES), domains
+    (LAPSE_OWN_ACCOUNT_DOMAINS), names (LAPSE_OWN_KEY_NAMES) and list (LAPSE_OWN_KEYS_LIST)."""
+    files = getattr(settings, "LAPSE_OWN_KEY_FILES", None)
+    if files is None:
+        files = [f for f in (os.environ.get("LAPSE_API_KEY_FILE"),) if f] + list(getattr(settings, "LAPSE_OWN_KEY_EXTRA_FILES", None) or [])
+    by_file = set()
+    for entry in files:
+        key = _own_key(entry)
+        if key and "." in key:  # the form keys have here (prefix.secret); anything else is not compared
+            by_file.add(key.split(".", 1)[0][:16])
+    return {"files": by_file,
+            "domains": own_account_prefixes(getattr(settings, "LAPSE_OWN_ACCOUNT_DOMAINS", None) or ()),
+            "names": own_named_prefixes(getattr(settings, "LAPSE_OWN_KEY_NAMES", None) or ()),
+            "list": own_listed_prefixes(getattr(settings, "LAPSE_OWN_KEYS_LIST", None) or "")}
 
 
 def request_figures(path, since, api_prefix="/api/v1/", meta_prefix="/api/v1/meta/", own=None):

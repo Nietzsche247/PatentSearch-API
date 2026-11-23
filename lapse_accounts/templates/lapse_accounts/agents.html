@@ -53,8 +53,8 @@
     <div class="ag-main">
       <div>
         <h1>PatentRef for agents</h1>
-        <p class="ag-lead">An agent can get a claim tree, a brief, a status record, a search over US grants, the patents nearest to a text, rows of patent office rules and the build facts of the data it is reading, each answer stamped with <code>X-Data-Version</code>. Nothing PatentRef returns is a legal conclusion; every answer describes the text as printed.</p>
-        <p class="ag-reg">Registry: {{ registry_name }} (listed {{ registry_listed }}) · <a href="{{ pypi_url }}">PyPI patentref-mcp {{ mcp_version }}</a> · {{ mcp_license }} · a local stdio package, no hosted endpoint</p>
+        <p class="ag-lead">An agent can get a claim tree, a brief, the problem a patent states and the parts its claims name (S1-D, experimental), a status record, a search over US grants, the patents nearest to a text, rows of patent office rules and the build facts of the data it is reading, each answer stamped with <code>X-Data-Version</code>. Nothing PatentRef returns is a legal conclusion; every answer describes the text as printed.</p>
+        <p class="ag-reg">Registry: {{ registry_name }} (listed {{ registry_listed }}) · <a href="{{ pypi_url }}">PyPI patentref-mcp</a> · {{ mcp_license }} · a local stdio package, no hosted endpoint</p>
       </div>
 
       <section aria-labelledby="ag-install-h">
@@ -76,10 +76,10 @@
 {% endfor %}            </tbody>
           </table>
         </div>
-        <p class="ag-note">Tool names, endpoints and descriptions as the patentref-mcp {{ mcp_version }} <a href="{{ pypi_url }}">README on PyPI</a> prints them. Each tool sends one HTTPS request to the public API with the key from its environment and returns the API's JSON as the API sent it. An error from the API comes back as the tool's error text: the HTTP status and the API's <code>X-Status-Reason</code>. The server does not retry.</p>
+        <p class="ag-note">The {{ tools_count }} tools of patentref-mcp and the endpoint each one calls: the eight rules tools share a row, and the four S1-D tools (experimental) come with patentref-mcp {{ s1d_tools_from }}. The README of each release on <a href="{{ pypi_url }}">PyPI</a> gives its tools' full descriptions. Each tool sends one HTTPS request to the public API with the key from its environment and returns the API's JSON as the API sent it. An error from the API comes back as the tool's error text: the HTTP status and the API's <code>X-Status-Reason</code>. The server does not retry.</p>
       </section>
 
-      <p class="ag-next" id="ag-next"><strong>Next:</strong> {{ next_text }} <a href="mailto:{{ next_mail }}">{{ next_mail }}</a>.</p>
+      <p class="ag-next" id="ag-s1d"><strong>S1-D, experimental:</strong> {{ s1d_text }} <a href="mailto:{{ next_mail }}">{{ next_mail }}</a>.</p>
 
       <section aria-labelledby="ag-key-h">
         <h2 id="ag-key-h">Key rule and limits</h2>

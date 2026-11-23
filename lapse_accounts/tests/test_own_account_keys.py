@@ -64,3 +64,55 @@ def test_a_database_that_cannot_be_read_gives_no_prefix(monkeypatch):
         raise RuntimeError("no database")
     monkeypatch.setattr(APIUserKey.objects, "filter", boom)
     assert status.own_account_prefixes(("omnipools.com",)) == set()
+
+
+# ---------------------------------------------------------------- release AH: by name, by the operator's own list, the counts
+
+def test_keys_named_as_the_tools_name_theirs_are_own_revoked_ones_too():
+    assert tuple(settings.LAPSE_OWN_KEY_NAMES) == ("lapse-local-test", "uptime-probe")
+    tag = uuid.uuid4().hex[:8]
+    probe, _secret = APIUserKey.objects.create_key(name="uptime-probe", username=f"p-{tag}", email=None)
+    old, _secret = APIUserKey.objects.create_key(name="lapse-local-test", username=f"o-{tag}", email="lapse@localhost")
+    old.revoked = True
+    old.save()
+    other = key(email="x@example.test")
+    got = status.own_named_prefixes(settings.LAPSE_OWN_KEY_NAMES)
+    assert {probe.prefix, old.prefix} <= got and other not in got
+    assert status.own_named_prefixes(()) == set()
+
+
+def test_the_operators_own_list_names_addresses_and_prefixes(tmp_path):
+    mine = key(email="Someone.Personal@example.test")
+    acct = key(email=None, account_email="other.box@example.test")
+    stranger = key(email="stranger@example.test")
+    f = tmp_path / "own_keys.txt"
+    f.write_text("# the operator's own keys on other addresses\nsomeone.personal@example.test\nOTHER.BOX@example.test  # his account\n"
+                 "abc12345\nnot a prefix!\n", encoding="utf-8")
+    got = status.own_listed_prefixes(str(f))
+    assert {mine, acct, "abc12345"} <= got and stranger not in got and "not" not in got
+    assert status.own_listed_prefixes(str(tmp_path / "missing.txt")) == set() and status.own_listed_prefixes("") == set()
+
+
+def test_own_key_rules_and_the_command_give_counts_only(tmp_path, monkeypatch):
+    import json
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    p = key(account_email="me@omnipools.com")
+    q = key(email="someone.personal@example.test")
+    f = tmp_path / "own_keys.txt"
+    f.write_text("someone.personal@example.test\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEYS_LIST", str(f), raising=False)
+    monkeypatch.setattr(settings, "LAPSE_OWN_KEY_FILES", [], raising=False)
+    rules = status.own_key_rules()
+    assert set(rules) == {"files", "domains", "names", "list"} and p in rules["domains"] and q in rules["list"]
+    monkeypatch.setattr(status, "_own_cache", {"at": 0.0, "prefixes": frozenset()})
+    assert {p, q} <= status.own_key_prefixes()
+    out = StringIO()
+    call_command("own_keys", "--days", "30", stdout=out)
+    js = json.loads(out.getvalue())
+    assert set(js["rules"]) == {"files", "domains", "names", "list"} and js["rules"]["domains"] >= 1 and js["rules"]["list"] >= 1
+    assert js["own_prefixes"] >= 2 and js["list_file"] == "present"
+    text = out.getvalue()
+    assert p not in text and q not in text and "omnipools" not in text and "example.test" not in text

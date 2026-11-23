@@ -140,6 +140,33 @@ def public_file(request, name):
     return _serve(public_dir() / name, ct)
 
 
+INDEXNOW_NAME = "indexnow.txt"   # release AH: the IndexNow key, one line, in the patentref repo's public/ (public by design)
+INDEXNOW_KEY = re.compile(r"[0-9a-f]{32}")
+INDEXNOW_CACHE = "public, max-age=86400"
+
+
+def indexnow_key():
+    """The IndexNow key the site names (release AH, PatentRef 1.25.0): the first line of public/indexnow.txt in the patentref
+    clone (LAPSE_PUBLIC_DIR), when it is 32 lower-case hex characters; None otherwise. The key is public by design: the search
+    engines that take IndexNow notices read it at https://patentref.io/<key>.txt to check that a notice comes from this site."""
+    try:
+        key = (public_dir() / INDEXNOW_NAME).read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, UnicodeDecodeError, IndexError):
+        return None
+    return key if INDEXNOW_KEY.fullmatch(key) else None
+
+
+@require_GET
+def indexnow_file(request, key):
+    """GET /<key>.txt (release AH): the IndexNow key file at the site root, the key as its only line, for the one key
+    public/indexnow.txt names; any other 32-character name answers 404 as before. No key needed."""
+    if key != indexnow_key():
+        return HttpResponse("not found\n", status=404, content_type="text/plain; charset=utf-8")
+    resp = HttpResponse(key + "\n", content_type="text/plain; charset=utf-8")
+    resp["Cache-Control"] = INDEXNOW_CACHE
+    return resp
+
+
 def wants_html(request):
     """True when the client prefers text/html to text/plain, as a browser does. No Accept header, */* (curl, most HTTP
     libraries) and text/plain keep the plain text."""

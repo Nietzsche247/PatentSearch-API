@@ -110,6 +110,7 @@ def reset():
             pass
     _local.__dict__.clear()
     CACHE.clear()
+    _gap.clear()
 
 
 def df_share():
@@ -150,7 +151,8 @@ def structure():
     share = df_share()
     facts = {"text_data_version": meta.get("text_data_version") or "", "structure_version": meta["structure_version"],
              "patents": patents, "share": share, "df_max": s1d.df_max_for(patents, share),
-             "structure_data_version": f"{meta.get('text_data_version') or ''}_{meta['structure_version']}"}
+             "structure_data_version": f"{meta.get('text_data_version') or ''}_{meta['structure_version']}",
+             "text_grants_through": meta.get("text_grants_through") or None}   # release AH: a later structure file may say it
     _local.con, _local.real, _local.facts = con, real, facts
     return con, facts
 
@@ -160,6 +162,62 @@ def _need_structure():
     if con is None:
         _refuse(facts, "ERR_NO_STRUCTURE_FILE", http.HTTP_501_NOT_IMPLEMENTED)
     return con, facts
+
+
+_gap = {}   # (structure text data version, text data version in service) -> grants lacking, per worker
+
+
+def grants_lacking(structure_text, text_version, grants_json, through=None):
+    """How many grants of the long-text file in service the structure file has no rows for (release AH): the patents of the
+    text file's weekly grants (its _lapse_build grants list: each week's issue_date and patents) issued after the newest week
+    of the text the structure file was built from: its meta's text_grants_through when it has one, else the release part of
+    that text's data version (a weekly text build is stamped with its newest issue date). 0 when the two texts are the same;
+    None when it cannot be told (no grants list)."""
+    if not structure_text or not text_version:
+        return None
+    if structure_text == text_version:
+        return 0
+    through = str(through or "").replace("-", "") or str(structure_text).split(".", 1)[0]
+    try:
+        weeks = json.loads(grants_json) if grants_json else None
+    except ValueError:
+        weeks = None
+    if not isinstance(weeks, list) or not through.isdigit():
+        return None
+    n = 0
+    for w in weeks:
+        if isinstance(w, dict) and str(w.get("issue_date") or "").replace("-", "") > through:
+            try:
+                n += int(w.get("patents") or 0)
+            except (TypeError, ValueError):
+                return None
+    return n
+
+
+def structure_gap():
+    """(the text data version the structure file was built from, how many grants of the text in service it lacks) for the
+    health route (release AH, PatentRef 1.25.0). Read from the two files' own bookkeeping (the structure file's meta, the text
+    file's _lapse_build), never from a scan; the count is kept per worker for each pair of versions. (None, None) without a
+    structure file or a text file; never raises: the health route answers on its own checks."""
+    try:
+        con, facts = structure()
+        if con is None:
+            return None, None
+        stv = facts.get("text_data_version") or None
+        searcher = get_searcher()
+        tv = searcher.text_data_version()
+        if not tv:
+            return stv, None
+        key = (stv, tv)
+        if key not in _gap:
+            row = None
+            if stv != tv:
+                row = searcher.connection().execute("SELECT v FROM txt._lapse_build WHERE k = 'grants'").fetchone()
+            _gap[key] = grants_lacking(stv, tv, row[0] if row else None, facts.get("text_grants_through"))
+        return stv, _gap[key]
+    except Exception:  # noqa: BLE001 - the health route never fails on this pair of fields
+        logger.exception("structure gap not read")
+        return None, None
 
 
 class _Deadline:
@@ -648,10 +706,17 @@ def _criteria(q, conds, depth=0):
     return conds
 
 
+TIEBREAK = ("unit_id", False)   # release AH (1.25.0): every order ends with unit_id, so no page ends inside a tie
+
+
 def _sort(raw):
+    """(the order, how many sort values a cursor of the request's own order holds). Release AH: an order that does not name
+    unit_id ends with it (ascending), so rows that tie on what s names keep one order and a page never ends between two of
+    them; until 1.25.0 a cursor held only the values s named, and the next page left out the rest of its last patent's rows
+    when s named patent_id alone."""
     s = _json_param(raw, "s", list)
     if s is None:
-        return [("patent_id", False), ("unit_id", False)]
+        return [("patent_id", False), TIEBREAK], 2
     out = []
     for item in s:
         if not isinstance(item, dict) or len(item) != 1:
@@ -664,7 +729,10 @@ def _sort(raw):
         out.append((f, d == "desc"))
     if not out or out[0][0] != "patent_id":
         _refuse("a units query sorts by patent_id (asc or desc) before unit_id, type, part, cue or section")
-    return out
+    named = len(out)
+    if all(f != "unit_id" for f, _ in out):
+        out.append(TIEBREAK)
+    return out, named
 
 
 def _row(u, pid):
@@ -717,10 +785,13 @@ class UnitsQueryView(APIView):
             bad = [x for x in f if x not in QUERY_FIELDS]
             if bad:
                 _refuse(f"'f' names unknown fields: {', '.join(map(str, bad))} (fields: {', '.join(QUERY_FIELDS)})")
-        sort = _sort(params.get("s"))
+        sort, named = _sort(params.get("s"))
         size, after = _page(params.get("o"), UNITS_PAGE_DEFAULT, UNITS_PAGE_MAX)
-        if after is not None and len(after) != len(sort):
-            _refuse("'o.after' holds the last row's sort values, as many as 's' names")
+        if after is not None and len(after) not in (len(sort), named):
+            _refuse("'o.after' holds the last row's sort values: next_after of the page before, as many values as 's' names "
+                    "and then the row's unit_id when 's' does not name it")
+        if after is not None and len(after) < len(sort):
+            after = list(after) + [None] * (len(sort) - len(after))   # a cursor made before 1.25.0: its last patent's rows again
         searcher = get_searcher()
         con = searcher.connection()
         data_version, text_version, as_of = _versions(searcher)

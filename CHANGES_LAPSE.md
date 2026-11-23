@@ -1531,3 +1531,27 @@ cursor and lookup facts, the units query's grammar, the key rule, the wording); 
 (the S1-D routes and answers); `test_structure_claims.py`, `test_structure_counts.py` and `test_similar_structured.py` ask the
 searcher for the as_of they expect instead of pinning 2026-10-27, and `test_legal_posted.py` records today's date, so they pass
 on any day.
+
+## 2026-11-23 pending approval: release AH, the structure file's text in the health answer, a units query cursor that keeps every row, the operator's own keys by name, the IndexNow key file, the Agents page with S1-D live (PatentRef 1.25.0)
+
+| File | Change | Why |
+|---|---|---|
+| `API/lapse_structure_s1d.py` | the units query ends every order with `unit_id` (ascending) when `s` does not name it, so rows that tie on what `s` names keep one order and `next_after` holds the values `s` names and then the row's `unit_id`; a cursor of the values `s` names alone (as made before 1.25.0) is still taken and gives the rows of its last patent again. `structure_gap()`: the text data version the structure file was built from (its meta) and how many grants of the long-text file in service it has no rows for (the text file's weekly grants list after the newest week of that text: the release part of its data version, or the meta's `text_grants_through` when a later file has one), kept per worker for each pair of versions | `s=[{"patent_id": "asc"}]` paged with a cursor of the patent alone and the next page left out the rest of that patent's rows; after a text swap S1-D has no rows for the newer grants, and nothing said so |
+| `lapse_accounts/status.py` | the health route adds `structure_text_data_version` and `structure_grants_lacking` after the fields it had (both null without a structure file); the operator's own keys also by name (`own_named_prefixes`: every key named `lapse-local-test` or `uptime-probe`, revoked ones included, so a key minted anew under such a name is left out at once) and by his own list (`own_listed_prefixes`: `/data/api/own_keys.txt`, one email address or key prefix a line, no key; absent: nothing), with `own_key_rules()` for the counts | the probe's and the operator's keys stay out of the outside figures after a rotation, and his keys on another address can be named without a release |
+| `lapse_accounts/clients.py` (new), `lapse_accounts/requestlog.py` | the daily counts of client kinds (`client_counts(day, area, kind, n)` in the usage-log file: a browser, an AI agent, an AI crawler or another crawler, a known tool, the PatentRef MCP server or an agent skill by name and version, the service's own keys and tools as `own`); counts only, read from the User-Agent and never kept; OFF unless `LAPSE_CLIENT_COUNTS` is on, and while it is off the table is not made and nothing is counted. Nothing of it is shown on any page | to learn which kinds of client use the API, once the privacy policy names these counts |
+| `lapse_accounts/management/commands/client_counts.py` (new) | `day [--date] [--out DIR]` (written once to `DIR/clients_<day>.json`, as the daily counts job does) and `show`; while the counter is off they say so and write nothing | |
+| `lapse_accounts/management/commands/own_keys.py` (new) | how many key prefixes each own-key rule names, and the own and outside keys that sent counted data requests over the last 30 days, as counts | the operator and the deploy can check the rule without seeing a key, prefix or address |
+| `lapse_accounts/public.py`, `lapse_accounts/root_urls.py` | `GET /<key>.txt`: the IndexNow key file at the site root, for the one key the patentref clone's `public/indexnow.txt` names (32 lower-case hex characters; any other such name answers 404) | IndexNow's search engines read it to check that a notice of changed pages comes from this site |
+| `lapse_accounts/site_pages.py`, `templates/lapse_accounts/agents.html` | the Agents page says S1-D is live (experimental) where it said "Not live yet", names it in the lead, and its tools table gives the 19 tools of patentref-mcp 0.5.0 with the four S1-D tools after the brief; the registry line links PyPI's project page with no release of its own, so the page reads true whether 0.5.0 is on PyPI yet or not | S1-D has been live since release AG2 (2026-11-23) |
+| `pvapi/settings/lapse_local.py` | `LAPSE_OWN_KEY_NAMES`, `LAPSE_OWN_KEYS_LIST`, `LAPSE_CLIENT_COUNTS` (off) | the defaults are what the box runs |
+
+What the API answers differently, said for callers in the patentref side's public/changes.txt (1.25.0): the health route's two
+new fields; the units query's `next_after` holds one more value when `s` does not name `unit_id`, and a page sorted by
+`patent_id` alone no longer leaves out rows; `/<key>.txt`. No migration, no record page change and no site file change; the
+deploy reloads the API's workers.
+
+Tests: `lapse_accounts/tests/test_structure_s1d.py` (the cursor pages through every row at sizes 1 to 3 and keeps an old
+cursor; the gap rule; the health route's fields with and without a structure file); `lapse_accounts/tests/test_client_counts.py`
+(new: each User-Agent's kind, each path's area, off by default, the counts on, no User-Agent text kept, the cap, retention, the
+command); `lapse_accounts/tests/test_indexnow_key.py` (new); `lapse_accounts/tests/test_site_pages.py` (the 0.5.0 README fixture
+`fixtures/patentref_mcp_0.5.0_README.md`, sha256 42ac156d..., the tools table, the S1-D block, the registry line).

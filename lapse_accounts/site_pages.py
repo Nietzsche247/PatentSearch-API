@@ -4,10 +4,15 @@
                  changes: what an agent can get, the MCP server patentref-mcp (a local stdio package from PyPI, listed in the
                  MCP Registry as io.github.patentref/patentref-mcp; there is no hosted MCP endpoint), its install lines for
                  four clients, its tools with their endpoints, the key rule and the limits, and the machine-readable files.
-                 The tool names, the endpoints, the descriptions, the install lines and the smoke test are word for word from
-                 the patentref-mcp 0.4.0 README on PyPI (a copy is lapse_accounts/tests/fixtures/patentref_mcp_0.4.0_README.md,
-                 which the tests read back). The data version, the as-of date, the text data version and the structure
-                 version are read when the page is made, never typed in; the limits are the Free plan's.
+                 The install lines and the smoke test are word for word from the patentref-mcp README on PyPI (0.4.0's, which
+                 0.5.0 keeps; copies are in lapse_accounts/tests/fixtures/, which the tests read back). The tools table (release
+                 AH): the 19 tools of patentref-mcp 0.5.0 with the endpoint each one calls, in 12 rows (the eight rules tools
+                 share one); the rows release AD took from the 0.4.0 README stand as they were, and the four S1-D tools
+                 (experimental, live in the API since release AG2 on 2026-11-23, in patentref-mcp from 0.5.0) follow the brief.
+                 The page names no PyPI release of its own (it links the project page), so it reads true whether 0.5.0 is on
+                 PyPI yet or not. The data version, the as-of date, the text data
+                 version and the structure version are read when the page is made, never typed in; the limits are the Free
+                 plan's.
   GET /p/        the record page's address without a patent number: a temporary redirect (302) to the docs. It answered 404.
 
 The Agents page carries one inline style and one inline script (the client tabs and the copy button); its
@@ -24,11 +29,12 @@ from lapse_accounts.triage_page import csp_for
 
 SITE = "https://patentref.io"
 PAGE_CACHE = "public, max-age=300"
-PYPI_URL = "https://pypi.org/project/patentref-mcp/0.4.0/"
+PYPI_URL = "https://pypi.org/project/patentref-mcp/"   # release AH: the project page, which shows the newest release
 REGISTRY_NAME = "io.github.patentref/patentref-mcp"
-REGISTRY_LISTED = "2026-11-05"   # the MCP Registry's publishedAt for 0.4.0 (2026-11-05T20:00:57Z)
-MCP_VERSION = "0.4.0"
-MCP_LICENSE = "MIT"              # PyPI's license_expression for 0.4.0
+REGISTRY_LISTED = "2026-11-05"   # the day the MCP Registry first listed the server (0.4.0's publishedAt, 2026-11-05T20:00:57Z)
+MCP_LICENSE = "MIT"              # PyPI's license_expression for 0.4.0, 0.4.1 and 0.5.0
+TOOLS_COUNT = 19                 # the tools of patentref-mcp 0.5.0 (15 in 0.4.0 and 0.4.1)
+S1D_TOOLS_FROM = "0.5.0"         # the release of patentref-mcp that adds the four S1-D tools
 
 # The README's lines, word for word (its Run block and its Claude Desktop config). The Claude Code and Cursor blocks follow
 # each client's own documented form with the same command and the same environment variable.
@@ -45,13 +51,25 @@ INSTALL = (
 )
 SMOKE = "python -m patentref_mcp.smoke 10000364"
 
-# The tools of patentref-mcp 0.4.0, word for word as the Tools section of its README prints them: the call, the endpoint and
-# the description, in the README's order.
+# The tools of patentref-mcp: the call, the endpoint and a description. The rows of the 0.4.0 tools are word for word as the
+# Tools section of its README printed them (release AD), in its order; release AH puts the four S1-D tools of 0.5.0 after the
+# brief (their calls and endpoints as patentref-mcp 0.5.0 sends them; the 0.5.0 README prints no endpoint and no short line).
+S1D_TOOLS = (
+    ("get_patent_units(patent_id, types)", "GET /api/v1/structure/units/<patent_id>/",
+     "the parts a patent's claims name and the problem it states, each with a locator into the text (experimental)"),
+    ("get_same_part_links(patent_id, size, after)", "GET /api/v1/structure/relations/<patent_id>/",
+     "the patents whose claims name the same parts, ranked, a page at a time (experimental)"),
+    ("locate_text(patent_id, field, sequence, start, end)", "GET /api/v1/structure/locate/",
+     "the text at one locator, up to 2,000 characters (experimental)"),
+    ("search_units(q, f, s, size, after)", "GET /api/v1/structure/units/",
+     "units across patents in the PatentsView grammar, by patent number or by part (experimental)"),
+)
 TOOLS = (
     ("get_claim_tree(patent_id)", "GET /api/v1/structure/claims/<patent_id>/",
      "one patent's claims as a tree, from the claim text as the USPTO published it; every part carries start and end offsets into its claim's text"),
     ("get_patent_brief(patent_id, max_tokens)", "GET /api/v1/structure/brief/<patent_id>/",
      "one patent in a fixed order, cut to fit max_tokens (300 to 32000, default 2000), each independent claim as its elements with their offsets"),
+) + S1D_TOOLS + (
     ("check_patent_status(patent_id)", "GET /api/v1/lapse/status/<patent_id>/",
      "the status record of one patent, with its basis, as-of date and data version"),
     ("search_patents(q, f, s, size, after)", "GET /api/v1/patent/", "the PatentSearch v1 query grammar"),
@@ -62,9 +80,11 @@ TOOLS = (
      "GET /api/v1/rules/", "rows of patent office rules, each with its source URL and a verbatim quote"),
 )
 
-# The coordinator's text for the block after the tools (2026-11-05), word for word; the address is a mailto link.
-NEXT_TEXT = ("for each patent, the problem it states and the parts it names, each quoted with its place in the text, and linked "
-             "to other patents that name the same parts. Not live yet. If your agent would use it, tell us at")
+# The block after the tools (release AH; until then the coordinator's "Next" text of 2026-11-05, which said S1-D was not live
+# yet, and it has been since release AG2 on 2026-11-23); the address is a mailto link.
+S1D_TEXT = ("for each patent, the problem it states and the parts its claims name, each quoted with its place in the text, and "
+            "the patents whose claims name the same parts. The four S1-D tools above call these endpoints, keyed and counted like "
+            "the others, in the API since 2026-11-23. Tell us what your agent does with it at")
 NEXT_MAIL = "hello@patentref.io"
 
 # The files an agent can read without a key, each served by this site (the rail).
@@ -99,9 +119,9 @@ def agents_context():
     return {"data_version": version, "as_of": as_of, "text_data_version": _text_data_version(),
             "structure_version": _structure_version(), "footer_lines": public.footer_lines(), "site": SITE,
             "monthly": f"{monthly:,}", "per_minute": per_minute, "install": INSTALL, "smoke": SMOKE, "tools": TOOLS,
-            "next_text": NEXT_TEXT, "next_mail": NEXT_MAIL, "machine_readable": MACHINE_READABLE, "pypi_url": PYPI_URL,
-            "registry_name": REGISTRY_NAME, "registry_listed": REGISTRY_LISTED, "mcp_version": MCP_VERSION,
-            "mcp_license": MCP_LICENSE, "preview": previews.agents_page()}   # release AE: the link preview
+            "s1d_text": S1D_TEXT, "next_mail": NEXT_MAIL, "machine_readable": MACHINE_READABLE, "pypi_url": PYPI_URL,
+            "registry_name": REGISTRY_NAME, "registry_listed": REGISTRY_LISTED, "tools_count": TOOLS_COUNT,
+            "s1d_tools_from": S1D_TOOLS_FROM, "mcp_license": MCP_LICENSE, "preview": previews.agents_page()}   # release AE: the link preview
 
 
 @csrf_exempt   # a POST is refused (405) by the method rule below, never by a CSRF page
