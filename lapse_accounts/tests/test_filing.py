@@ -172,7 +172,12 @@ def test_estimate_answer_and_csv(client, filing_env, opkey):
         for ln in c["lines"]:
             assert ln["group"] in ("required", "suggested") and ln["kind"] in ("official", "service")
             assert ln["converted"]["currency"] == "USD" and ln["source_url"].startswith("http")
-    assert a["total"]["currency"] == "USD" and "quote" not in json.dumps(a).replace("not a quote", "")
+    # no research quote field anywhere (the answer's own words may say "not a quote" or "ask ... for a quote")
+    assert a["total"]["currency"] == "USD" and '"quote":' not in json.dumps(a)
+    for c in a["countries"]:   # what the totals leave out (release AI, the delta audit's D1)
+        assert {"totals_complete", "services_not_in_total", "suggested_not_in_total", "totals_note"} <= set(c)
+        assert c["totals_complete"] is (c["services_not_in_total"] + c["suggested_not_in_total"] == 0)
+    assert a["total"]["services_not_in_total"] == sum(c["services_not_in_total"] for c in a["countries"])
     r = client.get("/api/v1/filing/estimate/", {"countries": "ca", "as": "csv"}, HTTP_X_API_KEY=opkey)
     assert r.status_code == 200 and r["Content-Type"] == "text/csv; charset=utf-8" and r.content.startswith(b"country,group,kind,")
 
