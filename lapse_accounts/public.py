@@ -1,6 +1,6 @@
 """Agent plumbing at the site root and the build facts endpoint (PatentRef gate 2.11).
 
-  GET /llms.txt, /llms-full.txt, /openapi.json, /changes.txt, /LICENSES.md
+  GET /llms.txt, /llms-full.txt, /openapi.json, /changes.txt, /LICENSES.md (and HEAD, release AJ: the same answer without its body)
       Static files served from the patentref repo clone on the box (LAPSE_PUBLIC_DIR, default
       /srv/lapse/public, and LAPSE_LICENSES_PATH, default /srv/lapse/LICENSES.md). The source of
       truth is that repo (public/ and tools/gen_openapi.py); this app only serves the files, so no
@@ -34,7 +34,7 @@ from pathlib import Path
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.template.loader import render_to_string
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_safe
 
 PUBLIC_FILES = {
     "llms.txt": "text/plain; charset=utf-8",
@@ -130,7 +130,7 @@ def _serve(path, content_type):
     return resp
 
 
-@require_GET
+@require_safe   # release AJ (PatentRef 1.27.0): GET and HEAD (HEAD answered 405 before); Caddy sends the HEAD answer without its body
 def public_file(request, name):
     if name == LICENSES_NAME:
         return _serve(licenses_path(), "text/markdown; charset=utf-8")
@@ -156,10 +156,11 @@ def indexnow_key():
     return key if INDEXNOW_KEY.fullmatch(key) else None
 
 
-@require_GET
+@require_safe   # release AJ (PatentRef 1.27.0): GET and HEAD (HEAD answered 405 before)
 def indexnow_file(request, key):
     """GET /<key>.txt (release AH): the IndexNow key file at the site root, the key as its only line, for the one key
-    public/indexnow.txt names; any other 32-character name answers 404 as before. No key needed."""
+    public/indexnow.txt names; any other 32-character name answers 404 as before. No key needed. Since release AJ HEAD answers
+    the same status and headers without the body, as a crawler checking the file may ask."""
     if key != indexnow_key():
         return HttpResponse("not found\n", status=404, content_type="text/plain; charset=utf-8")
     resp = HttpResponse(key + "\n", content_type="text/plain; charset=utf-8")

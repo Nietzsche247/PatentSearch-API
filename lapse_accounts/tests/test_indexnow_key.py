@@ -1,6 +1,7 @@
 """Release AH (PatentRef 1.25.0): the IndexNow key file at the site root, GET /<key>.txt (lapse_accounts/public.py indexnow_file),
 for the one key the patentref clone's public/indexnow.txt names; any other name of 32 hex characters answers 404, and the
-root files beside it keep their routes.
+root files beside it keep their routes. Release AJ (1.27.0): HEAD on the key file and on the root files answers as GET does, without
+the body (it answered 405).
 
   python -m pytest lapse_accounts/tests/test_indexnow_key.py -q -p no:cacheprovider -p no:django -o addopts=""
 """
@@ -38,3 +39,24 @@ def test_no_file_or_a_key_of_another_form_gives_404(client, monkeypatch, tmp_pat
         (tmp_path / "indexnow.txt").write_text(bad + "\n", encoding="utf-8")
         assert public.indexnow_key() is None, repr(bad)
         assert client.get(f"/{key}.txt").status_code == 404
+
+
+def test_head_answers_as_get_does_without_the_body(client, monkeypatch, tmp_path):
+    """Release AJ: HEAD /<key>.txt is 200 with GET's headers and no body for the named key, 404 for another name of that form;
+    the root files answer HEAD the same way; every other method still answers 405."""
+    key, other = made_up("indexnow-test"), made_up("another")
+    (tmp_path / "indexnow.txt").write_text(key + "\n", encoding="utf-8")
+    (tmp_path / "llms.txt").write_text("# PatentRef\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "LAPSE_PUBLIC_DIR", str(tmp_path))
+    g, h = client.get(f"/{key}.txt"), client.head(f"/{key}.txt")
+    assert h.status_code == 200 and h.content == b"" and g.content.decode("utf-8") == key + "\n"
+    for name in ("Content-Type", "Cache-Control"):
+        assert h[name] == g[name], name
+    assert client.head(f"/{other}.txt").status_code == 404
+    for m in ("post", "put", "delete", "patch"):
+        assert getattr(client, m)(f"/{key}.txt").status_code == 405, m
+    gl, hl = client.get("/llms.txt"), client.head("/llms.txt")
+    assert gl.status_code == hl.status_code == 200 and hl.content == b"" and hl["Content-Type"] == gl["Content-Type"]
+    assert hl["Cache-Control"] == gl["Cache-Control"] == "public, max-age=300"
+    assert client.head("/openapi.json").status_code == 404   # not in this folder: the same 404 as GET
+    assert client.post("/llms.txt").status_code == 405

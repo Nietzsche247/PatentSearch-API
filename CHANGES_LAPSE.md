@@ -1566,3 +1566,11 @@ command); `lapse_accounts/tests/test_indexnow_key.py` (new); `lapse_accounts/tes
 | `templates/lapse_accounts/base.html`, `home.html`, `agents.html` | the footer's site links start with Foreign filing (/filing/) on every page; the home page's More list and the Agents page name the filing pages in one line each | the filing pages are found from every page (the coordinator's call of 2026-11-23) |
 
 Tests: `lapse_accounts/tests/test_filing.py` (new): the pages without a key with their own policy, the twins equal to the engine's public view with no held value, 404 for a code without a page, the key rule, the answer shapes, the calendar file and the CSV, problem details for each refused parameter, a repeated parameter, a newline kept out of the headers, 503 when the engine is missing.
+
+## 2026-11-27 pending approval: release AJ, HEAD on the IndexNow key file and the root files (PatentRef 1.27.0)
+
+| File | Change | Why |
+|---|---|---|
+| `lapse_accounts/public.py` | `indexnow_file` and `public_file` take HEAD as well as GET (`require_safe` in place of `require_GET`): the same status and headers, no body; every other method still answers 405 | HEAD on the IndexNow key file and on /llms.txt, /llms-full.txt, /openapi.json, /changes.txt and /LICENSES.md answered 405, while a crawler or a link checker may ask HEAD |
+
+Tests: `lapse_accounts/tests/test_indexnow_key.py`: HEAD on the key file (200 with GET's content type and cache header, no body; 404 for another name), on /llms.txt (200, no body) and a missing root file (404), and 405 for POST, PUT, DELETE and PATCH. The rest of release AJ (the daily exchange rates, the sitemap, the cost heading, the docs) is in the patentref repository; the fork serves its files and pages as they are.
